@@ -294,7 +294,7 @@ class TargetSelector:
 
                     x_drift_priority = command_dx > command_dy * 2 and command_dx > 2
 
-                    if command_drift > 3 or x_drift_priority:
+                    if command_drift > 5 or x_drift_priority:
                         self.last_command_x = target_x
                         self.last_command_y = target_y
                         print(f"🔧 滞后微调 | drift: {command_drift:.1f}px | dx: {command_dx:.1f}px")

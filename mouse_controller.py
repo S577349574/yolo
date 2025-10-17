@@ -90,14 +90,17 @@ class MouseController:
                         step_x = offset_x / steps
                         step_y = offset_y / steps
 
+                        accumulated_x = 0.0
+                        accumulated_y = 0.0
                         for i in range(steps):
-                            if self.stop_event.is_set():
-                                break
-                            move_x = round(step_x)
-                            move_y = round(step_y)
+                            accumulated_x += step_x
+                            accumulated_y += step_y
+                            move_x = round(accumulated_x)
+                            move_y = round(accumulated_y)
+                            accumulated_x -= move_x
+                            accumulated_y -= move_y
                             if move_x != 0 or move_y != 0:
-                                if not self._send_mouse_request(move_x, move_y, APP_MOUSE_NO_BUTTON):
-                                    break
+                                self._send_mouse_request(move_x, move_y, APP_MOUSE_NO_BUTTON)
                             time.sleep(current_delay_ms / 1000.0)
 
                         if button_flags != APP_MOUSE_NO_BUTTON:
