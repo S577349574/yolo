@@ -23,7 +23,7 @@ class MouseController:
     def __init__(self, device_path=DRIVER_PATH):
         self.driver_handle = None
         self.device_path = device_path
-        self.move_queue = thread_queue.Queue(maxsize=1)
+        self.move_queue = thread_queue.Queue(maxsize=3)  # 增加队列大小到3，缓冲命令减少延迟
         self.mouse_thread = None
         self.stop_event = ThreadEvent()
 
@@ -77,22 +77,37 @@ class MouseController:
                         center_x = screen_width // 2
                         center_y = screen_height // 2
 
-                        offset_x = int((target_x - center_x) * GAME_DAMPING_FACTOR)
-                        offset_y = int((target_y - center_y) * GAME_DAMPING_FACTOR)
+                        # 计算浮点偏移，保持精度
+                        offset_x = (target_x - center_x) * GAME_DAMPING_FACTOR
+                        offset_y = (target_y - center_y) * GAME_DAMPING_FACTOR
 
+                        # 动态阻尼（如果启用）
+                        distance = math.sqrt(offset_x ** 2 + offset_y ** 2)
                         # 死区检测
                         if abs(offset_x) < GAME_DEAD_ZONE and abs(offset_y) < GAME_DEAD_ZONE:
                             print(f"[DEBUG] ⚠️ 死区触发，跳过移动")
                             continue
 
-                        distance = math.sqrt(offset_x ** 2 + offset_y ** 2)
-                        steps = max(1, int(distance / MOUSE_MAX_PIXELS_PER_STEP))
+                        # 步长计算，确保最小速度
+                        min_pixels_per_step = 2  # 最小每步像素，确保速度
+                        steps = max(1, int(distance / max(MOUSE_MAX_PIXELS_PER_STEP, min_pixels_per_step)))
                         step_x = offset_x / steps
                         step_y = offset_y / steps
 
+                        # 如果步长太小，强制单步完成
+                        if steps == 1 and (abs(step_x) < min_pixels_per_step or abs(step_y) < min_pixels_per_step):
+                            final_move_x = round(offset_x)
+                            final_move_y = round(offset_y)
+                            if final_move_x != 0 or final_move_y != 0:
+                                self._send_mouse_request(final_move_x, final_move_y, APP_MOUSE_NO_BUTTON)
+                            continue
+
+                        # 误差累积
                         accumulated_x = 0.0
                         accumulated_y = 0.0
                         for i in range(steps):
+                            if self.stop_event.is_set():
+                                break
                             accumulated_x += step_x
                             accumulated_y += step_y
                             move_x = round(accumulated_x)
@@ -100,8 +115,18 @@ class MouseController:
                             accumulated_x -= move_x
                             accumulated_y -= move_y
                             if move_x != 0 or move_y != 0:
-                                self._send_mouse_request(move_x, move_y, APP_MOUSE_NO_BUTTON)
+                                # 日志增强：监控发送像素
+                                print(f"发送像素: dx={move_x}, dy={move_y} | 预期剩余: {distance:.1f}px")
+                                if not self._send_mouse_request(move_x, move_y, APP_MOUSE_NO_BUTTON):
+                                    break
                             time.sleep(current_delay_ms / 1000.0)
+
+                        # 发送剩余误差，确保总像素精确
+                        final_move_x = round(accumulated_x)
+                        final_move_y = round(accumulated_y)
+                        if final_move_x != 0 or final_move_y != 0:
+                            print(f"剩余像素: dx={final_move_x}, dy={final_move_y} | 预期剩余: {distance:.1f}px")
+                            self._send_mouse_request(final_move_x, final_move_y, APP_MOUSE_NO_BUTTON)
 
                         if button_flags != APP_MOUSE_NO_BUTTON:
                             self._send_mouse_request(0, 0, button_flags)

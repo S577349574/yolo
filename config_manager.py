@@ -19,7 +19,7 @@ class ConfigManager:
         self.config = {}
 
     def get_default_config(self):
-        """返回默认配置"""
+        """返回默认配置（所有默认值集中在此处定义）"""
         return {
             # ========== YOLO模型配置 ==========
             "MODEL_PATH": "320.onnx",
