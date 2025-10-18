@@ -1,0 +1,59 @@
+{
+    "MODEL_PATH": "320.onnx",
+    "CROP_SIZE": 320,
+    "CONF_THRESHOLD": 0.55,
+    "IOU_THRESHOLD": 0.45,
+    "TARGET_CLASS_NAMES": [
+        "敌人"
+    ],
+    "AIM_POINTS": {
+        "close": {
+            "height_threshold": 150,
+            "y_ratio": 0.45,
+            "x_offset": 0
+        },
+        "medium": {
+            "height_threshold": 80,
+            "y_ratio": 0.45,
+            "x_offset": 0
+        },
+        "far": {
+            "height_threshold": 0,
+            "y_ratio": 1.1,
+            "x_offset": 0
+        }
+    },
+    "MIN_TARGET_LOCK_FRAMES": 15,
+    "TARGET_SWITCH_THRESHOLD": 0.2,
+    "TARGET_IDENTITY_DISTANCE": 100,
+    "RECOIL_COMPENSATION_MODE": true,
+    "RECOIL_DETECTION_THRESHOLD": 15,
+    "RECOIL_RESPONSE_MULTIPLIER": 2.0,
+    "ENABLE_SMART_THRESHOLD": true,
+    "MOVEMENT_THRESHOLD_PIXELS": 5,
+    "INITIAL_LOCK_THRESHOLD": 2,
+    "ARRIVAL_THRESHOLD_ENTER": 5,
+    "ARRIVAL_THRESHOLD_EXIT": 15,
+    "MIN_SEND_INTERVAL_MS": 8,
+    "STABLE_FRAMES_REQUIRED": 3,
+    "COOLDOWN_AFTER_ARRIVAL_MS": 100,
+    "GAME_MODE": true,
+    "GAME_DEAD_ZONE": 5,
+    "GAME_DAMPING_FACTOR": 0.95,
+    "MOUSE_ARRIVAL_THRESHOLD": 2,
+    "MOUSE_PROPORTIONAL_FACTOR": 0.15,
+    "MOUSE_MAX_PIXELS_PER_STEP": 6,
+    "DEFAULT_DELAY_MS_PER_STEP": 2,
+    "DRIVER_PATH": "\\\\.\\infestation",
+    "MAX_LOST_FRAMES": 30,
+    "DISTANCE_WEIGHT": 0.8,
+    "COMMAND_UPDATE_THRESHOLD": 20,
+    "APP_MOUSE_NO_BUTTON": 0,
+    "APP_MOUSE_LEFT_DOWN": 1,
+    "APP_MOUSE_LEFT_UP": 2,
+    "APP_MOUSE_RIGHT_DOWN": 4,
+    "APP_MOUSE_RIGHT_UP": 8,
+    "APP_MOUSE_MIDDLE_DOWN": 16,
+    "APP_MOUSE_MIDDLE_UP": 32,
+    "MOUSE_REQUEST": 2234776
+}
