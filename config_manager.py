@@ -7,16 +7,42 @@ from pathlib import Path
 
 class ConfigManager:
     def __init__(self):
-        # 获取exe运行目录
+        # ========== 终极修复：兼容所有打包模式 ==========
         if getattr(sys, 'frozen', False):
-            # 打包后的exe路径
-            self.app_dir = Path(sys.executable).parent
+            # 打包后运行
+            if hasattr(sys, '_MEIPASS'):  # PyInstaller
+                # OneFile: 使用临时解压目录
+                # OneDir: 使用 _MEIPASS（实际资源目录）
+                self.app_dir = Path(sys._MEIPASS)
+            else:  # Nuitka等其他打包工具
+                try:
+                    exe_path = Path(sys.argv[0]).resolve()
+                    if exe_path.exists():
+                        self.app_dir = exe_path.parent
+                    else:
+                        self.app_dir = Path(os.getcwd())
+                except:
+                    self.app_dir = Path(os.getcwd())
         else:
-            # 开发环境路径
+            # 开发环境
             self.app_dir = Path(__file__).parent
+
+        # ========== 新增：强制使用EXE最终运行目录 ==========
+        try:
+            # 获取EXE实际文件位置（而非临时位置）
+            exe_final_path = Path(sys.executable).resolve()
+            if exe_final_path.exists():
+                self.app_dir = exe_final_path.parent
+                print(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
+        except:
+            pass  # 保持原有逻辑
 
         self.config_file = self.app_dir / "config.json"
         self.config = {}
+
+        # 调试输出（确认路径正确）
+        print(f"[ConfigManager] 配置目录: {self.app_dir}")
+        print(f"[ConfigManager] 配置文件: {self.config_file}")
 
     def get_default_config(self):
         """返回默认配置（所有默认值集中在此处定义）"""
