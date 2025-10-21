@@ -4,6 +4,8 @@ import sys
 import json
 from pathlib import Path
 
+import utils
+
 
 class ConfigManager:
     def __init__(self):
@@ -33,16 +35,14 @@ class ConfigManager:
             exe_final_path = Path(sys.executable).resolve()
             if exe_final_path.exists():
                 self.app_dir = exe_final_path.parent
-                print(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
+                utils.log(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
         except:
             pass  # 保持原有逻辑
 
         self.config_file = self.app_dir / "config.json"
         self.config = {}
 
-        # 调试输出（确认路径正确）
-        print(f"[ConfigManager] 配置目录: {self.app_dir}")
-        print(f"[ConfigManager] 配置文件: {self.config_file}")
+
 
     def get_default_config(self):
         """返回默认配置（所有默认值集中在此处定义）"""
@@ -108,7 +108,15 @@ class ConfigManager:
             "APP_MOUSE_MIDDLE_UP": 0x20,
 
             # ========== IOCTL请求码 ==========
-            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000
+            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000,
+            # ========== 新增：鼠标监视配置 ==========
+            "ENABLE_LEFT_MOUSE_MONITOR": False,  # 是否开启鼠标左键监视
+            "ENABLE_RIGHT_MOUSE_MONITOR": True,  # 是否开启鼠标右键监视
+
+            # ========== 新增：按键监控间隔配置 ==========
+            "KEY_MONITOR_INTERVAL_MS": 50,  # 按键监控轮询间隔（毫秒）
+            "ENABLE_LOGGING": False
+
         }
 
     def export_default_config(self):
@@ -117,18 +125,18 @@ class ConfigManager:
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(default_config, f, indent=4, ensure_ascii=False)
-            print(f"✅ 已导出默认配置到: {self.config_file}")
+            utils.log(f"✅ 已导出默认配置到: {self.config_file}")
             return True
         except Exception as e:
-            print(f"❌ 导出配置失败: {e}")
+            utils.log(f"❌ 导出配置失败: {e}")
             return False
 
     def load_config(self):
         """加载配置文件"""
         # 检查配置文件是否存在
         if not self.config_file.exists():
-            print(f"⚠️ 未找到配置文件: {self.config_file}")
-            print("📝 正在创建默认配置...")
+            utils.log(f"⚠️ 未找到配置文件: {self.config_file}")
+            utils.log("📝 正在创建默认配置...")
             self.export_default_config()
             self.config = self.get_default_config()
             return self.config
@@ -137,7 +145,7 @@ class ConfigManager:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
-            print(f"✅ 已加载配置文件: {self.config_file}")
+            utils.log(f"✅ 已加载配置文件: {self.config_file}")
 
             # 合并默认配置（处理新增的配置项）
             default_config = self.get_default_config()
@@ -146,7 +154,7 @@ class ConfigManager:
                 if key not in self.config:
                     self.config[key] = value
                     updated = True
-                    print(f"➕ 添加新配置项: {key}")
+                    utils.log(f"➕ 添加新配置项: {key}")
 
             # 如果有新增配置项，更新文件
             if updated:
@@ -154,13 +162,13 @@ class ConfigManager:
 
             return self.config
         except json.JSONDecodeError as e:
-            print(f"❌ 配置文件格式错误: {e}")
-            print("📝 使用默认配置...")
+            utils.log(f"❌ 配置文件格式错误: {e}")
+            utils.log("📝 使用默认配置...")
             self.config = self.get_default_config()
             return self.config
         except Exception as e:
-            print(f"❌ 加载配置失败: {e}")
-            print("📝 使用默认配置...")
+            utils.log(f"❌ 加载配置失败: {e}")
+            utils.log("📝 使用默认配置...")
             self.config = self.get_default_config()
             return self.config
 
@@ -169,10 +177,10 @@ class ConfigManager:
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
-            print(f"✅ 配置已保存: {self.config_file}")
+            utils.log(f"✅ 配置已保存: {self.config_file}")
             return True
         except Exception as e:
-            print(f"❌ 保存配置失败: {e}")
+            utils.log(f"❌ 保存配置失败: {e}")
             return False
 
     def get(self, key, default=None):

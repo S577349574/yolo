@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+import utils
 from config import *
 
 
@@ -15,7 +16,7 @@ class YOLOv8Detector:
         active_providers = [p for p in providers if p in available_providers]
 
         self.session = ort.InferenceSession(model_path, providers=active_providers)
-        print(f"✓ 使用Provider: {self.session.get_providers()[0]}")
+        utils.log(f"✓ 使用Provider: {self.session.get_providers()[0]}")
 
         self.names = self._load_names_from_metadata()
         self.input_name = self.session.get_inputs()[0].name
@@ -28,7 +29,7 @@ class YOLOv8Detector:
             if raw_names:
                 return {int(k): v for k, v in ast.literal_eval(raw_names).items()}
         except Exception as e:
-            print(f"Warning: {e}")
+            utils.log(f"Warning: {e}")
         return {}
 
     def preprocess(self, img_bgr):

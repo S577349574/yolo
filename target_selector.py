@@ -2,6 +2,8 @@
 import math
 import time
 import win32api
+
+import utils
 from config import *
 
 
@@ -95,7 +97,7 @@ class TargetSelector:
 
         if instant_recoil or sustained_recoil:
             self.recoil_detected = True
-            print(f"🔥 检测到后坐力 | 垂直位移: {vertical_movement:.1f}px | 模式: {'瞬时' if instant_recoil else '持续'}")
+            utils.log(f"🔥 检测到后坐力 | 垂直位移: {vertical_movement:.1f}px | 模式: {'瞬时' if instant_recoil else '持续'}")
             return True
         else:
             # 逐渐衰减后坐力状态
@@ -188,7 +190,7 @@ class TargetSelector:
                 selected_target = best_candidate['target']
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
-                print(f"🔄 切换目标 | 得分差: {score_diff:.2f} | 新目标位置: ({selected_target['x']}, {selected_target['y']})")
+                utils.log(f"🔄 切换目标 | 得分差: {score_diff:.2f} | 新目标位置: ({selected_target['x']}, {selected_target['y']})")
             else:
                 selected_target = current_locked_target
                 self.target_lock_frames += 1
@@ -232,7 +234,7 @@ class TargetSelector:
         if is_recoiling:
             # 立即取消已到达状态和冷却
             if self.is_arrived or self.in_cooldown:
-                print(f"⚡ 后坐力触发，强制重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
+                utils.log(f"⚡ 后坐力触发，强制重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
 
             self.is_arrived = False
             self.in_cooldown = False
@@ -253,7 +255,7 @@ class TargetSelector:
                     self.in_cooldown = False
                     self.is_arrived = False
                     self.stable_frames_count = 0
-                    print(f"⚠️ 冷却期结束，目标远离 | 距离: {mouse_to_target_distance:.1f}px")
+                    utils.log(f"⚠️ 冷却期结束，目标远离 | 距离: {mouse_to_target_distance:.1f}px")
                 else:
                     return False
             else:
@@ -268,7 +270,7 @@ class TargetSelector:
                     self.is_arrived = True
                     self.arrival_time = current_time
                     self.in_cooldown = True
-                    print(f"🎯 已到达目标（稳定{self.stable_frames_count}帧）| 距离: {mouse_to_target_distance:.1f}px")
+                    utils.log(f"🎯 已到达目标（稳定{self.stable_frames_count}帧）| 距离: {mouse_to_target_distance:.1f}px")
 
                 self.consecutive_arrived_frames += 1
                 return False
@@ -285,7 +287,7 @@ class TargetSelector:
                 self.consecutive_arrived_frames = 0
                 self.stable_frames_count = 0
                 self.in_cooldown = False
-                print(f"⚠️ 目标远离，重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
+                utils.log(f"⚠️ 目标远离，重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
             else:
                 if self.last_command_x is not None:
                     command_dx = abs(target_x - self.last_command_x)
@@ -297,7 +299,7 @@ class TargetSelector:
                     if command_drift > 5 or x_drift_priority:
                         self.last_command_x = target_x
                         self.last_command_y = target_y
-                        print(f"🔧 滞后微调 | drift: {command_drift:.1f}px | dx: {command_dx:.1f}px")
+                        utils.log(f"🔧 滞后微调 | drift: {command_drift:.1f}px | dx: {command_dx:.1f}px")
                         return True
 
                 return False
@@ -350,8 +352,6 @@ class TargetSelector:
 
             # 调试输出（可选）
             if self.recoil_detected:
-                print(f"🔥 后坐力补偿 | 距离: {mouse_to_target_distance:.1f}px | dx: {dx:.1f}px")
-            # else:
-            #     print(f"📡 发送指令 | 距离: {mouse_to_target_distance:.1f}px | dx: {dx:.1f}px")
+                utils.log(f"🔥 后坐力补偿 | 距离: {mouse_to_target_distance:.1f}px | dx: {dx:.1f}px")
 
         return should_send

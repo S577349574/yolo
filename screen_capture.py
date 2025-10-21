@@ -3,6 +3,8 @@ import time
 import numpy as np
 import mss
 
+import utils
+
 
 def capture_screen(frame_queue, capture_ready_event, crop_size):
     """持续捕获屏幕中心区域"""
@@ -19,7 +21,7 @@ def capture_screen(frame_queue, capture_ready_event, crop_size):
                 'height': crop_size
             }
 
-            print(f"捕获区域: {crop_area}")
+            utils.log(f"捕获区域: {crop_area}")
             capture_ready_event.set()
 
             while True:
@@ -28,4 +30,4 @@ def capture_screen(frame_queue, capture_ready_event, crop_size):
                     frame_queue.put(img)
                 time.sleep(0.001)
     except Exception as e:
-        print(f"捕获进程错误: {e}")
+        utils.log(f"捕获进程错误: {e}")

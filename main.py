@@ -1,17 +1,17 @@
 """主程序入口（全局按键监听版）"""
-import time
 import math
+import queue as thread_queue
+import time
+from multiprocessing import Process, Queue, Event
+from threading import Thread
+
 import cv2
 import win32api
-from multiprocessing import Process, Queue, Event
-import queue as thread_queue
-from threading import Thread
+
+import utils
 # 🆕 首先加载配置
 from config_manager import load_config
-print("\n" + "="*60)
-print("🔧 正在初始化配置...")
-config_data = load_config()
-print("="*60 + "\n")
+
 
 
 import win32con
@@ -22,65 +22,84 @@ from screen_capture import capture_screen
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 
-
 def key_monitor(mouse_control_active_list, should_exit_list):
     """
     改用功能键：
-    - F1：暂停
-    - F2：恢复
     - F12：退出
     """
-    F1_PRESSED = False
-    F2_PRESSED = False
     F12_PRESSED = False
 
-    print("\n[按键监控] 已启动全局监听（功能键模式）")
-    print("  F1：暂停瞄准")
-    print("  F2：恢复瞄准")
-    print("  F12：退出程序\n")
+    # ✨ 新增：从配置中读取鼠标监视开关
+    enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', True)
+    enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
+    key_monitor_interval = get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0  # 转换为秒
+
+    # 初始化鼠标状态（避免重复触发）
+    left_mouse_pressed = False
+    right_mouse_pressed = False
+
+    utils.log("\n[按键监控] 已启动全局监听（功能键模式）")
+    utils.log("  F12：退出程序")
+    if enable_left_monitor:
+        utils.log("  鼠标左键：按下启用瞄准，释放禁用瞄准")
+    if enable_right_monitor:
+        utils.log("  鼠标右键：按下启用瞄准，释放禁用瞄准")
 
     while not should_exit_list[0]:
         try:
-            f1_state = win32api.GetAsyncKeyState(win32con.VK_F1) & 0x8000
-            f2_state = win32api.GetAsyncKeyState(win32con.VK_F2) & 0x8000
             f12_state = win32api.GetAsyncKeyState(win32con.VK_F12) & 0x8000
-
-            # F1：暂停
-            if f1_state and not F1_PRESSED:
-                mouse_control_active_list[0] = False
-                print("⏸ 已暂停瞄准 [F1]")
-                F1_PRESSED = True
-            elif not f1_state:
-                F1_PRESSED = False
-
-            # F2：恢复
-            if f2_state and not F2_PRESSED:
-                mouse_control_active_list[0] = True
-                print("▶ 已恢复瞄准 [F2]")
-                F2_PRESSED = True
-            elif not f2_state:
-                F2_PRESSED = False
 
             # F12：退出
             if f12_state and not F12_PRESSED:
                 should_exit_list[0] = True
-                print("🛑 正在退出程序... [F12]")
+                utils.log("🛑 正在退出程序... [F12]")
                 F12_PRESSED = True
                 break
             elif not f12_state:
                 F12_PRESSED = False
 
-            time.sleep(0.05)
+            # ✨ 新增：鼠标左键监视（如果启用）
+            if enable_left_monitor:
+                left_state = win32api.GetKeyState(0x01) < 0  # 左键按下状态
+                if left_state and not left_mouse_pressed:
+                    mouse_control_active_list[0] = True
+                    utils.log("▶ 已恢复瞄准 [鼠标左键按下]")
+                    left_mouse_pressed = True
+                elif not left_state and left_mouse_pressed:
+                    mouse_control_active_list[0] = False
+                    utils.log("⏸ 已暂停瞄准 [鼠标左键释放]")
+                    left_mouse_pressed = False
+
+            # ✨ 新增：鼠标右键监视（如果启用）
+            if enable_right_monitor:
+                right_state = win32api.GetKeyState(0x02) < 0  # 右键按下状态
+                if right_state and not right_mouse_pressed:
+                    mouse_control_active_list[0] = True
+                    utils.log("▶ 已恢复瞄准 [鼠标右键按下]")
+                    right_mouse_pressed = True
+                elif not right_state and right_mouse_pressed:
+                    mouse_control_active_list[0] = False
+                    utils.log("⏸ 已暂停瞄准 [鼠标右键释放]")
+                    right_mouse_pressed = False
+
+            time.sleep(key_monitor_interval)
 
         except Exception as e:
-            print(f"[按键监控] 错误: {e}")
+            utils.log(f"[按键监控] 错误: {e}")
             break
 def main():
+    print("\n" + "=" * 60)
+    print("🔧 正在初始化配置...")
+    load_config()
+
+    print("🎯 启动成功，如需更多信息请打开log调试功能。")
+    print("=" * 60 + "\n")
+
     # 初始化模型
     try:
         model = YOLOv8Detector()
     except Exception as e:
-        print(f"❌ 模型加载失败: {e}")
+        utils.log(f"❌ 模型加载失败: {e}")
         return
 
     target_class_ids = [k for k, v in model.names.items() if v in TARGET_CLASS_NAMES] if TARGET_CLASS_NAMES else []
@@ -89,7 +108,7 @@ def main():
     try:
         mouse_controller = MouseController()
     except Exception as e:
-        print(f"❌ 鼠标控制器初始化失败: {e}")
+        utils.log(f"❌ 鼠标控制器初始化失败: {e}")
         return
 
     # 启动屏幕捕获
@@ -100,7 +119,7 @@ def main():
 
     capture_ready_event.wait(timeout=10)
     if not capture_ready_event.is_set():
-        print("❌ 捕获进程未就绪")
+        utils.log("❌ 捕获进程未就绪")
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()
@@ -114,7 +133,7 @@ def main():
     target_selector = TargetSelector()
 
     # ✨ 控制变量（使用列表实现线程间共享）
-    mouse_control_active = [True]
+    mouse_control_active = [False]
     should_exit = [False]
 
     # ✨ 启动按键监控线程
@@ -125,15 +144,14 @@ def main():
     total_movements = 0
     skipped_movements = 0
     debug_distances = []
-
-    print("\n" + "="*60)
-    print("🎯 自瞄系统已启动（防过冲版 + 全局按键）")
-    print(f"📊 智能阈值: {'✅ 已启用' if ENABLE_SMART_THRESHOLD else '❌ 已关闭'}")
-    print(f"📏 进入阈值: {ARRIVAL_THRESHOLD_ENTER}px | 退出阈值: {ARRIVAL_THRESHOLD_EXIT}px")
-    print(f"⏱️ 稳定帧要求: {STABLE_FRAMES_REQUIRED}帧 | 冷却时间: {COOLDOWN_AFTER_ARRIVAL_MS}ms")
-    print(f"🎮 游戏模式: {'✅ 已启用' if GAME_MODE else '❌ 桌面模式'}")
-    print(f"🛡️ 死区: {GAME_DEAD_ZONE}px | 阻尼: {GAME_DAMPING_FACTOR}")
-    print("="*60 + "\n")
+    utils.log("\n" + "="*60)
+    utils.log("🎯 自瞄系统已启动（防过冲版 + 全局按键）")
+    utils.log(f"📊 智能阈值: {'✅ 已启用' if ENABLE_SMART_THRESHOLD else '❌ 已关闭'}")
+    utils.log(f"📏 进入阈值: {ARRIVAL_THRESHOLD_ENTER}px | 退出阈值: {ARRIVAL_THRESHOLD_EXIT}px")
+    utils.log(f"⏱️ 稳定帧要求: {STABLE_FRAMES_REQUIRED}帧 | 冷却时间: {COOLDOWN_AFTER_ARRIVAL_MS}ms")
+    utils.log(f"🎮 游戏模式: {'✅ 已启用' if GAME_MODE else '❌ 桌面模式'}")
+    utils.log(f"🛡️ 死区: {GAME_DEAD_ZONE}px | 阻尼: {GAME_DAMPING_FACTOR}")
+    utils.log("="*60 + "\n")
 
     try:
         frame_count = 0
@@ -218,7 +236,7 @@ def main():
                 if target_selector.is_arrived:
                     stats += f" | 停留: {target_selector.consecutive_arrived_frames}帧"
 
-                print(stats)
+                utils.log(stats)
 
                 # 重置计数器
                 frame_count = 0
@@ -228,7 +246,7 @@ def main():
                 debug_distances.clear()
 
     except KeyboardInterrupt:
-        print("\n⚠ 用户中断")
+        utils.log("\n⚠ 用户中断")
     finally:
         # ✨ 清理资源（不再需要keyboard.unhook_all()）
         should_exit[0] = True
@@ -236,7 +254,7 @@ def main():
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()
-        print("\n✅ 程序已安全退出")
+        utils.log("\n✅ 程序已安全退出")
 
 
 if __name__ == "__main__":

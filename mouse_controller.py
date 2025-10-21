@@ -8,6 +8,7 @@ from threading import Thread, Event as ThreadEvent
 import win32api
 import win32file
 
+import utils
 from config import *
 
 
@@ -37,14 +38,14 @@ class MouseController:
                 GENERIC_READ | GENERIC_WRITE,
                 0, None, OPEN_EXISTING, 0, None
             )
-            print(f"[MouseController] 成功打开驱动 '{self.device_path}'")
+            utils.log(f"[MouseController] 成功打开驱动 '{self.device_path}'")
 
             self.mouse_thread = Thread(target=self._mouse_worker, daemon=True)
             self.mouse_thread.start()
-            print(f"[MouseController] 鼠标线程已启动（游戏模式:{'开启' if GAME_MODE else '关闭'}）")
+            utils.log(f"[MouseController] 鼠标线程已启动（游戏模式:{'开启' if GAME_MODE else '关闭'}）")
 
         except win32api.error as e:
-            print(f"[MouseController] ERROR: 无法打开驱动。错误码: {e.winerror}")
+            utils.log(f"[MouseController] ERROR: 无法打开驱动。错误码: {e.winerror}")
             self.close()
             raise
 
@@ -62,7 +63,7 @@ class MouseController:
             return False
 
     def _mouse_worker(self):
-        print("[MouseController Thread] 线程已启动")
+        utils.log("[MouseController Thread] 线程已启动")
         try:
             while not self.stop_event.is_set():
                 try:
@@ -85,7 +86,7 @@ class MouseController:
                         distance = math.sqrt(offset_x ** 2 + offset_y ** 2)
                         # 死区检测
                         if abs(offset_x) < GAME_DEAD_ZONE and abs(offset_y) < GAME_DEAD_ZONE:
-                            print(f"[DEBUG] ⚠️ 死区触发，跳过移动")
+                            utils.log(f"[DEBUG] ⚠️ 死区触发，跳过移动")
                             continue
 
                         # 步长计算，确保最小速度
@@ -116,7 +117,7 @@ class MouseController:
                             accumulated_y -= move_y
                             if move_x != 0 or move_y != 0:
                                 # 日志增强：监控发送像素
-                                print(f"发送像素: dx={move_x}, dy={move_y} | 预期剩余: {distance:.1f}px")
+                                utils.log(f"发送像素: dx={move_x}, dy={move_y} | 预期剩余: {distance:.1f}px")
                                 if not self._send_mouse_request(move_x, move_y, APP_MOUSE_NO_BUTTON):
                                     break
                             time.sleep(current_delay_ms / 1000.0)
@@ -125,7 +126,7 @@ class MouseController:
                         final_move_x = round(accumulated_x)
                         final_move_y = round(accumulated_y)
                         if final_move_x != 0 or final_move_y != 0:
-                            print(f"剩余像素: dx={final_move_x}, dy={final_move_y} | 预期剩余: {distance:.1f}px")
+                            utils.log(f"剩余像素: dx={final_move_x}, dy={final_move_y} | 预期剩余: {distance:.1f}px")
                             self._send_mouse_request(final_move_x, final_move_y, APP_MOUSE_NO_BUTTON)
 
                         if button_flags != APP_MOUSE_NO_BUTTON:
@@ -166,7 +167,7 @@ class MouseController:
                 except thread_queue.Empty:
                     pass
         finally:
-            print("[MouseController Thread] 线程已终止")
+            utils.log("[MouseController Thread] 线程已终止")
 
     def move_to_absolute(self, target_x, target_y, num_steps=None, delay_ms=None,
                          button_flags=APP_MOUSE_NO_BUTTON):
@@ -214,4 +215,4 @@ class MouseController:
                 self.mouse_thread.join(timeout=2.0)
             win32file.CloseHandle(self.driver_handle)
             self.driver_handle = None
-            print("[MouseController] 已关闭")
+            utils.log("[MouseController] 已关闭")
