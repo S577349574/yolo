@@ -66,10 +66,6 @@ class ConfigManager:
             "TARGET_SWITCH_THRESHOLD": 0.2,
             "TARGET_IDENTITY_DISTANCE": 100,
 
-            # ========== 后坐力补偿配置 ==========
-            "RECOIL_COMPENSATION_MODE": True,
-            "RECOIL_DETECTION_THRESHOLD": 15,
-            "RECOIL_RESPONSE_MULTIPLIER": 2.0,
 
             # ========== 智能阈值控制 ==========
             "ENABLE_SMART_THRESHOLD": True,
@@ -77,17 +73,17 @@ class ConfigManager:
             "INITIAL_LOCK_THRESHOLD": 2,
             "ARRIVAL_THRESHOLD_ENTER": 3,
             "ARRIVAL_THRESHOLD_EXIT": 20,
-            "MIN_SEND_INTERVAL_MS": 8,
+            "MIN_SEND_INTERVAL_MS": 10,
             "STABLE_FRAMES_REQUIRED": 2,
             "COOLDOWN_AFTER_ARRIVAL_MS": 50,
 
             # ========== 鼠标控制配置 ==========
             "GAME_MODE": True,
-            "GAME_DEAD_ZONE": 0,
-            "GAME_DAMPING_FACTOR": 0.90,
+            "GAME_DEAD_ZONE": 8,
+            "GAME_DAMPING_FACTOR": 0.9,
             "MOUSE_ARRIVAL_THRESHOLD": 2,
             "MOUSE_PROPORTIONAL_FACTOR": 0.15,
-            "MOUSE_MAX_PIXELS_PER_STEP": 8,
+            "MOUSE_MAX_PIXELS_PER_STEP": 6,
             "DEFAULT_DELAY_MS_PER_STEP": 2,
 
             # ========== 驱动路径 ==========
@@ -115,7 +111,23 @@ class ConfigManager:
 
             # ========== 新增：按键监控间隔配置 ==========
             "KEY_MONITOR_INTERVAL_MS": 50,  # 按键监控轮询间隔（毫秒）
-            "ENABLE_LOGGING": False
+            "ENABLE_LOGGING": False,# ========== 鼠标灵敏度校准 ==========
+            "AUTO_CALIBRATE_ON_START": True,  # 启动时自动校准
+            "CALIBRATION_SAMPLES": 5,  # 校准样本数量
+            "ANTI_OVERSHOOT_ENABLED": True,  # 启用过冲补偿
+
+            # ========== 自适应阻尼 ==========
+            "ADAPTIVE_DAMPING_ENABLED": True,  # 启用自适应阻尼
+            "DAMPING_NEAR_DISTANCE": 30,  # 近距离阈值(px)
+            "DAMPING_FAR_DISTANCE": 80,  # 远距离阈值(px)
+            "CALIBRATION_TEST_ROUNDS": 3,
+            "MAX_DRIVER_STEP_SIZE": 8,
+            "PID_KP": 0.35,
+            "PID_KI": 0.0,
+            "PID_KD": 0.12,
+            "MAX_SINGLE_MOVE_PX": 25,
+            "AIM_POINT_SMOOTH_ALPHA": 0.35,
+            "PRECISION_DEAD_ZONE": 20
 
         }
 

@@ -1,7 +1,6 @@
-"""目标选择与瞄准点计算（后坐力补偿版）"""
+"""FPS游戏专用目标选择器（带瞄准点平滑）"""
 import math
 import time
-import win32api
 
 import utils
 from config import *
@@ -13,35 +12,26 @@ class TargetSelector:
         self.last_target_y = None
         self.frames_without_target = 0
         self.is_locked = False
-        self.last_command_x = None
-        self.last_command_y = None
-        self.last_send_time = 0
-        self.is_arrived = False
-        self.consecutive_arrived_frames = 0
-
-        # 稳定性控制
-        self.stable_frames_count = 0
-        self.arrival_time = 0
-        self.in_cooldown = False
 
         # 目标锁定稳定性
         self.locked_target_id = None
         self.target_lock_frames = 0
-        self.min_lock_frames = MIN_TARGET_LOCK_FRAMES
-        self.target_switch_threshold = TARGET_SWITCH_THRESHOLD
 
-        # 🆕 后坐力检测
-        self.last_mouse_y = None
-        self.recoil_detected = False
-        self.recoil_history = []  # 用于平滑检测
-        self.recoil_history_size = 3
+        # 🆕 瞄准点平滑（解决检测抖动）
+        self.smoothed_aim_x = None
+        self.smoothed_aim_y = None
+        self.smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.3)  # 平滑系数：0.1-0.5
+
+        self.last_send_time = 0
+        self.send_interval_ms = get_config('MIN_SEND_INTERVAL_MS', 8)
 
     def calculate_aim_point(self, box, capture_area):
-        """根据目标大小动态计算精准瞄准点"""
+        """计算瞄准点（带平滑）"""
         x1, y1, x2, y2 = map(int, box)
         box_width = x2 - x1
         box_height = y2 - y1
 
+        # 选择瞄准配置
         aim_config = None
         for config_name in ['close', 'medium', 'far']:
             config = AIM_POINTS[config_name]
@@ -52,87 +42,52 @@ class TargetSelector:
         if aim_config is None:
             aim_config = AIM_POINTS['far']
 
+        # 计算原始瞄准点（屏幕坐标）
         center_x_cropped = int(x1 + box_width * 0.5 + aim_config['x_offset'])
         center_y_cropped = int(y1 + box_height * aim_config['y_ratio'])
 
-        target_screen_x = capture_area['left'] + center_x_cropped
-        target_screen_y = capture_area['top'] + center_y_cropped
+        raw_target_x = capture_area['left'] + center_x_cropped
+        raw_target_y = capture_area['top'] + center_y_cropped
 
-        return target_screen_x, target_screen_y
-
-    def detect_recoil(self, current_mouse_y):
-        """
-        检测是否正在经历后坐力
-
-        返回:
-            bool: True表示检测到后坐力
-        """
-        # 检查是否启用后坐力补偿
-        recoil_mode_enabled = globals().get('RECOIL_COMPENSATION_MODE', False)
-        if not recoil_mode_enabled:
-            return False
-
-        if self.last_mouse_y is None:
-            self.last_mouse_y = current_mouse_y
-            return False
-
-        # 计算Y轴移动（正值=向上移动=后坐力）
-        vertical_movement = self.last_mouse_y - current_mouse_y
-        self.last_mouse_y = current_mouse_y
-
-        # 添加到历史记录
-        self.recoil_history.append(vertical_movement)
-        if len(self.recoil_history) > self.recoil_history_size:
-            self.recoil_history.pop(0)
-
-        # 获取阈值（从config或使用默认值）
-        threshold = globals().get('RECOIL_DETECTION_THRESHOLD', 15)
-
-        # 判断后坐力：单帧超阈值 或 连续向上移动
-        instant_recoil = vertical_movement > threshold
-        sustained_recoil = (
-            len(self.recoil_history) >= 2 and
-            all(v > 5 for v in self.recoil_history[-2:])
-        )
-
-        if instant_recoil or sustained_recoil:
-            self.recoil_detected = True
-            utils.log(f"🔥 检测到后坐力 | 垂直位移: {vertical_movement:.1f}px | 模式: {'瞬时' if instant_recoil else '持续'}")
-            return True
+        # 🆕 指数移动平均平滑
+        if self.smoothed_aim_x is None:
+            # 首次初始化
+            self.smoothed_aim_x = float(raw_target_x)
+            self.smoothed_aim_y = float(raw_target_y)
         else:
-            # 逐渐衰减后坐力状态
-            if self.recoil_detected and vertical_movement < -5:
-                self.recoil_detected = False
-            return False
+            # 平滑公式：new = alpha * raw + (1-alpha) * old
+            # alpha越小越平滑，但响应越慢
+            self.smoothed_aim_x = (
+                self.smooth_alpha * raw_target_x +
+                (1 - self.smooth_alpha) * self.smoothed_aim_x
+            )
+            self.smoothed_aim_y = (
+                self.smooth_alpha * raw_target_y +
+                (1 - self.smooth_alpha) * self.smoothed_aim_y
+            )
+
+        return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
     def select_best_target(self, candidate_targets, screen_width, screen_height):
-        """
-        选择最佳目标（防切换版）
-
-        核心改进：
-        1. 为每个目标生成稳定的ID
-        2. 优先保持当前锁定目标
-        3. 只有在明显更优时才切换
-        """
+        """选择最佳目标（保持原逻辑）"""
         if not candidate_targets:
             self.frames_without_target += 1
             if self.frames_without_target >= MAX_LOST_FRAMES:
                 self.last_target_x = None
                 self.last_target_y = None
                 self.is_locked = False
-                self.is_arrived = False
-                self.consecutive_arrived_frames = 0
-                self.stable_frames_count = 0
-                self.in_cooldown = False
                 self.locked_target_id = None
                 self.target_lock_frames = 0
+                # 🆕 丢失目标时重置平滑状态
+                self.smoothed_aim_x = None
+                self.smoothed_aim_y = None
             return None, None
 
-        # 为候选目标生成稳定ID（基于位置）
+        # 为候选目标生成ID
         for target in candidate_targets:
             target['id'] = f"{int(target['x'] / 20)}_{int(target['y'] / 20)}"
 
-        # 如果有锁定的目标，先检查它是否还存在
+        # 检查锁定目标是否还存在
         current_locked_target = None
         if self.locked_target_id is not None:
             for target in candidate_targets:
@@ -142,11 +97,11 @@ class TargetSelector:
                             (target['x'] - self.last_target_x) ** 2 +
                             (target['y'] - self.last_target_y) ** 2
                         )
-                        if distance < 100:
+                        if distance < TARGET_IDENTITY_DISTANCE:
                             current_locked_target = target
                             break
 
-        # 计算所有目标的得分
+        # 计算所有目标得分
         max_distance = math.sqrt(screen_width ** 2 + screen_height ** 2)
         scored_targets = []
 
@@ -171,7 +126,6 @@ class TargetSelector:
                 'distance': distance
             })
 
-        # 按得分排序
         scored_targets.sort(key=lambda x: x['score'], reverse=True)
         best_candidate = scored_targets[0]
 
@@ -186,11 +140,14 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            if self.target_lock_frames >= self.min_lock_frames and score_diff > self.target_switch_threshold:
+            if self.target_lock_frames >= MIN_TARGET_LOCK_FRAMES and score_diff > TARGET_SWITCH_THRESHOLD:
                 selected_target = best_candidate['target']
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
-                utils.log(f"🔄 切换目标 | 得分差: {score_diff:.2f} | 新目标位置: ({selected_target['x']}, {selected_target['y']})")
+                # 🆕 切换目标时重置平滑状态（避免拖尾）
+                self.smoothed_aim_x = float(selected_target['x'])
+                self.smoothed_aim_y = float(selected_target['y'])
+                utils.log(f"🔄 切换目标 | 得分差: {score_diff:.2f}")
             else:
                 selected_target = current_locked_target
                 self.target_lock_frames += 1
@@ -199,7 +156,6 @@ class TargetSelector:
             self.locked_target_id = selected_target['id']
             self.target_lock_frames = 0
 
-        # 更新状态
         self.last_target_x = selected_target['x']
         self.last_target_y = selected_target['y']
         self.frames_without_target = 0
@@ -207,151 +163,33 @@ class TargetSelector:
 
         return selected_target['x'], selected_target['y']
 
-    def should_send_command(self, target_x, target_y):
+    def should_send_command(self, target_x, target_y, screen_center_x, screen_center_y):
         """
-        判断是否需要发送鼠标指令（后坐力补偿版）
+        FPS专用：判断是否需要发送移动指令
 
-        核心改进：
-        1. 检测后坐力并自动提高响应速度
-        2. 后坐力时立即取消"已到达"状态
-        3. 动态调整发送频率
+        参数:
+            target_x, target_y: 目标的屏幕绝对坐标
+            screen_center_x, screen_center_y: 屏幕中心坐标
+
+        返回:
+            bool: 是否需要发送移动指令
         """
-        if not ENABLE_SMART_THRESHOLD:
-            return True
+        # 计算目标相对于中心的偏移
+        offset_x = target_x - screen_center_x
+        offset_y = target_y - screen_center_y
+        offset_distance = math.sqrt(offset_x**2 + offset_y**2)
 
+        precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 20)  # 新增配置项
+        if offset_distance < precision_dead_zone:
+            utils.log(
+                f"🎯 精确瞄准(偏移: {offset_distance:.1f}px < {precision_dead_zone}px) - 停止移动",
+            )
+            return False
+
+        # 频率限制
         current_time = time.time() * 1000
-        current_mouse_x, current_mouse_y = win32api.GetCursorPos()
-
-        # 🆕 检测后坐力
-        is_recoiling = self.detect_recoil(current_mouse_y)
-
-        mouse_to_target_distance = math.sqrt(
-            (target_x - current_mouse_x) ** 2 +
-            (target_y - current_mouse_y) ** 2
-        )
-
-        # 🆕 后坐力时的特殊处理
-        if is_recoiling:
-            # 立即取消已到达状态和冷却
-            if self.is_arrived or self.in_cooldown:
-                utils.log(f"⚡ 后坐力触发，强制重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
-
-            self.is_arrived = False
-            self.in_cooldown = False
-            self.stable_frames_count = 0
-            self.consecutive_arrived_frames = 0
-
-            # 强制发送指令（忽略频率限制）
-            self.last_command_x = target_x
-            self.last_command_y = target_y
-            self.last_send_time = current_time
-            return True
-
-        # 冷却期检查
-        if self.in_cooldown:
-            elapsed = current_time - self.arrival_time
-            if elapsed < COOLDOWN_AFTER_ARRIVAL_MS:
-                if mouse_to_target_distance > ARRIVAL_THRESHOLD_EXIT:
-                    self.in_cooldown = False
-                    self.is_arrived = False
-                    self.stable_frames_count = 0
-                    utils.log(f"⚠️ 冷却期结束，目标远离 | 距离: {mouse_to_target_distance:.1f}px")
-                else:
-                    return False
-            else:
-                self.in_cooldown = False
-
-        # 稳定帧判断
-        if mouse_to_target_distance < ARRIVAL_THRESHOLD_ENTER:
-            self.stable_frames_count += 1
-
-            if self.stable_frames_count >= STABLE_FRAMES_REQUIRED:
-                if not self.is_arrived:
-                    self.is_arrived = True
-                    self.arrival_time = current_time
-                    self.in_cooldown = True
-                    utils.log(f"🎯 已到达目标（稳定{self.stable_frames_count}帧）| 距离: {mouse_to_target_distance:.1f}px")
-
-                self.consecutive_arrived_frames += 1
-                return False
-            else:
-                return False
-        else:
-            if self.stable_frames_count > 0:
-                self.stable_frames_count = 0
-
-        # 滞后机制
-        if self.is_arrived:
-            if mouse_to_target_distance > ARRIVAL_THRESHOLD_EXIT:
-                self.is_arrived = False
-                self.consecutive_arrived_frames = 0
-                self.stable_frames_count = 0
-                self.in_cooldown = False
-                utils.log(f"⚠️ 目标远离，重新瞄准 | 距离: {mouse_to_target_distance:.1f}px")
-            else:
-                if self.last_command_x is not None:
-                    command_dx = abs(target_x - self.last_command_x)
-                    command_dy = abs(target_y - self.last_command_y)
-                    command_drift = math.sqrt(command_dx ** 2 + command_dy ** 2)
-
-                    x_drift_priority = command_dx > command_dy * 2 and command_dx > 2
-
-                    if command_drift > 5 or x_drift_priority:
-                        self.last_command_x = target_x
-                        self.last_command_y = target_y
-                        utils.log(f"🔧 滞后微调 | drift: {command_drift:.1f}px | dx: {command_dx:.1f}px")
-                        return True
-
-                return False
-
-        # 🆕 后坐力补偿模式下的动态频率限制
-        interval_limit = MIN_SEND_INTERVAL_MS
-        if self.recoil_detected:
-            multiplier = globals().get('RECOIL_RESPONSE_MULTIPLIER', 2.0)
-            interval_limit = MIN_SEND_INTERVAL_MS / multiplier
-
-        if current_time - self.last_send_time < interval_limit:
+        if current_time - self.last_send_time < self.send_interval_ms:
             return False
 
-        # 首次锁定
-        if not self.is_locked or self.last_command_x is None:
-            if mouse_to_target_distance > INITIAL_LOCK_THRESHOLD:
-                self.last_command_x = target_x
-                self.last_command_y = target_y
-                self.last_send_time = current_time
-                return True
-            return False
-
-        # 判断目标移动
-        target_movement = math.sqrt(
-            (target_x - self.last_command_x) ** 2 +
-            (target_y - self.last_command_y) ** 2
-        )
-
-        dx = abs(target_x - current_mouse_x)
-        dy = abs(target_y - current_mouse_y)
-
-        # 🆕 后坐力时使用更敏感的阈值
-        if self.recoil_detected:
-            dynamic_dist_threshold = 2  # 后坐力时极敏感
-        else:
-            dynamic_dist_threshold = 3 if mouse_to_target_distance < 10 else 5
-
-        x_priority = dx > dy * 2 and dx > dynamic_dist_threshold
-
-        should_send = (
-                target_movement > MOVEMENT_THRESHOLD_PIXELS or
-                mouse_to_target_distance > dynamic_dist_threshold or
-                x_priority
-        )
-
-        if should_send:
-            self.last_command_x = target_x
-            self.last_command_y = target_y
-            self.last_send_time = current_time
-
-            # 调试输出（可选）
-            if self.recoil_detected:
-                utils.log(f"🔥 后坐力补偿 | 距离: {mouse_to_target_distance:.1f}px | dx: {dx:.1f}px")
-
-        return should_send
+        self.last_send_time = current_time
+        return True

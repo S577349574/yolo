@@ -33,6 +33,6 @@ def calculate_distance(x1, y1, x2, y2):
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
 def log(message):
-    """打印日志（仅当ENABLE_LOGGING为True时输出）"""
-    if config_manager.get_config("ENABLE_LOGGING"):
+    """打印日志（仅当ENABLE_LOGGING为True时输出）config_manager.get_config("ENABLE_LOGGING")"""
+    if True:
         print(message)
