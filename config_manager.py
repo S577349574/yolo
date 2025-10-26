@@ -1,3 +1,4 @@
+# config_manager.py
 """配置文件管理器（管理加载、保存、导出配置文件）"""
 
 import os
@@ -5,220 +6,299 @@ import sys
 import json
 from pathlib import Path
 
-import utils
-
 
 class ConfigManager:
     def __init__(self):
-        # ========== 终极修复：兼容所有打包模式 ==========
-
-        # 确定应用程序目录（支持打包和开发环境）
-        if getattr(sys, 'frozen', False):
-            # 打包后运行
-            if hasattr(sys, '_MEIPASS'):  # PyInstaller 打包模式
+        # 打包 or 开发环境目录
+        if getattr(sys, "frozen", False):
+            if hasattr(sys, "_MEIPASS"):
                 self.app_dir = Path(sys._MEIPASS)
-            else:  # 其他打包工具（如Nuitka）
-                exe_path = Path(sys.argv[0]).resolve()
-                self.app_dir = exe_path.parent if exe_path.exists() else Path(os.getcwd())
+            else:
+                self.app_dir = Path(os.getcwd())
+            try:
+                exe_final_path = Path(sys.executable).resolve()
+                if exe_final_path.exists():
+                    self.app_dir = exe_final_path.parent
+                    self._log(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
+            except Exception:
+                pass
         else:
-            # 开发环境
-            self.app_dir = Path(__file__).parent
+            self.app_dir = Path(os.getcwd())
+            self._log(f"[ConfigManager] ✅ 使用开发目录: {self.app_dir}")
 
-        # ========== 强制使用EXE目录（如果运行在EXE中） ==========
-        try:
-            exe_final_path = Path(sys.executable).resolve()
-            if exe_final_path.exists():
-                self.app_dir = exe_final_path.parent
-                utils.log(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
-        except:
-            pass  # 保持原有逻辑
-
-        # 配置文件路径
         self.config_file = self.app_dir / "config.json"
         self.config = {}
+        self.last_modified_time = 0
+
+    def _log(self, message):
+        import utils
+        utils.log(message)
 
     def get_default_config(self):
-        """返回默认配置（所有默认值集中在此处定义）"""
+        """默认配置"""
         return {
-            # ========== YOLO模型配置 ==========
-            "MODEL_PATH": "320.onnx",  # YOLO模型文件路径
-            "CROP_SIZE": 320,  # 捕获区域尺寸
-            "CONF_THRESHOLD": 0.75,  # YOLO模型置信度阈值
-            "IOU_THRESHOLD": 0.45,  # IOU阈值
-            "TARGET_CLASS_NAMES": ["敌人"],  # 目标类别名称
+            # YOLO
+            "MODEL_PATH": "320.onnx",
+            "CROP_SIZE": 320,
+            "CONF_THRESHOLD": 0.75,
+            "IOU_THRESHOLD": 0.45,
+            "TARGET_CLASS_NAMES": ["敌人"],
 
-            # ========== 瞄准精度优化 ==========
+            # 瞄准点
             "AIM_POINTS": {
-                "close": {"height_threshold": 150, "y_ratio": 0.45, "x_offset": 0},  # 近距离瞄准点
-                "medium": {"height_threshold": 80, "y_ratio": 0.45, "x_offset": 0},  # 中距离瞄准点
-                "far": {"height_threshold": 0, "y_ratio": 0.90, "x_offset": 0}  # 远距离瞄准点
+                "close": {"height_threshold": 150, "y_ratio": 0.45, "x_offset": 0},
+                "medium": {"height_threshold": 80, "y_ratio": 0.45, "x_offset": 0},
+                "far": {"height_threshold": 0, "y_ratio": 0.90, "x_offset": 0},
             },
 
-            # ========== 目标切换控制 ==========
-            "MIN_TARGET_LOCK_FRAMES": 15,  # 锁定目标最小帧数
-            "TARGET_SWITCH_THRESHOLD": 0.2,  # 目标切换的阈值
-            "TARGET_IDENTITY_DISTANCE": 100,  # 目标识别距离
+            # 目标切换
+            "MIN_TARGET_LOCK_FRAMES": 15,
+            "TARGET_SWITCH_THRESHOLD": 0.2,
+            "TARGET_IDENTITY_DISTANCE": 100,
 
-            # ========== 智能阈值控制 ==========
-            "ENABLE_SMART_THRESHOLD": True,  # 是否启用智能阈值控制
-            "MOVEMENT_THRESHOLD_PIXELS": 3,  # 移动阈值（像素）
-            "INITIAL_LOCK_THRESHOLD": 2,  # 初始锁定阈值（像素）
-            "ARRIVAL_THRESHOLD_ENTER": 3,  # 目标到达阈值（进入时）
-            "ARRIVAL_THRESHOLD_EXIT": 20,  # 目标到达阈值（退出时）
-            "MIN_SEND_INTERVAL_MS": 10,  # 发送指令最小间隔（毫秒）
-            "STABLE_FRAMES_REQUIRED": 2,  # 锁定目标所需稳定帧数
-            "COOLDOWN_AFTER_ARRIVAL_MS": 50,  # 到达目标后的冷却时间（毫秒）
+            # 智能阈值
+            "ENABLE_SMART_THRESHOLD": True,
+            "MOVEMENT_THRESHOLD_PIXELS": 3,
+            "INITIAL_LOCK_THRESHOLD": 2,
+            "ARRIVAL_THRESHOLD_ENTER": 3,
+            "ARRIVAL_THRESHOLD_EXIT": 20,
+            "MIN_SEND_INTERVAL_MS": 10,
+            "STABLE_FRAMES_REQUIRED": 2,
+            "COOLDOWN_AFTER_ARRIVAL_MS": 50,
 
-            # ========== 鼠标控制配置 ==========
-            "GAME_MODE": True,  # 是否启用游戏模式
-            "GAME_DEAD_ZONE": 1,  # 游戏模式下的死区大小
-            "GAME_DAMPING_FACTOR": 0.9,  # 游戏模式下的阻尼因子
-            "MOUSE_ARRIVAL_THRESHOLD": 2,  # 鼠标到达目标的阈值（像素）
-            "MOUSE_PROPORTIONAL_FACTOR": 0.15,  # 鼠标移动的比例因子
-            "MOUSE_MAX_PIXELS_PER_STEP": 6,  # 每次鼠标移动的最大像素
-            "DEFAULT_DELAY_MS_PER_STEP": 2,  # 每步默认延迟（毫秒）
+            # 鼠标控制
+            "GAME_MODE": True,
+            "GAME_DEAD_ZONE": 1,
+            "GAME_DAMPING_FACTOR": 0.90,
+            "MOUSE_ARRIVAL_THRESHOLD": 2,
+            "MOUSE_PROPORTIONAL_FACTOR": 0.15,
+            "MOUSE_MAX_PIXELS_PER_STEP": 6,
+            "DEFAULT_DELAY_MS_PER_STEP": 2,
 
-            # ========== 驱动路径 ==========
-            "DRIVER_PATH": r"\\.\infestation",  # 驱动路径
+            # 驱动
+            "DRIVER_PATH": r"\\.\infestation",
 
-            # ========== 目标跟踪配置 ==========
-            "MAX_LOST_FRAMES": 30,  # 目标丢失后的最大帧数
-            "DISTANCE_WEIGHT": 0.80,  # 目标选择时的距离权重
-            "COMMAND_UPDATE_THRESHOLD": 15,  # 更新目标命令的阈值
+            # 跟踪
+            "MAX_LOST_FRAMES": 30,
+            "DISTANCE_WEIGHT": 0.80,
+            "COMMAND_UPDATE_THRESHOLD": 15,
 
-            # ========== 鼠标按钮标志 ==========
-            "APP_MOUSE_NO_BUTTON": 0x00,  # 无按钮按下
-            "APP_MOUSE_LEFT_DOWN": 0x01,  # 左键按下
-            "APP_MOUSE_LEFT_UP": 0x02,  # 左键释放
-            "APP_MOUSE_RIGHT_DOWN": 0x04,  # 右键按下
-            "APP_MOUSE_RIGHT_UP": 0x08,  # 右键释放
-            "APP_MOUSE_MIDDLE_DOWN": 0x10,  # 中键按下
-            "APP_MOUSE_MIDDLE_UP": 0x20,  # 中键释放
+            # 按键 flag
+            "APP_MOUSE_NO_BUTTON": 0x00,
+            "APP_MOUSE_LEFT_DOWN": 0x01,
+            "APP_MOUSE_LEFT_UP": 0x02,
+            "APP_MOUSE_RIGHT_DOWN": 0x04,
+            "APP_MOUSE_RIGHT_UP": 0x08,
+            "APP_MOUSE_MIDDLE_DOWN": 0x10,
+            "APP_MOUSE_MIDDLE_UP": 0x20,
 
-            # ========== IOCTL请求码 ==========
-            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000,  # 鼠标请求码
+            # IOCTL
+            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000,
 
-            # ========== 新增：鼠标监视配置 ==========
-            "ENABLE_LEFT_MOUSE_MONITOR": False,  # 是否启用鼠标左键监视
-            "ENABLE_RIGHT_MOUSE_MONITOR": True,  # 是否启用鼠标右键监视
+            # 监视与日志
+            "ENABLE_LEFT_MOUSE_MONITOR": False,
+            "ENABLE_RIGHT_MOUSE_MONITOR": True,
+            "KEY_MONITOR_INTERVAL_MS": 50,
+            "ENABLE_LOGGING": False,
 
-            # ========== 新增：按键监控间隔配置 ==========
-            "KEY_MONITOR_INTERVAL_MS": 50,  # 按键监控轮询间隔（毫秒）
-            "ENABLE_LOGGING": False,  # 是否启用日志记录
+            # 校准/阻尼
+            "AUTO_CALIBRATE_ON_START": True,
+            "CALIBRATION_SAMPLES": 5,
+            "ANTI_OVERSHOOT_ENABLED": True,
+            "ADAPTIVE_DAMPING_ENABLED": True,
+            "DAMPING_NEAR_DISTANCE": 30,
+            "DAMPING_FAR_DISTANCE": 80,
+            "CALIBRATION_TEST_ROUNDS": 3,
+            "MAX_DRIVER_STEP_SIZE": 8,
 
-            # ========== 鼠标灵敏度校准 ==========
-            "AUTO_CALIBRATE_ON_START": True,  # 启动时自动校准
-            "CALIBRATION_SAMPLES": 5,  # 校准样本数量
-            "ANTI_OVERSHOOT_ENABLED": True,  # 启用过冲补偿
+            # PID / 模式
+            "PID_KP": 0.35,
+            "PID_KD": 0.02,
+            "HYBRID_MODE_THRESHOLD": 20,
+            "PRECISION_DEAD_ZONE": 2,
+            "NEAR_DIST_KP_BOOST": 2.0,
+            "D_CLAMP_LIMIT": 0.5,
+            "PREDICT_PUSH_PX": 1.0,
+            "MIN_MOVE_THRESHOLD": 0.5,
+            "MAX_SINGLE_MOVE_PX": 12,
 
-            # ========== 自适应阻尼 ==========
-            "ADAPTIVE_DAMPING_ENABLED": True,  # 启用自适应阻尼
-            "DAMPING_NEAR_DISTANCE": 30,  # 近距离阈值（像素）
-            "DAMPING_FAR_DISTANCE": 80,  # 远距离阈值（像素）
-            "CALIBRATION_TEST_ROUNDS": 3,  # 校准测试轮次
-            "MAX_DRIVER_STEP_SIZE": 8,  # 驱动最大步长（像素）
-            "PID_KP": 0.35,  # PID比例系数
-            "PID_KD": 0.02,  # PID微分系数
-            "HYBRID_MODE_THRESHOLD": 20,  # 近中距模式切换阈值（像素）
-            "PRECISION_DEAD_ZONE": 2,  # 死区大小（像素）
-            "NEAR_DIST_KP_BOOST": 2.0,  # 小距离比例系数倍增
-            "D_CLAMP_LIMIT": 0.5,  # PID D项限幅（像素）
-            "PREDICT_PUSH_PX": 1.0,  # 预测推移（像素）
-            "MIN_MOVE_THRESHOLD": 0.5,  # 最小移动阈值（像素）
-            "MAX_SINGLE_MOVE_PX": 12  # 单次最大移动（像素）
+            # 直驱护栏（新增）
+            "FAR_GAIN": 0.6,
+            "FAR_MAX_STEP": 24,
+            "NEAR_GATE_RATIO": 0.6,
+
+            # 配置监控
+            "CONFIG_MONITOR_INTERVAL_SEC": 5,
         }
 
     def export_default_config(self):
-        """导出默认配置到文件"""
         default_config = self.get_default_config()
         try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(default_config, f, indent=4, ensure_ascii=False)
-            utils.log(f"✅ 已导出默认配置到: {self.config_file}")
+            self._log(f"✅ 已导出默认配置到: {self.config_file}")
             return True
         except Exception as e:
-            utils.log(f"❌ 导出配置失败: {e}")
+            self._log(f"❌ 导出配置失败: {e}")
             return False
 
-    def load_config(self):
-        """加载配置文件"""
-        # 检查配置文件是否存在
-        if not self.config_file.exists():
-            utils.log(f"⚠️ 未找到配置文件: {self.config_file}")
-            utils.log("📝 正在创建默认配置...")
-            self.export_default_config()
-            self.config = self.get_default_config()
+    def _postprocess_config(self):
+        """载入/合并配置后的规范化与兜底"""
+        c = self.config
+
+        # 1) MODEL_PATH 绝对化
+        model_path = c.get("MODEL_PATH")
+        if isinstance(model_path, str) and model_path.strip():
+            p = Path(model_path)
+            if not p.is_absolute():
+                p = (self.app_dir / p).resolve()
+            c["MODEL_PATH"] = str(p)
+
+        # 2) clamp 工具
+        def clamp(name, lo=None, hi=None, typ=float, default=None):
+            v = c.get(name, default)
+            try:
+                v = typ(v)
+            except Exception:
+                v = default if default is not None else (lo if lo is not None else v)
+            if lo is not None and v < lo:
+                v = lo
+            if hi is not None and v > hi:
+                v = hi
+            c[name] = v
+
+        clamp("PRECISION_DEAD_ZONE", 0, 50, int, 4)
+        clamp("MOUSE_ARRIVAL_THRESHOLD", 0, 50, int, 4)
+        clamp("HYBRID_MODE_THRESHOLD", 5, 200, int, 40)
+        clamp("MAX_SINGLE_MOVE_PX", 1, 100, int, 8)
+        clamp("MAX_DRIVER_STEP_SIZE", 1, 100, int, 8)
+        clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 3)
+        clamp("MIN_SEND_INTERVAL_MS", 1, 100, int, 18)
+
+        clamp("GAME_DAMPING_FACTOR", 0.80, 0.995, float, 0.94)
+
+        clamp("PID_KP", 0.0, 5.0, float, 0.18)
+        clamp("PID_KD", 0.0, 5.0, float, 0.06)
+        clamp("D_CLAMP_LIMIT", 0.0, 10.0, float, 0.35)
+
+        clamp("FAR_GAIN", 0.1, 0.95, float, 0.6)
+        clamp("FAR_MAX_STEP", 4, 64, int, 24)
+        clamp("NEAR_GATE_RATIO", 0.1, 0.95, float, 0.6)
+
+        # 到达判定 ≥ 死区
+        if c["MOUSE_ARRIVAL_THRESHOLD"] < c["PRECISION_DEAD_ZONE"]:
+            c["MOUSE_ARRIVAL_THRESHOLD"] = c["PRECISION_DEAD_ZONE"]
+
+        # 混合阈值 >= 到达/死区的 3 倍
+        min_hybrid = max(c["MOUSE_ARRIVAL_THRESHOLD"], c["PRECISION_DEAD_ZONE"]) * 3
+        if c["HYBRID_MODE_THRESHOLD"] < min_hybrid:
+            c["HYBRID_MODE_THRESHOLD"] = int(min_hybrid)
+
+        # 阻尼距离基本边界
+        for k, default in [("DAMPING_NEAR_DISTANCE", 30), ("DAMPING_FAR_DISTANCE", 90)]:
+            try:
+                v = int(c.get(k, default))
+            except Exception:
+                v = default
+            v = max(1, min(v, 500))
+            c[k] = v
+
+    def load_config(self, force_reload=False):
+        """加载配置，支持动态重载"""
+        self._log("📝 执行到了加载配置")
+        current_modified_time = os.path.getmtime(self.config_file) if self.config_file.exists() else 0
+
+        # 仅在：文件存在 + 曾加载过 + 未变化 时早退
+        if (
+            not force_reload
+            and self.config_file.exists()
+            and self.last_modified_time != 0
+            and current_modified_time == self.last_modified_time
+        ):
             return self.config
 
-        # 读取配置文件
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                self.config = json.load(f)
-            utils.log(f"✅ 已加载配置文件: {self.config_file}")
+        # 若文件缺失，导出默认并载入
+        if not self.config_file.exists():
+            self._log(f"⚠️ 未找到配置文件: {self.config_file}")
+            self._log("📝 正在创建默认配置...")
+            self.export_default_config()
+            self.config = self.get_default_config()
+            self.last_modified_time = os.path.getmtime(self.config_file)
+            self._postprocess_config()
+            return self.config
 
-            # 合并默认配置（处理新增的配置项）
+        # 读取
+        try:
+            with open(self.config_file, "r", encoding="utf-8") as f:
+                new_config = json.load(f)
+            self._log(f"✅ 已加载配置文件: {self.config_file}")
+
+            # 合并默认（缺键或为 None 的覆盖）
             default_config = self.get_default_config()
             updated = False
             for key, value in default_config.items():
-                if key not in self.config:
-                    self.config[key] = value
+                if key not in new_config or new_config[key] is None:
+                    new_config[key] = value
                     updated = True
-                    utils.log(f"➕ 添加新配置项: {key}")
+                    self._log(f"➕ 使用默认值覆盖/补全配置项: {key}")
 
-            # 如果有新增配置项，更新文件
+            self.config = new_config
+            self.last_modified_time = current_modified_time
+
             if updated:
                 self.save_config()
 
+            self._postprocess_config()
             return self.config
+
         except json.JSONDecodeError as e:
-            utils.log(f"❌ 配置文件格式错误: {e}")
-            utils.log("📝 使用默认配置...")
+            self._log(f"❌ 配置文件格式错误: {e}")
+            self._log("📝 使用默认配置...")
             self.config = self.get_default_config()
+            self.last_modified_time = current_modified_time
+            self._postprocess_config()
             return self.config
         except Exception as e:
-            utils.log(f"❌ 加载配置失败: {e}")
-            utils.log("📝 使用默认配置...")
+            self._log(f"❌ 加载配置失败: {e}")
+            self._log("📝 使用默认配置...")
             self.config = self.get_default_config()
+            self.last_modified_time = current_modified_time
+            self._postprocess_config()
             return self.config
 
     def save_config(self):
-        """保存当前配置到文件"""
         try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
-            utils.log(f"✅ 配置已保存: {self.config_file}")
+            self._log(f"✅ 配置已保存: {self.config_file}")
             return True
         except Exception as e:
-            utils.log(f"❌ 保存配置失败: {e}")
+            self._log(f"❌ 保存配置失败: {e}")
             return False
 
     def get(self, key, default=None):
-        """获取配置项"""
+        if not self.config:
+            self.load_config()
         return self.config.get(key, default)
 
     def set(self, key, value):
-        """设置配置项"""
         self.config[key] = value
 
     def get_all(self):
-        """获取所有配置"""
         return self.config
 
 
-# 全局配置管理器实例
+# 全局实例与便捷函数
 _config_manager = ConfigManager()
 
 
-def load_config():
-    """加载配置（供其他模块调用）"""
-    return _config_manager.load_config()
+def load_config(force_reload=False):
+    return _config_manager.load_config(force_reload=force_reload)
 
 
 def get_config(key, default=None):
-    """获取配置项（供其他模块调用）"""
     return _config_manager.get(key, default)
 
 
 def save_config():
-    """保存配置（供其他模块调用）"""
     return _config_manager.save_config()

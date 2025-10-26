@@ -1,3 +1,4 @@
+# main.py （完整版，添加配置监控线程）
 """主程序入口（FPS游戏专用版）"""
 import math
 import queue as thread_queue
@@ -11,8 +12,7 @@ import win32con
 
 import utils
 # 首先加载配置
-from config_manager import load_config
-from config import *
+from config_manager import load_config, get_config
 from yolo_detector import YOLOv8Detector
 from mouse_controller import MouseController
 from screen_capture import capture_screen
@@ -87,6 +87,22 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             utils.log(f"[按键监控] 错误: {e}")
             break
 
+def config_monitor(should_exit_list):
+    """监控配置文件变化并动态重载"""
+    check_interval = get_config('CONFIG_MONITOR_INTERVAL_SEC', 5)  # 从配置中读取间隔（默认5秒）
+    utils.log(f"[配置监控] 已启动，每 {check_interval} 秒检查一次")
+    while not should_exit_list[0]:
+        try:
+            old_config = load_config().copy()  # 备份旧配置（使用 load_config() 返回整个 dict）
+            load_config(force_reload=True)  # 强制检查并重载
+            new_config = load_config()  # 获取新配置
+            if old_config != new_config:
+                utils.log("🔄 配置已动态重载！")
+                # 可选：在这里添加重初始化逻辑，例如如果 MODEL_PATH 变化，重载 YOLO
+                # 示例：if old_config['MODEL_PATH'] != new_config['MODEL_PATH']: reload_yolo()
+        except Exception as e:
+            utils.log(f"[配置监控] 错误: {e}")
+        time.sleep(check_interval)
 
 def main():
     print("\n" + "=" * 60)
@@ -103,7 +119,7 @@ def main():
         utils.log(f"❌ 模型加载失败: {e}")
         return
 
-    target_class_ids = [k for k, v in model.names.items() if v in TARGET_CLASS_NAMES] if TARGET_CLASS_NAMES else []
+    target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config('TARGET_CLASS_NAMES') else []
 
     # 初始化鼠标控制器（FPS专用版）
     try:
@@ -112,11 +128,13 @@ def main():
         utils.log(f"❌ 鼠标控制器初始化失败: {e}")
         return
 
-    # 启动屏幕捕获进程
+    # 启动屏幕捕获进程（使用 get_config）
     frame_queue = Queue(maxsize=5)
     capture_ready_event = Event()
-    capture_process = Process(target=capture_screen, args=(frame_queue, capture_ready_event, CROP_SIZE))
+    capture_process = Process(target=capture_screen, args=(frame_queue, capture_ready_event, get_config('CROP_SIZE')))
     capture_process.start()
+
+    utils.log(f"📊 智能阈值: {'✅ 已启用' if get_config('ENABLE_SMART_THRESHOLD') else '❌ 已关闭'}")
 
     capture_ready_event.wait(timeout=10)
     if not capture_ready_event.is_set():
@@ -130,7 +148,7 @@ def main():
     screen_info = get_screen_info()
     screen_center_x = screen_info['width'] // 2
     screen_center_y = screen_info['height'] // 2
-    capture_area = calculate_capture_area(CROP_SIZE)
+    capture_area = calculate_capture_area(get_config('CROP_SIZE'))
 
     # 初始化目标选择器（FPS专用版）
     target_selector = TargetSelector()
@@ -142,6 +160,9 @@ def main():
     # 启动按键监控线程
     key_thread = Thread(target=key_monitor, args=(mouse_control_active, should_exit), daemon=True)
     key_thread.start()
+    # 启动配置监控线程
+    config_thread = Thread(target=config_monitor, args=(should_exit,), daemon=True)
+    config_thread.start()
 
     # 统计变量
     total_movements = 0
@@ -150,9 +171,9 @@ def main():
 
     utils.log("\n" + "=" * 60)
     utils.log("🎯 FPS自瞄系统已启动")
-    utils.log(f"📊 智能阈值: {'✅ 已启用' if ENABLE_SMART_THRESHOLD else '❌ 已关闭'}")
+    utils.log(f"📊 智能阈值: {'✅ 已启用' if get_config('ENABLE_SMART_THRESHOLD') else '❌ 已关闭'}")
     utils.log(f"🎮 游戏模式: ✅ FPS模式")
-    utils.log(f"🛡️ 死区: {GAME_DEAD_ZONE}px | 阻尼: {GAME_DAMPING_FACTOR}")
+    utils.log(f"🛡️ 死区: {get_config('GAME_DEAD_ZONE')}px | 阻尼: {get_config('GAME_DAMPING_FACTOR')}")
     utils.log(f"📏 屏幕中心: ({screen_center_x}, {screen_center_y})")
     utils.log("=" * 60 + "\n")
 
@@ -251,6 +272,7 @@ def main():
         # 清理资源
         should_exit[0] = True
         key_thread.join(timeout=2.0)
+        config_thread.join(timeout=2.0)
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()

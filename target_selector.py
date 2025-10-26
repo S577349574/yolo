@@ -1,9 +1,8 @@
-"""FPS游戏专用目标选择器（带瞄准点平滑）"""
 import math
 import time
 
 import utils
-from config import *
+from config_manager import get_config  # 修改：直接导入 get_config
 
 
 class TargetSelector:
@@ -20,7 +19,7 @@ class TargetSelector:
         # 🆕 瞄准点平滑（解决检测抖动）
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
-        self.smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.3)  # 平滑系数：0.1-0.5
+        self.smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.3)  # 平滑系数：0.1-0.5  # 修改：默认值从配置获取，但配置中未定义，可添加
 
         self.last_send_time = 0
         self.send_interval_ms = get_config('MIN_SEND_INTERVAL_MS', 8)
@@ -34,13 +33,13 @@ class TargetSelector:
         # 选择瞄准配置
         aim_config = None
         for config_name in ['close', 'medium', 'far']:
-            config = AIM_POINTS[config_name]
+            config = get_config('AIM_POINTS')[config_name]  # 修改
             if box_height > config['height_threshold']:
                 aim_config = config
                 break
 
         if aim_config is None:
-            aim_config = AIM_POINTS['far']
+            aim_config = get_config('AIM_POINTS')['far']  # 修改
 
         # 计算原始瞄准点（屏幕坐标）
         center_x_cropped = int(x1 + box_width * 0.5 + aim_config['x_offset'])
@@ -72,7 +71,7 @@ class TargetSelector:
         """选择最佳目标（保持原逻辑）"""
         if not candidate_targets:
             self.frames_without_target += 1
-            if self.frames_without_target >= MAX_LOST_FRAMES:
+            if self.frames_without_target >= get_config('MAX_LOST_FRAMES'):  # 修改
                 self.last_target_x = None
                 self.last_target_y = None
                 self.is_locked = False
@@ -97,7 +96,7 @@ class TargetSelector:
                             (target['x'] - self.last_target_x) ** 2 +
                             (target['y'] - self.last_target_y) ** 2
                         )
-                        if distance < TARGET_IDENTITY_DISTANCE:
+                        if distance < get_config('TARGET_IDENTITY_DISTANCE'):  # 修改
                             current_locked_target = target
                             break
 
@@ -117,8 +116,8 @@ class TargetSelector:
             distance_score = 1 - normalized_distance
             conf_score = target['confidence']
 
-            composite_score = (DISTANCE_WEIGHT * distance_score +
-                               (1 - DISTANCE_WEIGHT) * conf_score)
+            composite_score = (get_config('DISTANCE_WEIGHT') * distance_score +  # 修改
+                               (1 - get_config('DISTANCE_WEIGHT')) * conf_score)
 
             scored_targets.append({
                 'target': target,
@@ -140,7 +139,7 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            if self.target_lock_frames >= MIN_TARGET_LOCK_FRAMES and score_diff > TARGET_SWITCH_THRESHOLD:
+            if self.target_lock_frames >= get_config('MIN_TARGET_LOCK_FRAMES') and score_diff > get_config('TARGET_SWITCH_THRESHOLD'):  # 修改
                 selected_target = best_candidate['target']
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0

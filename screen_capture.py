@@ -1,4 +1,3 @@
-"""屏幕捕获进程"""
 import time
 import numpy as np
 import mss

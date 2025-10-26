@@ -1,7 +1,4 @@
-"""工具函数"""
 import math
-
-import config_manager
 
 
 def get_screen_info():
@@ -34,5 +31,8 @@ def calculate_distance(x1, y1, x2, y2):
 
 def log(message):
     """打印日志（仅当ENABLE_LOGGING为True时输出）config_manager.get_config("ENABLE_LOGGING")"""
-    if True:
+    if True:  # 注意：原代码这里是 if True，可修改为 if config_manager.get_config("ENABLE_LOGGING", False):
         print(message)
+
+
+

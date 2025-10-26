@@ -1,21 +1,25 @@
-"""YOLOv8目标检测器"""
 import ast
 import cv2
 import numpy as np
 import onnxruntime as ort
 
 import utils
-from config import *
+from config_manager import get_config  # 修改：直接导入 get_config
 
 
 class YOLOv8Detector:
-    def __init__(self, model_path=MODEL_PATH, img_size=CROP_SIZE):
+    def __init__(self):
+        model_path = get_config('MODEL_PATH')  # 改为运行时获取
+        img_size = get_config('CROP_SIZE')     # 改为运行时获取
         self.img_size = img_size
         providers = ['DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
         available_providers = ort.get_available_providers()
         active_providers = [p for p in providers if p in available_providers]
 
+        if model_path is None:
+            raise ValueError("MODEL_PATH is None. Check config loading.")
         self.session = ort.InferenceSession(model_path, providers=active_providers)
+
         utils.log(f"✓ 使用Provider: {self.session.get_providers()[0]}")
 
         self.names = self._load_names_from_metadata()
@@ -98,7 +102,11 @@ class YOLOv8Detector:
 
         return keep
 
-    def predict(self, img_bgr, conf_threshold=CONF_THRESHOLD, iou_threshold=IOU_THRESHOLD):
+    def predict(self, img_bgr, conf_threshold=None, iou_threshold=None):
+        if conf_threshold is None:
+            conf_threshold = get_config('CONF_THRESHOLD')
+        if iou_threshold is None:
+            iou_threshold = get_config('IOU_THRESHOLD')
         input_data = self.preprocess(img_bgr)
         outputs = self.session.run(self.output_names, {self.input_name: input_data})
         return self.postprocess(outputs[0], conf_threshold, iou_threshold)

@@ -1,4 +1,3 @@
-"""PID控制器（分段参数版）"""
 import time
 
 
