@@ -46,9 +46,9 @@ class ConfigManager:
 
             # 瞄准点
             "AIM_POINTS": {
-                "close": {"height_threshold": 150, "y_ratio": 0.45, "x_offset": 0},
-                "medium": {"height_threshold": 80, "y_ratio": 0.45, "x_offset": 0},
-                "far": {"height_threshold": 0, "y_ratio": 0.90, "x_offset": 0},
+                "close": {"height_threshold": 10000, "y_ratio": 0.55, "x_offset": 0},
+                "medium": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0},
+                "far": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0}
             },
 
             # 目标切换
