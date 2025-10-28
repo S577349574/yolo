@@ -70,7 +70,7 @@ class ConfigManager:
             "GAME_MODE": True,
             "GAME_DEAD_ZONE": 1,
             "GAME_DAMPING_FACTOR": 0.90,
-            "MOUSE_ARRIVAL_THRESHOLD": 2,
+            "MOUSE_ARRIVAL_THRESHOLD": 3,
             "MOUSE_PROPORTIONAL_FACTOR": 0.15,
             "MOUSE_MAX_PIXELS_PER_STEP": 6,
             "DEFAULT_DELAY_MS_PER_STEP": 2,
@@ -112,9 +112,9 @@ class ConfigManager:
             "MAX_DRIVER_STEP_SIZE": 8,
 
             # PID / 模式
-            "PID_KP": 0.35,
-            "PID_KD": 0.02,
-            "HYBRID_MODE_THRESHOLD": 20,
+            "PID_KP": 0.5,
+            "PID_KD": 0.08,
+            "HYBRID_MODE_THRESHOLD": 40,
             "PRECISION_DEAD_ZONE": 2,
             "NEAR_DIST_KP_BOOST": 2.0,
             "D_CLAMP_LIMIT": 0.5,
@@ -124,7 +124,7 @@ class ConfigManager:
 
             # 直驱护栏（新增）
             "FAR_GAIN": 0.6,
-            "FAR_MAX_STEP": 24,
+            "FAR_MAX_STEP": 20,
             "NEAR_GATE_RATIO": 0.6,
 
             # 配置监控

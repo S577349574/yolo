@@ -16,16 +16,16 @@ class TargetSelector:
         self.locked_target_id = None
         self.target_lock_frames = 0
 
-        # 🆕 瞄准点平滑（解决检测抖动）
+        # 🆕 瞄准点平滑（仅对最终选定目标生效）
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
-        self.smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.3)  # 平滑系数：0.1-0.5  # 修改：默认值从配置获取，但配置中未定义，可添加
+        self.smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.3)  # 建议配置为 0.2-0.4
 
         self.last_send_time = 0
         self.send_interval_ms = get_config('MIN_SEND_INTERVAL_MS', 8)
 
     def calculate_aim_point(self, box, capture_area):
-        """计算瞄准点（带平滑）"""
+        """计算瞄准点（不平滑，返回原始坐标）"""
         x1, y1, x2, y2 = map(int, box)
         box_width = x2 - x1
         box_height = y2 - y1
@@ -33,45 +33,47 @@ class TargetSelector:
         # 选择瞄准配置
         aim_config = None
         for config_name in ['close', 'medium', 'far']:
-            config = get_config('AIM_POINTS')[config_name]  # 修改
+            config = get_config('AIM_POINTS')[config_name]
             if box_height > config['height_threshold']:
                 aim_config = config
                 break
 
         if aim_config is None:
-            aim_config = get_config('AIM_POINTS')['far']  # 修改
+            aim_config = get_config('AIM_POINTS')['far']
 
         # 计算原始瞄准点（屏幕坐标）
         center_x_cropped = int(x1 + box_width * 0.5 + aim_config['x_offset'])
         center_y_cropped = int(y1 + box_height * aim_config['y_ratio'])
 
-        raw_target_x = capture_area['left'] + center_x_cropped
-        raw_target_y = capture_area['top'] + center_y_cropped
+        target_x = capture_area['left'] + center_x_cropped
+        target_y = capture_area['top'] + center_y_cropped
 
-        # 🆕 指数移动平均平滑
-        if self.smoothed_aim_x is None:
-            # 首次初始化
-            self.smoothed_aim_x = float(raw_target_x)
-            self.smoothed_aim_y = float(raw_target_y)
+        return target_x, target_y  # ⚠️ 返回未平滑的原始坐标
+
+    def _apply_smoothing(self, raw_x, raw_y, is_new_target=False):
+        """🆕 对最终选定目标应用平滑"""
+        if is_new_target or self.smoothed_aim_x is None:
+            # 切换目标或首次锁定：直接使用原始坐标（避免拖尾）
+            self.smoothed_aim_x = float(raw_x)
+            self.smoothed_aim_y = float(raw_y)
         else:
-            # 平滑公式：new = alpha * raw + (1-alpha) * old
-            # alpha越小越平滑，但响应越慢
+            # 指数移动平均平滑
             self.smoothed_aim_x = (
-                self.smooth_alpha * raw_target_x +
+                self.smooth_alpha * raw_x +
                 (1 - self.smooth_alpha) * self.smoothed_aim_x
             )
             self.smoothed_aim_y = (
-                self.smooth_alpha * raw_target_y +
+                self.smooth_alpha * raw_y +
                 (1 - self.smooth_alpha) * self.smoothed_aim_y
             )
 
         return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
     def select_best_target(self, candidate_targets, screen_width, screen_height):
-        """选择最佳目标（保持原逻辑）"""
+        """选择最佳目标并应用平滑"""
         if not candidate_targets:
             self.frames_without_target += 1
-            if self.frames_without_target >= get_config('MAX_LOST_FRAMES'):  # 修改
+            if self.frames_without_target >= get_config('MAX_LOST_FRAMES'):
                 self.last_target_x = None
                 self.last_target_y = None
                 self.is_locked = False
@@ -96,7 +98,7 @@ class TargetSelector:
                             (target['x'] - self.last_target_x) ** 2 +
                             (target['y'] - self.last_target_y) ** 2
                         )
-                        if distance < get_config('TARGET_IDENTITY_DISTANCE'):  # 修改
+                        if distance < get_config('TARGET_IDENTITY_DISTANCE'):
                             current_locked_target = target
                             break
 
@@ -116,7 +118,7 @@ class TargetSelector:
             distance_score = 1 - normalized_distance
             conf_score = target['confidence']
 
-            composite_score = (get_config('DISTANCE_WEIGHT') * distance_score +  # 修改
+            composite_score = (get_config('DISTANCE_WEIGHT') * distance_score +
                                (1 - get_config('DISTANCE_WEIGHT')) * conf_score)
 
             scored_targets.append({
@@ -130,6 +132,7 @@ class TargetSelector:
 
         # 决定是否切换目标
         selected_target = None
+        is_new_target = False  # 🆕 标记是否切换了目标
 
         if current_locked_target is not None:
             locked_score = next(
@@ -139,13 +142,11 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            if self.target_lock_frames >= get_config('MIN_TARGET_LOCK_FRAMES') and score_diff > get_config('TARGET_SWITCH_THRESHOLD'):  # 修改
+            if self.target_lock_frames >= get_config('MIN_TARGET_LOCK_FRAMES') and score_diff > get_config('TARGET_SWITCH_THRESHOLD'):
                 selected_target = best_candidate['target']
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
-                # 🆕 切换目标时重置平滑状态（避免拖尾）
-                self.smoothed_aim_x = float(selected_target['x'])
-                self.smoothed_aim_y = float(selected_target['y'])
+                is_new_target = True  # 🆕 标记切换
                 utils.log(f"🔄 切换目标 | 得分差: {score_diff:.2f}")
             else:
                 selected_target = current_locked_target
@@ -154,38 +155,31 @@ class TargetSelector:
             selected_target = best_candidate['target']
             self.locked_target_id = selected_target['id']
             self.target_lock_frames = 0
+            is_new_target = True  # 🆕 首次锁定也标记
 
-        self.last_target_x = selected_target['x']
-        self.last_target_y = selected_target['y']
+        # 🆕 仅对最终选定的目标应用平滑
+        raw_x = selected_target['x']
+        raw_y = selected_target['y']
+        smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
+
+        # 更新跟踪状态（使用平滑后的坐标）
+        self.last_target_x = smoothed_x
+        self.last_target_y = smoothed_y
         self.frames_without_target = 0
         self.is_locked = True
 
-        return selected_target['x'], selected_target['y']
+        return smoothed_x, smoothed_y  # ⚠️ 返回平滑后的坐标
 
     def should_send_command(self, target_x, target_y, screen_center_x, screen_center_y):
-        """
-        FPS专用：判断是否需要发送移动指令
-
-        参数:
-            target_x, target_y: 目标的屏幕绝对坐标
-            screen_center_x, screen_center_y: 屏幕中心坐标
-
-        返回:
-            bool: 是否需要发送移动指令
-        """
-        # 计算目标相对于中心的偏移
+        """FPS专用：判断是否需要发送移动指令"""
         offset_x = target_x - screen_center_x
         offset_y = target_y - screen_center_y
         offset_distance = math.sqrt(offset_x**2 + offset_y**2)
 
-        precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 20)  # 新增配置项
+        precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 20)
         if offset_distance < precision_dead_zone:
-            utils.log(
-                f"🎯 精确瞄准(偏移: {offset_distance:.1f}px < {precision_dead_zone}px) - 停止移动",
-            )
             return False
 
-        # 频率限制
         current_time = time.time() * 1000
         if current_time - self.last_send_time < self.send_interval_ms:
             return False
