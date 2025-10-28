@@ -129,6 +129,12 @@ class ConfigManager:
 
             # 配置监控
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
+
+            "CAPTURE_FPS": 60,
+            "INFERENCE_FPS": 60,
+
+
+           "AIM_POINT_SMOOTH_ALPHA": 0.25,  # 0.1=最平滑，0.5=快速响应
         }
 
     def export_default_config(self):

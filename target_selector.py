@@ -171,18 +171,20 @@ class TargetSelector:
         return smoothed_x, smoothed_y  # ⚠️ 返回平滑后的坐标
 
     def should_send_command(self, target_x, target_y, screen_center_x, screen_center_y):
-        """FPS专用：判断是否需要发送移动指令"""
+        """优化版"""
         offset_x = target_x - screen_center_x
         offset_y = target_y - screen_center_y
-        offset_distance = math.sqrt(offset_x**2 + offset_y**2)
+        offset_distance = math.hypot(offset_x, offset_y)  # 🆕 更快
 
         precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 20)
         if offset_distance < precision_dead_zone:
             return False
 
-        current_time = time.time() * 1000
+        # 🆕 频率限制优化（减少时间获取次数）
+        current_time = time.perf_counter() * 1000  # 🆕 更高精度
         if current_time - self.last_send_time < self.send_interval_ms:
             return False
 
         self.last_send_time = current_time
         return True
+

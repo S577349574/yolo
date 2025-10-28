@@ -10,6 +10,7 @@ import cv2
 import win32api
 import win32con
 
+import config_manager
 import utils
 # 首先加载配置
 from config_manager import load_config, get_config
@@ -89,7 +90,7 @@ def key_monitor(mouse_control_active_list, should_exit_list):
 
 def config_monitor(should_exit_list):
     """监控配置文件变化并动态重载"""
-    check_interval = get_config('CONFIG_MONITOR_INTERVAL_SEC', 5)  # 从配置中读取间隔（默认5秒）
+    check_interval = get_config('CONFIG_MONITOR_INTERVAL_SEC', 60)  # 从配置中读取间隔（默认5秒）
     utils.log(f"[配置监控] 已启动，每 {check_interval} 秒检查一次")
     while not should_exit_list[0]:
         try:
@@ -177,22 +178,34 @@ def main():
     utils.log(f"📏 屏幕中心: ({screen_center_x}, {screen_center_y})")
     utils.log("=" * 60 + "\n")
 
+    target_inference_fps = config_manager.get_config("INFERENCE_FPS", 60)
+    inference_interval = 1.0 / target_inference_fps
+    last_inference_time = 0
+
     try:
         frame_count = 0
         fps_start_time = time.time()
 
         while not should_exit[0]:
-            try:
-                img_bgra = frame_queue.get(block=False)
-            except thread_queue.Empty:
+            current_time = time.time()
+
+            # 🆕 帧率限制
+            if current_time - last_inference_time < inference_interval:
                 time.sleep(0.001)
                 continue
 
-            # 转换颜色空间
+            try:
+                # 🆕 使用阻塞式获取（避免轮询）
+                img_bgra = frame_queue.get(timeout=0.05)  # 50ms 超时
+            except thread_queue.Empty:
+                continue
+
+            # 🆕 颜色转换（或在捕获进程完成）
             img_bgr = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
 
-            # YOLO推理
+            # YOLO 推理
             results = model.predict(img_bgr)
+            last_inference_time = current_time
 
             # 筛选目标类别
             candidate_targets = []

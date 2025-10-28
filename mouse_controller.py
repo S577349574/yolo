@@ -27,7 +27,7 @@ class MouseController:
             device_path = get_config("DRIVER_PATH")
         self.driver_handle = None
         self.device_path = device_path
-        self.move_queue = thread_queue.Queue(maxsize=2)
+        self.move_queue = thread_queue.Queue(maxsize=1)
         self.mouse_thread = None
         self.stop_event = ThreadEvent()
 
@@ -300,7 +300,7 @@ class MouseController:
             utils.log("[MouseController Thread] 线程已终止")
 
     def move_to_target(self, target_x, target_y, delay_ms=None, button_flags=None):
-        """移动到目标位置"""
+        """移动到目标位置（优化版）"""
         if button_flags is None:
             button_flags = get_config("APP_MOUSE_NO_BUTTON", 0)
         if not self.driver_handle or not self.mouse_thread or not self.mouse_thread.is_alive():
@@ -309,16 +309,20 @@ class MouseController:
         actual_delay_ms = delay_ms if delay_ms is not None else get_config("DEFAULT_DELAY_MS_PER_STEP", 2)
         move_command = (target_x, target_y, 0, actual_delay_ms, button_flags)
 
-        # 仅保留最新命令
-        while not self.move_queue.empty():
+        # 🆕 强制覆盖旧指令
+        try:
+            # 尝试取出旧指令（如果队列已满）
             try:
                 self.move_queue.get_nowait()
             except thread_queue.Empty:
-                break
+                pass
 
-        try:
-            self.move_queue.put(move_command, block=False)
+            # 放入新指令（此时队列必定有空间）
+            self.move_queue.put_nowait(move_command)
             return True
+        except thread_queue.Full:
+            # 理论上不会发生（maxsize=1 且已清空）
+            return False
         except Exception:
             return False
 
