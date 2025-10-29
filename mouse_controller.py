@@ -134,30 +134,6 @@ class MouseController:
         except Exception:
             return False
 
-    def _compute_far_step(self, err_x: float, err_y: float):
-        """远距直驱（极简版，无护栏）"""
-        ex, ey = float(err_x), float(err_y)
-        dist = math.hypot(ex, ey)
-
-        hybrid_threshold = get_config("HYBRID_MODE_THRESHOLD", 50)
-
-        if dist <= hybrid_threshold:
-            return 0, 0, dist
-
-        # 🔧 极简逻辑：直接按比例移动，不削减
-        far_gain = get_config("FAR_GAIN", 0.8)  # 80%距离
-        step_x = ex * far_gain
-        step_y = ey * far_gain
-
-        # 🔧 只保留一个安全上限（防止单步过大）
-        max_step = get_config("FAR_MAX_STEP", 120)  # 提高到120px
-        step_norm = math.hypot(step_x, step_y)
-        if step_norm > max_step:
-            scale = max_step / step_norm
-            step_x *= scale
-            step_y *= scale
-
-        return int(round(step_x)), int(round(step_y)), dist
 
     def _mouse_worker(self):
         """主工作线程（纯PID版）"""
