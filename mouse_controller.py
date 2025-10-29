@@ -135,84 +135,51 @@ class MouseController:
             return False
 
     def _compute_far_step(self, err_x: float, err_y: float):
-        """远距直驱护栏（简化版）"""
+        """远距直驱（极简版，无护栏）"""
         ex, ey = float(err_x), float(err_y)
         dist = math.hypot(ex, ey)
 
         hybrid_threshold = get_config("HYBRID_MODE_THRESHOLD", 50)
-        far_gain = get_config("FAR_GAIN", 0.5)  # 提高到 0.5，更激进
-        far_max_step = get_config("FAR_MAX_STEP", 15)  # 提高上限
-        near_gate_ratio = get_config("NEAR_GATE_RATIO", 0.75)  # 降低缓冲
 
         if dist <= hybrid_threshold:
             return 0, 0, dist
 
-        # 1) 按比例移动
+        # 🔧 极简逻辑：直接按比例移动，不削减
+        far_gain = get_config("FAR_GAIN", 0.8)  # 80%距离
         step_x = ex * far_gain
         step_y = ey * far_gain
+
+        # 🔧 只保留一个安全上限（防止单步过大）
+        max_step = get_config("FAR_MAX_STEP", 120)  # 提高到120px
         step_norm = math.hypot(step_x, step_y)
-
-        # 2) 限制单步最大值
-        if step_norm > far_max_step and step_norm > 0:
-            scale = far_max_step / step_norm
+        if step_norm > max_step:
+            scale = max_step / step_norm
             step_x *= scale
             step_y *= scale
-            step_norm = far_max_step
-
-        # 3) 防止进入近距阈值
-        near_gate = hybrid_threshold * near_gate_ratio
-        max_allowed = max(dist - near_gate, 0.0)
-        if step_norm > max_allowed and step_norm > 0:
-            scale = max_allowed / step_norm
-            step_x *= scale
-            step_y *= scale
-
-        # 4) 按轴夹紧（防穿线）
-        axis_buffer = max(int(hybrid_threshold * 0.2), 2)
-
-        # X 轴
-        max_x = max(abs(ex) - axis_buffer, 0.0)
-        if max_x > 0:
-            step_x = max(-max_x, min(step_x, max_x))
-            if (ex > 0 and step_x < 0) or (ex < 0 and step_x > 0):
-                step_x = 0
-        else:
-            step_x = 0
-
-        # Y 轴
-        max_y = max(abs(ey) - axis_buffer, 0.0)
-        if max_y > 0:
-            step_y = max(-max_y, min(step_y, max_y))
-            if (ey > 0 and step_y < 0) or (ey < 0 and step_y > 0):
-                step_y = 0
-        else:
-            step_y = 0
 
         return int(round(step_x)), int(round(step_y)), dist
 
     def _mouse_worker(self):
-        """主工作线程（优化版）"""
-        utils.log("[MouseController Thread] 混合模式已启动 (1:1 映射优化)")
+        """主工作线程（纯PID版）"""
+        utils.log("[MouseController Thread] 纯PID模式已启动")
 
         screen_width = win32api.GetSystemMetrics(0)
         screen_height = win32api.GetSystemMetrics(1)
         center_x = screen_width // 2
         center_y = screen_height // 2
 
-        hybrid_threshold = get_config("HYBRID_MODE_THRESHOLD", 50)
-        dead_zone = get_config("PRECISION_DEAD_ZONE", 3)  # 降低死区
+        dead_zone = get_config("PRECISION_DEAD_ZONE", 2)
 
         try:
             while not self.stop_event.is_set():
                 try:
                     move_command = self.move_queue.get(timeout=0.01)
                     target_x, target_y, _, delay_ms, button_flags = move_command
-                    current_delay_ms = max(
-                        1,
-                        delay_ms if delay_ms is not None else get_config("DEFAULT_DELAY_MS_PER_STEP", 2),
-                    )
 
+                    current_delay_ms = max(1, delay_ms or get_config("DEFAULT_DELAY_MS_PER_STEP", 2))
                     self.move_count += 1
+
+                    # 🔧 简化：直接计算误差
                     error_x = target_x - center_x
                     error_y = target_y - center_y
                     distance = math.hypot(error_x, error_y)
@@ -223,72 +190,29 @@ class MouseController:
                         time.sleep(current_delay_ms / 1000.0)
                         continue
 
-                    total_moved_x, total_moved_y = 0, 0
+                    # 🔧 核心：只用PID计算移动量
+                    move_x_raw, move_y_raw = self.pid.calculate(error_x, error_y)
 
-                    # 远距直驱
-                    if distance > hybrid_threshold:
-                        step_x, step_y, _ = self._compute_far_step(error_x, error_y)
-                        if step_x != 0 or step_y != 0:
-                            if self._send_mouse_request(step_x, step_y, get_config("APP_MOUSE_NO_BUTTON", 0)):
-                                total_moved_x += step_x
-                                total_moved_y += step_y
-                        time.sleep(current_delay_ms / 1000.0)
+                    # 🔧 简单限幅（防止单步过大）
+                    max_step = get_config("MAX_SINGLE_MOVE_PX", 80)  # 单步最大80px
+                    move_norm = math.hypot(move_x_raw, move_y_raw)
+                    if move_norm > max_step:
+                        scale = max_step / move_norm
+                        move_x_raw *= scale
+                        move_y_raw *= scale
 
-                    # 近距 PID
-                    else:
-                        move_x_raw, move_y_raw = self.pid.calculate(error_x, error_y)
-                        move_distance = math.hypot(move_x_raw, move_y_raw)
+                    move_x = int(round(move_x_raw))
+                    move_y = int(round(move_y_raw))
 
-                        # 微输出过滤
-                        if move_distance < 0.5:
-                            time.sleep(current_delay_ms / 1000.0)
-                            continue
+                    # 发送移动指令
+                    if move_x != 0 or move_y != 0:
+                        self._send_mouse_request(move_x, move_y, get_config("APP_MOUSE_NO_BUTTON", 0))
 
-                        # 动态限幅
-                        max_single = min(10, distance * 1.05)  # 降低限幅
-                        if move_distance > max_single:
-                            scale = max_single / move_distance
-                            move_x_raw *= scale
-                            move_y_raw *= scale
-
-                        # 简化：单步发送
-                        move_x = int(round(move_x_raw))
-                        move_y = int(round(move_y_raw))
-
-                        if move_x != 0 or move_y != 0:
-                            # 防止超调
-                            arrival_buffer = 3
-                            rem_x = error_x - total_moved_x
-                            rem_y = error_y - total_moved_y
-
-                            # 按轴限制
-                            if abs(move_x) > abs(rem_x) - arrival_buffer:
-                                move_x = int(math.copysign(max(abs(rem_x) - arrival_buffer, 0), rem_x))
-                            if abs(move_y) > abs(rem_y) - arrival_buffer:
-                                move_y = int(math.copysign(max(abs(rem_y) - arrival_buffer, 0), rem_y))
-
-                            if move_x != 0 or move_y != 0:
-                                total_moved_x += move_x
-                                total_moved_y += move_y
-                                self._send_mouse_request(move_x, move_y, get_config("APP_MOUSE_NO_BUTTON", 0))
-
-                        time.sleep(current_delay_ms / 1000.0)
+                    time.sleep(current_delay_ms / 1000.0)
 
                     # 统计
-                    actual_distance = math.hypot(total_moved_x, total_moved_y)
-                    move_error = abs(actual_distance - distance)
-                    self.total_error += move_error
-
-                    if actual_distance > distance * 1.08:
-                        self.overshoot_count += 1
-
                     if self.move_count % 100 == 0:
-                        overshoot_rate = (self.overshoot_count / self.move_count) * 100
-                        avg_error = self.total_error / self.move_count
-                        utils.log(
-                            f"📊 统计: 移动{self.move_count}次, 过冲{self.overshoot_count}次 "
-                            f"({overshoot_rate:.1f}%) | 平均误差: {avg_error:.2f}px"
-                        )
+                        utils.log(f"📊 统计: 已移动{self.move_count}次")
 
                     if button_flags != get_config("APP_MOUSE_NO_BUTTON", 0):
                         self._send_mouse_request(0, 0, button_flags)
@@ -300,7 +224,7 @@ class MouseController:
             utils.log("[MouseController Thread] 线程已终止")
 
     def move_to_target(self, target_x, target_y, delay_ms=None, button_flags=None):
-        """移动到目标位置（优化版）"""
+
         if button_flags is None:
             button_flags = get_config("APP_MOUSE_NO_BUTTON", 0)
         if not self.driver_handle or not self.mouse_thread or not self.mouse_thread.is_alive():

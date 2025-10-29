@@ -35,55 +35,42 @@ class ConfigManager:
         utils.log(message)
 
     def get_default_config(self):
-        """默认配置"""
+        """默认配置（精简版）"""
         return {
-            # YOLO
+            # YOLO 检测
             "MODEL_PATH": "320.onnx",
             "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.75,
             "IOU_THRESHOLD": 0.45,
             "TARGET_CLASS_NAMES": ["敌人"],
 
-            # 瞄准点
+            # 瞄准点配置
             "AIM_POINTS": {
                 "close": {"height_threshold": 10000, "y_ratio": 0.55, "x_offset": 0},
                 "medium": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0},
                 "far": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0}
             },
 
-            # 目标切换
+            # 目标选择与跟踪
             "MIN_TARGET_LOCK_FRAMES": 15,
             "TARGET_SWITCH_THRESHOLD": 0.2,
             "TARGET_IDENTITY_DISTANCE": 100,
-
-            # 智能阈值
-            "ENABLE_SMART_THRESHOLD": True,
-            "MOVEMENT_THRESHOLD_PIXELS": 3,
-            "INITIAL_LOCK_THRESHOLD": 2,
-            "ARRIVAL_THRESHOLD_ENTER": 3,
-            "ARRIVAL_THRESHOLD_EXIT": 20,
-            "MIN_SEND_INTERVAL_MS": 10,
-            "STABLE_FRAMES_REQUIRED": 2,
-            "COOLDOWN_AFTER_ARRIVAL_MS": 50,
-
-            # 鼠标控制
-            "GAME_MODE": True,
-            "GAME_DEAD_ZONE": 1,
-            "GAME_DAMPING_FACTOR": 0.90,
-            "MOUSE_ARRIVAL_THRESHOLD": 3,
-            "MOUSE_PROPORTIONAL_FACTOR": 0.15,
-            "MOUSE_MAX_PIXELS_PER_STEP": 6,
-            "DEFAULT_DELAY_MS_PER_STEP": 2,
-
-            # 驱动
-            "DRIVER_PATH": r"\\.\infestation",
-
-            # 跟踪
             "MAX_LOST_FRAMES": 30,
             "DISTANCE_WEIGHT": 0.80,
-            "COMMAND_UPDATE_THRESHOLD": 15,
+            "AIM_POINT_SMOOTH_ALPHA": 0.25,
 
-            # 按键 flag
+            # PID 控制参数
+            "PID_KP": 0.95,
+            "PID_KD": 0.05,
+            "MAX_SINGLE_MOVE_PX": 200,
+            "PRECISION_DEAD_ZONE": 2,
+            "DEFAULT_DELAY_MS_PER_STEP": 2,
+
+            # 驱动配置
+            "DRIVER_PATH": r"\\.\infestation",
+            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000,
+
+            # 按键定义
             "APP_MOUSE_NO_BUTTON": 0x00,
             "APP_MOUSE_LEFT_DOWN": 0x01,
             "APP_MOUSE_LEFT_UP": 0x02,
@@ -92,49 +79,16 @@ class ConfigManager:
             "APP_MOUSE_MIDDLE_DOWN": 0x10,
             "APP_MOUSE_MIDDLE_UP": 0x20,
 
-            # IOCTL
-            "MOUSE_REQUEST": (0x00000022 << 16) | (0 << 14) | (0x666 << 2) | 0x00000000,
-
-            # 监视与日志
+            # 按键监控
             "ENABLE_LEFT_MOUSE_MONITOR": False,
             "ENABLE_RIGHT_MOUSE_MONITOR": True,
             "KEY_MONITOR_INTERVAL_MS": 50,
+
+            # 系统配置
             "ENABLE_LOGGING": False,
-
-            # 校准/阻尼
-            "AUTO_CALIBRATE_ON_START": True,
-            "CALIBRATION_SAMPLES": 5,
-            "ANTI_OVERSHOOT_ENABLED": True,
-            "ADAPTIVE_DAMPING_ENABLED": True,
-            "DAMPING_NEAR_DISTANCE": 30,
-            "DAMPING_FAR_DISTANCE": 80,
-            "CALIBRATION_TEST_ROUNDS": 3,
-            "MAX_DRIVER_STEP_SIZE": 8,
-
-            # PID / 模式
-            "PID_KP": 0.5,
-            "PID_KD": 0.08,
-            "HYBRID_MODE_THRESHOLD": 40,
-            "PRECISION_DEAD_ZONE": 2,
-            "NEAR_DIST_KP_BOOST": 2.0,
-            "D_CLAMP_LIMIT": 0.5,
-            "PREDICT_PUSH_PX": 1.0,
-            "MIN_MOVE_THRESHOLD": 0.5,
-            "MAX_SINGLE_MOVE_PX": 12,
-
-            # 直驱护栏（新增）
-            "FAR_GAIN": 0.6,
-            "FAR_MAX_STEP": 20,
-            "NEAR_GATE_RATIO": 0.6,
-
-            # 配置监控
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
-
             "CAPTURE_FPS": 60,
             "INFERENCE_FPS": 60,
-
-
-           "AIM_POINT_SMOOTH_ALPHA": 0.25,  # 0.1=最平滑，0.5=快速响应
         }
 
     def export_default_config(self):
@@ -173,41 +127,18 @@ class ConfigManager:
                 v = hi
             c[name] = v
 
-        clamp("PRECISION_DEAD_ZONE", 0, 50, int, 4)
-        clamp("MOUSE_ARRIVAL_THRESHOLD", 0, 50, int, 4)
-        clamp("HYBRID_MODE_THRESHOLD", 5, 200, int, 40)
-        clamp("MAX_SINGLE_MOVE_PX", 1, 100, int, 8)
-        clamp("MAX_DRIVER_STEP_SIZE", 1, 100, int, 8)
-        clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 3)
-        clamp("MIN_SEND_INTERVAL_MS", 1, 100, int, 18)
+        # 基础参数限制
+        clamp("PRECISION_DEAD_ZONE", 0, 50, int, 2)
+        clamp("MAX_SINGLE_MOVE_PX", 1, 500, int, 200)
+        clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 2)
 
-        clamp("GAME_DAMPING_FACTOR", 0.80, 0.995, float, 0.94)
+        # PID 参数限制
+        clamp("PID_KP", 0.0, 5.0, float, 0.95)
+        clamp("PID_KD", 0.0, 5.0, float, 0.05)
 
-        clamp("PID_KP", 0.0, 5.0, float, 0.18)
-        clamp("PID_KD", 0.0, 5.0, float, 0.06)
-        clamp("D_CLAMP_LIMIT", 0.0, 10.0, float, 0.35)
-
-        clamp("FAR_GAIN", 0.1, 0.95, float, 0.6)
-        clamp("FAR_MAX_STEP", 4, 64, int, 24)
-        clamp("NEAR_GATE_RATIO", 0.1, 0.95, float, 0.6)
-
-        # 到达判定 ≥ 死区
-        if c["MOUSE_ARRIVAL_THRESHOLD"] < c["PRECISION_DEAD_ZONE"]:
-            c["MOUSE_ARRIVAL_THRESHOLD"] = c["PRECISION_DEAD_ZONE"]
-
-        # 混合阈值 >= 到达/死区的 3 倍
-        min_hybrid = max(c["MOUSE_ARRIVAL_THRESHOLD"], c["PRECISION_DEAD_ZONE"]) * 3
-        if c["HYBRID_MODE_THRESHOLD"] < min_hybrid:
-            c["HYBRID_MODE_THRESHOLD"] = int(min_hybrid)
-
-        # 阻尼距离基本边界
-        for k, default in [("DAMPING_NEAR_DISTANCE", 30), ("DAMPING_FAR_DISTANCE", 90)]:
-            try:
-                v = int(c.get(k, default))
-            except Exception:
-                v = default
-            v = max(1, min(v, 500))
-            c[k] = v
+        # 帧率限制
+        clamp("CAPTURE_FPS", 1, 300, int, 60)
+        clamp("INFERENCE_FPS", 1, 300, int, 60)
 
     def load_config(self, force_reload=False):
         """加载配置，支持动态重载"""

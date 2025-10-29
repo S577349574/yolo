@@ -53,7 +53,6 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             if f12_state and not F12_PRESSED:
                 should_exit_list[0] = True
                 utils.log("🛑 正在退出程序... [F12]")
-                F12_PRESSED = True
                 break
             elif not f12_state:
                 F12_PRESSED = False

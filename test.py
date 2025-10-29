@@ -452,7 +452,7 @@ def main_menu():
             elif choice == '3':
                 manual_game_test()
                 break
-            elif choice == '4':4
+            elif choice == '4':
                 print("👋 再见！")
                 break
             else:
