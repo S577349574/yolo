@@ -10,9 +10,11 @@ def capture_screen(frame_queue, capture_ready_event, crop_size):
     """优化版截图进程"""
     try:
         with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            center_x = monitor['width'] // 2
-            center_y = monitor['height'] // 2
+            screen_width = sct.monitors[1]['width']
+            screen_height = sct.monitors[1]['height']
+
+            center_x = screen_width // 2
+            center_y = screen_height // 2
 
             crop_area = {
                 'left': center_x - crop_size // 2,

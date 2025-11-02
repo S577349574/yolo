@@ -45,13 +45,10 @@ class ConfigManager:
             "TARGET_CLASS_NAMES": ["敌人"],
 
             # 瞄准点配置
-            "AIM_POINTS": {
-                "close": {"height_threshold": 10000, "y_ratio": 0.55, "x_offset": 0},
-                "medium": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0},
-                "far": {"height_threshold": 0, "y_ratio": 0.55, "x_offset": 0}
-            },
+            "AIM_Y_RATIO": 0.55,
+            "AIM_X_OFFSET": 0,
 
-            # 目标选择与跟踪
+        # 目标选择与跟踪
             "MIN_TARGET_LOCK_FRAMES": 15,
             "TARGET_SWITCH_THRESHOLD": 0.2,
             "TARGET_IDENTITY_DISTANCE": 100,
