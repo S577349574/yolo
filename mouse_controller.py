@@ -115,8 +115,6 @@ class MouseController:
         mickey_y = int(y)
 
         # 🔍 调试：打印发送给驱动的值
-        if mickey_x != 0 or mickey_y != 0:
-            utils.log(f"[MouseController] 🔍 发送给驱动: ({mickey_x}, {mickey_y})")
 
         # 安全限幅
         MAX_MICKEY = 500
@@ -228,7 +226,6 @@ class MouseController:
     def move_to_target(self, target_x, target_y, delay_ms=None, button_flags=None):
         """将目标坐标加入移动队列"""
         # 🔍 调试：打印接收到的目标
-        utils.log(f"[MouseController] 🔍 move_to_target 接收: ({target_x}, {target_y})")
 
         if button_flags is None:
             button_flags = get_config("APP_MOUSE_NO_BUTTON", 0)

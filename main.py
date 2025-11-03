@@ -228,7 +228,6 @@ def main():
                 screen_info['width'],
                 screen_info['height']
             )
-
             # 收集距离数据（用于统计）
             if best_x is not None:
                 # 🆕 FPS模式：距离是相对于屏幕中心的偏移

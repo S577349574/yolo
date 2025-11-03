@@ -139,7 +139,6 @@ class ConfigManager:
 
     def load_config(self, force_reload=False):
         """加载配置，支持动态重载"""
-        self._log("📝 执行到了加载配置")
         current_modified_time = os.path.getmtime(self.config_file) if self.config_file.exists() else 0
 
         # 仅在：文件存在 + 曾加载过 + 未变化 时早退
