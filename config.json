@@ -15,7 +15,7 @@
     "MAX_LOST_FRAMES": 30,
     "DISTANCE_WEIGHT": 0.8,
     "AIM_POINT_SMOOTH_ALPHA": 0.25,
-    "PID_KP": 0.15,
+    "PID_KP": 0.16,
     "PID_KD": 0.01,
     "MAX_SINGLE_MOVE_PX": 200,
     "PRECISION_DEAD_ZONE": 1,

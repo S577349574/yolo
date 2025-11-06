@@ -87,28 +87,13 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             utils.log(f"[按键监控] 错误: {e}")
             break
 
-def config_monitor(should_exit_list):
-    """监控配置文件变化并动态重载"""
-    check_interval = get_config('CONFIG_MONITOR_INTERVAL_SEC', 60)  # 从配置中读取间隔（默认5秒）
-    utils.log(f"[配置监控] 已启动，每 {check_interval} 秒检查一次")
-    while not should_exit_list[0]:
-        try:
-            old_config = load_config().copy()  # 备份旧配置（使用 load_config() 返回整个 dict）
-            load_config(force_reload=True)  # 强制检查并重载
-            new_config = load_config()  # 获取新配置
-            if old_config != new_config:
-                utils.log("🔄 配置已动态重载！")
-                # 可选：在这里添加重初始化逻辑，例如如果 MODEL_PATH 变化，重载 YOLO
-                # 示例：if old_config['MODEL_PATH'] != new_config['MODEL_PATH']: reload_yolo()
-        except Exception as e:
-            utils.log(f"[配置监控] 错误: {e}")
-        time.sleep(check_interval)
-
 def main():
     print("\n" + "=" * 60)
     print("🔧 正在初始化配置...")
     load_config()
-
+    # ✅ 启动配置自动重载（替代手动的 config_monitor 线程）
+    from config_manager import start_auto_reload
+    start_auto_reload()  # 使用配置文件中的 CONFIG_MONITOR_INTERVAL_SEC
     print("🎯 启动成功，FPS游戏模式")
     print("=" * 60 + "\n")
 
@@ -160,9 +145,6 @@ def main():
     # 启动按键监控线程
     key_thread = Thread(target=key_monitor, args=(mouse_control_active, should_exit), daemon=True)
     key_thread.start()
-    # 启动配置监控线程
-    config_thread = Thread(target=config_monitor, args=(should_exit,), daemon=True)
-    config_thread.start()
 
     # 统计变量
     total_movements = 0
@@ -177,17 +159,18 @@ def main():
     utils.log(f"📏 屏幕中心: ({screen_center_x}, {screen_center_y})")
     utils.log("=" * 60 + "\n")
 
-    target_inference_fps = config_manager.get_config("INFERENCE_FPS", 60)
-    inference_interval = 1.0 / target_inference_fps
-    last_inference_time = 0
+
+
 
     try:
         frame_count = 0
         fps_start_time = time.time()
+        last_inference_time = 0
 
         while not should_exit[0]:
             current_time = time.time()
-
+            target_inference_fps = get_config("INFERENCE_FPS", 60)
+            inference_interval = 1.0 / target_inference_fps
             # 🆕 帧率限制
             if current_time - last_inference_time < inference_interval:
                 time.sleep(0.001)
@@ -283,7 +266,6 @@ def main():
         # 清理资源
         should_exit[0] = True
         key_thread.join(timeout=2.0)
-        config_thread.join(timeout=2.0)
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()
