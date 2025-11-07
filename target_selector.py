@@ -1,5 +1,5 @@
 # target_selector.py
-"""目标选择器（支持动态配置、性能优化）"""
+"""目标选择器（支持动态配置、性能优化、速度/加速度预测 - 完全修复版）"""
 
 import math
 import time
@@ -25,6 +25,27 @@ class TargetSelector:
         self.smoothed_aim_y: Optional[float] = None
 
         self.last_send_time: float = 0
+
+        # 🆕 保存原始位置（未经平滑，用于速度计算）
+        self.last_raw_x: Optional[float] = None
+        self.last_raw_y: Optional[float] = None
+
+        # 🆕 速度跟踪（用于线性预测）
+        self.last_target_time: float = time.time()
+        self.target_velocity_x: float = 0.0
+        self.target_velocity_y: float = 0.0
+        self.velocity_smooth_alpha: float = get_config('VELOCITY_SMOOTH_ALPHA', 0.3)
+
+        # 🆕 加速度跟踪（用于二阶预测，圆周运动等）
+        self.last_velocity_x: float = 0.0
+        self.last_velocity_y: float = 0.0
+        self.target_accel_x: float = 0.0
+        self.target_accel_y: float = 0.0
+        self.accel_smooth_alpha: float = get_config('ACCEL_SMOOTH_ALPHA', 0.2)
+
+        # 🆕 预测开关（可在配置中动态控制）
+        self.enable_velocity_prediction: bool = get_config('ENABLE_VELOCITY_PREDICTION', True)
+        self.enable_accel_prediction: bool = get_config('ENABLE_ACCEL_PREDICTION', False)
 
     def calculate_aim_point(
             self,
@@ -79,7 +100,7 @@ class TargetSelector:
             screen_width: int,
             screen_height: int
     ) -> Tuple[Optional[int], Optional[int]]:
-        """✅ 完全动态配置的目标选择"""
+        """✅ 完全动态配置的目标选择（速度预测完全修复版）"""
 
         # ✅ 动态读取所有配置参数
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
@@ -177,18 +198,85 @@ class TargetSelector:
             self.target_lock_frames = 0
             is_new_target = True
 
-        # 应用平滑
+        # 获取原始位置
         raw_x = selected_target['x']
         raw_y = selected_target['y']
+
+        # 🆕 关键修复：在平滑之前计算速度（使用原始位置）
+        current_time = time.time()
+        dt = current_time - self.last_target_time
+
+        # 防止除零或异常时间差
+        if dt < 0.001:
+            dt = 0.016  # 回退到 60fps 标准帧时间
+
+        if self.enable_velocity_prediction and not is_new_target and self.last_raw_x is not None:
+            # ✅ 使用原始位置计算速度（未经平滑）
+            instant_vel_x = (raw_x - self.last_raw_x) / dt
+            instant_vel_y = (raw_y - self.last_raw_y) / dt
+
+            # 平滑速度（指数移动平均，减少噪声）
+            alpha = self.velocity_smooth_alpha
+            self.target_velocity_x = alpha * instant_vel_x + (1 - alpha) * self.target_velocity_x
+            self.target_velocity_y = alpha * instant_vel_y + (1 - alpha) * self.target_velocity_y
+
+            # 🆕 加速度估算（用于圆周运动等复杂场景）
+            if self.enable_accel_prediction:
+                instant_accel_x = (self.target_velocity_x - self.last_velocity_x) / dt
+                instant_accel_y = (self.target_velocity_y - self.last_velocity_y) / dt
+
+                # 平滑加速度（更保守的平滑因子）
+                accel_alpha = self.accel_smooth_alpha
+                self.target_accel_x = accel_alpha * instant_accel_x + (1 - accel_alpha) * self.target_accel_x
+                self.target_accel_y = accel_alpha * instant_accel_y + (1 - accel_alpha) * self.target_accel_y
+
+                # 保存上次速度
+                self.last_velocity_x = self.target_velocity_x
+                self.last_velocity_y = self.target_velocity_y
+
+        elif is_new_target:
+            # 新目标，重置运动参数
+            self.target_velocity_x = 0.0
+            self.target_velocity_y = 0.0
+            self.target_accel_x = 0.0
+            self.target_accel_y = 0.0
+            self.last_velocity_x = 0.0
+            self.last_velocity_y = 0.0
+
+        # 🆕 保存原始位置（用于下一帧计算速度）
+        self.last_raw_x = raw_x
+        self.last_raw_y = raw_y
+
+        # 应用平滑（用于最终瞄准点，但不影响速度计算）
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
 
-        # 更新状态
-        self.last_target_x = smoothed_x
-        self.last_target_y = smoothed_y
+        # 🆕 位置预测（补偿系统延迟）
+        predict_delay = get_config('PREDICT_DELAY_SEC', 0.025)
+        predict_x = smoothed_x
+        predict_y = smoothed_y
+
+        if self.enable_velocity_prediction:
+            # 一阶预测：位置 + 速度 * 时间
+            predict_x += self.target_velocity_x * predict_delay
+            predict_y += self.target_velocity_y * predict_delay
+
+            if self.enable_accel_prediction:
+                # 二阶预测：+ 0.5 * 加速度 * 时间²（运动学公式）
+                predict_x += 0.5 * self.target_accel_x * (predict_delay ** 2)
+                predict_y += 0.5 * self.target_accel_y * (predict_delay ** 2)
+
+        # 边界限制（防止预测超出屏幕）
+        predict_x = max(0, min(predict_x, screen_width - 1))
+        predict_y = max(0, min(predict_y, screen_height - 1))
+
+        # 更新状态（使用预测位置）
+        self.last_target_x = int(predict_x)
+        self.last_target_y = int(predict_y)
+        self.last_target_time = current_time
         self.frames_without_target = 0
         self.is_locked = True
 
-        return smoothed_x, smoothed_y
+        return self.last_target_x, self.last_target_y
 
     def should_send_command(
             self,
@@ -209,8 +297,19 @@ class TargetSelector:
         """重置所有跟踪状态"""
         self.last_target_x = None
         self.last_target_y = None
+        self.last_raw_x = None  # 🆕
+        self.last_raw_y = None  # 🆕
         self.is_locked = False
         self.locked_target_id = None
         self.target_lock_frames = 0
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
+
+        # 🆕 重置运动参数
+        self.target_velocity_x = 0.0
+        self.target_velocity_y = 0.0
+        self.target_accel_x = 0.0
+        self.target_accel_y = 0.0
+        self.last_velocity_x = 0.0
+        self.last_velocity_y = 0.0
+        self.last_target_time = time.time()

@@ -175,7 +175,6 @@ def main():
             if current_time - last_inference_time < inference_interval:
                 time.sleep(0.001)
                 continue
-
             try:
                 # 🆕 使用阻塞式获取（避免轮询）
                 img_bgra = frame_queue.get(timeout=0.05)  # 50ms 超时

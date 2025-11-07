@@ -104,6 +104,12 @@ class ConfigManager:
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 60,
             "INFERENCE_FPS": 60,
+
+            "ENABLE_VELOCITY_PREDICTION": True,
+            "PREDICT_DELAY_SEC": 0.030,
+            "VELOCITY_SMOOTH_ALPHA": 0.3,
+            "ENABLE_ACCEL_PREDICTION": False,
+            "ACCEL_SMOOTH_ALPHA": 0.2
         }
 
     def _validate_and_clamp(self, config: Dict[str, Any]) -> Dict[str, Any]:
