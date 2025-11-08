@@ -109,7 +109,28 @@ class ConfigManager:
             "PREDICT_DELAY_SEC": 0.030,
             "VELOCITY_SMOOTH_ALPHA": 0.3,
             "ENABLE_ACCEL_PREDICTION": False,
-            "ACCEL_SMOOTH_ALPHA": 0.2
+
+
+            "ACCEL_SMOOTH_ALPHA": 0.2,
+
+            # 自动开火配置（优化版）
+            "ENABLE_AUTO_FIRE": False,
+
+            "ENABLE_MANUAL_RECOIL": False,  # 手动射击+按键压枪
+            "MANUAL_RECOIL_TRIGGER_MODE": "left_only",  # left_only / both_buttons
+
+            "AUTO_FIRE_ACCURACY_THRESHOLD": 0.75,
+            "AUTO_FIRE_DISTANCE_THRESHOLD": 20.0,
+            "AUTO_FIRE_MIN_LOCK_FRAMES": 3,
+            "AUTO_FIRE_DEBUG_MODE": False,  # 🆕 调试模式（详细日志）
+
+            # 压枪配置（优化版）
+            "ENABLE_RECOIL_CONTROL": True,
+            "RECOIL_PATTERN": "linear",
+            "RECOIL_VERTICAL_SPEED": 150.0,
+            "RECOIL_INCREMENT_Y": 0.5,
+            "RECOIL_MAX_SINGLE_MOVE": 50.0,  # 🆕 单次最大移动（替代累积限制）
+            "RECOIL_CUSTOM_PATTERN": [],
         }
 
     def _validate_and_clamp(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -155,6 +176,21 @@ class ConfigManager:
         clamp("CONFIG_MONITOR_INTERVAL_SEC", 1, 60, int, 5)
         clamp("CAPTURE_FPS", 1, 500, int, 60)
         clamp("INFERENCE_FPS", 1, 500, int, 60)
+
+        # 在 _validate_and_clamp() 方法中添加：
+
+        clamp("AUTO_FIRE_ACCURACY_THRESHOLD", 0.5, 0.99, float, 0.75)
+        clamp("AUTO_FIRE_DISTANCE_THRESHOLD", 5.0, 100.0, float, 20.0)
+        clamp("AUTO_FIRE_MIN_LOCK_FRAMES", 1, 100, int, 3)
+
+        clamp("RECOIL_VERTICAL_SPEED", 50.0, 1000.0, float, 150.0)
+        clamp("RECOIL_INCREMENT_Y", 0.0, 10.0, float, 0.5)
+        clamp("RECOIL_MAX_SINGLE_MOVE", 10.0, 200.0, float, 50.0)
+
+        if config.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
+            config["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
+        if config.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
+            config["RECOIL_PATTERN"] = "linear"
 
         # ✅ 验证 TARGET_CLASS_NAMES 是列表
         if not isinstance(c.get("TARGET_CLASS_NAMES"), list):

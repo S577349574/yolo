@@ -1,5 +1,5 @@
-# main.py （完整版，添加配置监控线程）
-"""主程序入口（FPS游戏专用版）"""
+# main.py
+"""主程序入口（FPS游戏专用版 + 互斥压枪模式）"""
 import math
 import queue as thread_queue
 import time
@@ -10,14 +10,13 @@ import cv2
 import win32api
 import win32con
 
-import config_manager
 import utils
-# 首先加载配置
-from config_manager import load_config, get_config
+from config_manager import load_config, get_config, start_auto_reload
 from yolo_detector import YOLOv8Detector
 from mouse_controller import MouseController
 from screen_capture import capture_screen
 from target_selector import TargetSelector
+from auto_fire_controller import AutoFireController
 from utils import get_screen_info, calculate_capture_area
 
 
@@ -87,13 +86,24 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             utils.log(f"[按键监控] 错误: {e}")
             break
 
+
 def main():
     print("\n" + "=" * 60)
     print("🔧 正在初始化配置...")
     load_config()
-    # ✅ 启动配置自动重载（替代手动的 config_monitor 线程）
-    from config_manager import start_auto_reload
-    start_auto_reload()  # 使用配置文件中的 CONFIG_MONITOR_INTERVAL_SEC
+    start_auto_reload()
+
+    # 🆕 模式互斥检查
+    enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
+    enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
+
+    if enable_auto_fire and enable_manual_recoil:
+        utils.log("\n❌ 错误：不能同时启用自动开火和手动压枪模式")
+        utils.log("请在 config.json 中只保留一个为 true：")
+        utils.log("  - ENABLE_AUTO_FIRE: 自动开火+自动压枪")
+        utils.log("  - ENABLE_MANUAL_RECOIL: 手动射击+按键压枪")
+        return
+
     print("🎯 启动成功，FPS游戏模式")
     print("=" * 60 + "\n")
 
@@ -104,22 +114,31 @@ def main():
         utils.log(f"❌ 模型加载失败: {e}")
         return
 
-    target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config('TARGET_CLASS_NAMES') else []
+    target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config(
+        'TARGET_CLASS_NAMES') else []
 
-    # 初始化鼠标控制器（FPS专用版）
+    # 初始化鼠标控制器
     try:
         mouse_controller = MouseController()
     except Exception as e:
         utils.log(f"❌ 鼠标控制器初始化失败: {e}")
         return
 
-    # 启动屏幕捕获进程（使用 get_config）
+    # 初始化自动开火控制器
+    auto_fire = AutoFireController(mouse_controller)
+
+    # 🆕 根据模式启动对应功能
+    if enable_manual_recoil:
+        auto_fire.start_manual_recoil_monitor()
+        utils.log("🎮 已启用手动压枪模式（按住左键时自动压枪）")
+    elif enable_auto_fire:
+        utils.log("🤖 已启用自动开火模式")
+
+    # 启动屏幕捕获进程
     frame_queue = Queue(maxsize=5)
     capture_ready_event = Event()
     capture_process = Process(target=capture_screen, args=(frame_queue, capture_ready_event, get_config('CROP_SIZE')))
     capture_process.start()
-
-    utils.log(f"📊 智能阈值: {'✅ 已启用' if get_config('ENABLE_SMART_THRESHOLD') else '❌ 已关闭'}")
 
     capture_ready_event.wait(timeout=10)
     if not capture_ready_event.is_set():
@@ -135,10 +154,10 @@ def main():
     screen_center_y = screen_info['height'] // 2
     capture_area = calculate_capture_area(get_config('CROP_SIZE'))
 
-    # 初始化目标选择器（FPS专用版）
+    # 初始化目标选择器
     target_selector = TargetSelector()
 
-    # 控制变量（使用列表实现线程间共享）
+    # 控制变量
     mouse_control_active = [False]
     should_exit = [False]
 
@@ -153,14 +172,15 @@ def main():
 
     utils.log("\n" + "=" * 60)
     utils.log("🎯 FPS自瞄系统已启动")
-    utils.log(f"📊 智能阈值: {'✅ 已启用' if get_config('ENABLE_SMART_THRESHOLD') else '❌ 已关闭'}")
-    utils.log(f"🎮 游戏模式: ✅ FPS模式")
-    utils.log(f"🛡️ 死区: {get_config('GAME_DEAD_ZONE')}px | 阻尼: {get_config('GAME_DAMPING_FACTOR')}")
+    if enable_auto_fire:
+        utils.log(f"🔥 自动开火: ✅ 已启用")
+        utils.log(f"📊 准确率阈值: {get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75) * 100:.0f}%")
+        utils.log(f"📏 距离阈值: {get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0):.1f}px")
+    elif enable_manual_recoil:
+        utils.log(f"🎮 手动压枪: ✅ 已启用")
+    utils.log(f"🎯 压枪速度: {get_config('RECOIL_VERTICAL_SPEED', 150.0)} px/s")
     utils.log(f"📏 屏幕中心: ({screen_center_x}, {screen_center_y})")
     utils.log("=" * 60 + "\n")
-
-
-
 
     try:
         frame_count = 0
@@ -171,17 +191,18 @@ def main():
             current_time = time.time()
             target_inference_fps = get_config("INFERENCE_FPS", 60)
             inference_interval = 1.0 / target_inference_fps
-            # 🆕 帧率限制
+
+            # 帧率限制
             if current_time - last_inference_time < inference_interval:
                 time.sleep(0.001)
                 continue
+
             try:
-                # 🆕 使用阻塞式获取（避免轮询）
-                img_bgra = frame_queue.get(timeout=0.05)  # 50ms 超时
+                img_bgra = frame_queue.get(timeout=0.05)
             except thread_queue.Empty:
                 continue
 
-            # 🆕 颜色转换（或在捕获进程完成）
+            # 颜色转换
             img_bgr = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
 
             # YOLO 推理
@@ -210,20 +231,42 @@ def main():
                 screen_info['width'],
                 screen_info['height']
             )
-            # 收集距离数据（用于统计）
+
+            # 计算误差距离和准确率
+            current_accuracy = 0.0
             if best_x is not None:
-                # 🆕 FPS模式：距离是相对于屏幕中心的偏移
                 offset_distance = math.sqrt(
                     (best_x - screen_center_x) ** 2 +
                     (best_y - screen_center_y) ** 2
                 )
                 debug_distances.append(offset_distance)
 
-            # 🆕 FPS专用鼠标控制
+                # 更新准确率
+                current_accuracy = auto_fire.update_accuracy(offset_distance)
+
+                # 🆕 自动开火模式逻辑
+                if enable_auto_fire:
+                    if auto_fire.should_auto_fire(
+                            target_selector.is_locked,
+                            target_selector.target_lock_frames,
+                            current_accuracy,
+                            offset_distance
+                    ):
+                        if not auto_fire.is_firing:
+                            auto_fire.start_firing()
+                        auto_fire.apply_recoil_control()
+                    else:
+                        if auto_fire.is_firing:
+                            auto_fire.stop_firing()
+            else:
+                # 目标丢失
+                if enable_auto_fire and auto_fire.is_firing:
+                    auto_fire.stop_firing()
+                    auto_fire.reset()
+
+            # 鼠标控制（瞄准）
             if mouse_control_active[0] and best_x is not None:
-                # 判断是否需要发送移动指令
                 if target_selector.should_send_command(best_x, best_y, screen_center_x, screen_center_y):
-                    # 发送目标坐标（控制器内部会转换为相对偏移）
                     mouse_controller.move_to_target(best_x, best_y)
                     total_movements += 1
                 else:
@@ -235,12 +278,23 @@ def main():
                 fps = frame_count / (time.time() - fps_start_time)
                 lock_status = '🔒 已锁定' if target_selector.is_locked else '🔍 搜索中'
 
+                # 状态显示
+                if enable_auto_fire:
+                    fire_status = '🔥 射击中' if auto_fire.is_firing else '⏸ 待命'
+                    accuracy_percent = current_accuracy * 100
+                    status_info = f"{fire_status} | 准确率: {accuracy_percent:.1f}%"
+                elif enable_manual_recoil:
+                    recoil_status = '🎮 压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
+                    status_info = f"{recoil_status}"
+                else:
+                    status_info = ""
+
                 # 计算优化率
                 efficiency = 0
                 if total_movements + skipped_movements > 0:
                     efficiency = (skipped_movements / (total_movements + skipped_movements)) * 100
 
-                stats = f"FPS: {fps:.1f} | 检测: {len(results)} | {lock_status} | " \
+                stats = f"FPS: {fps:.1f} | 检测: {len(results)} | {lock_status} | {status_info} | " \
                         f"移动: {total_movements} | 跳过: {skipped_movements} | 优化率: {efficiency:.1f}%"
 
                 # 距离统计
@@ -263,6 +317,11 @@ def main():
         utils.log("\n⚠ 用户中断")
     finally:
         # 清理资源
+        if enable_auto_fire:
+            auto_fire.stop_firing()
+        if enable_manual_recoil:
+            auto_fire.stop_manual_recoil_monitor()
+
         should_exit[0] = True
         key_thread.join(timeout=2.0)
         capture_process.terminate()

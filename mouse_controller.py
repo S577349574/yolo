@@ -166,11 +166,6 @@ class MouseController:
                     error_y = target_y - center_y
                     distance = math.hypot(error_x, error_y)
 
-                    # 🔍 调试：打印目标和误差（每10次打印一次，避免刷屏）
-                    if self.move_count % 10 == 1:
-                        utils.log(
-                            f"[MouseController] 🔍 目标: ({target_x}, {target_y}), 误差: ({error_x:.1f}, {error_y:.1f}), 距离: {distance:.1f}px")
-
                     # 死区判断
                     if distance < dead_zone:
                         if self.move_count % 10 == 1:
@@ -184,10 +179,8 @@ class MouseController:
 
 
                     # 🔍 调试：打印 PID 输出
-                    if self.move_count % 10 == 1:
-                        utils.log(f"[MouseController] 🔍 PID 输出: ({move_x_raw:.2f}, {move_y_raw:.2f})")
 
-                    # 🔧 简单限幅（防止单步过大）
+
                     max_step = get_config("MAX_SINGLE_MOVE_PX", 80)
                     move_norm = math.hypot(move_x_raw, move_y_raw)
                     if move_norm > max_step:
@@ -200,19 +193,12 @@ class MouseController:
                     move_x = int(round(move_x_raw))
                     move_y = int(round(move_y_raw))
 
-                    # 🔍 调试：打印最终移动值
-                    if self.move_count % 10 == 1:
-                        utils.log(f"[MouseController] 🔍 最终移动: ({move_x}, {move_y})")
 
                     # 发送移动指令
                     if move_x != 0 or move_y != 0:
                         self._send_mouse_request(move_x, move_y, get_config("APP_MOUSE_NO_BUTTON", 0))
 
                     time.sleep(current_delay_ms / 1000.0)
-
-                    # 统计
-                    if self.move_count % 100 == 0:
-                        utils.log(f"📊 统计: 已移动{self.move_count}次")
 
                     if button_flags != get_config("APP_MOUSE_NO_BUTTON", 0):
                         self._send_mouse_request(0, 0, button_flags)
