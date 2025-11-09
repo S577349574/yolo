@@ -42,8 +42,8 @@
     "CAPTURE_FPS": 300,
     "INFERENCE_FPS": 300,
 
-    "ENABLE_AUTO_FIRE": false,
-    "ENABLE_MANUAL_RECOIL": true,
+    "ENABLE_AUTO_FIRE": true,
+    "ENABLE_MANUAL_RECOIL": false,
 
     "MANUAL_RECOIL_TRIGGER_MODE": "both_buttons",
     "AUTO_FIRE_ACCURACY_THRESHOLD": 0.5,
