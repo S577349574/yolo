@@ -9,9 +9,11 @@ from config_manager import get_config  # 修改：直接导入 get_config
 
 class YOLOv8Detector:
     def __init__(self):
-        model_path = get_config('MODEL_PATH')  # 改为运行时获取
-        img_size = get_config('CROP_SIZE')     # 改为运行时获取
+        model_path = get_config('MODEL_PATH')
+        img_size = get_config('CROP_SIZE')
         self.img_size = img_size
+
+        # 修改这里 - 使用 AzureExecutionProvider 而不是 DmlExecutionProvider
         providers = ['DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
         available_providers = ort.get_available_providers()
         active_providers = [p for p in providers if p in available_providers]

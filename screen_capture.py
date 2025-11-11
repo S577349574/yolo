@@ -1,6 +1,7 @@
 import time
-import numpy as np
+
 import mss
+import numpy as np
 
 import config_manager
 import utils

@@ -6,7 +6,7 @@ print("=" * 60)
 
 # 获取所有可用的 Providers
 available = ort.get_available_providers()
-print(f"\n✅ 当前系统支持的 Providers:")
+print(f"\n当前系统支持的 Providers:")
 for i, provider in enumerate(available, 1):
     print(f"   {i}. {provider}")
 
@@ -14,20 +14,20 @@ for i, provider in enumerate(available, 1):
 gpu_providers = [p for p in available if 'CPU' not in p]
 
 if gpu_providers:
-    print(f"\n🎉 检测到 GPU 支持:")
+    print(f"\n检测到 GPU 支持:")
     for provider in gpu_providers:
         print(f"   • {provider}")
 
     # 给出建议
     if 'DmlExecutionProvider' in available:
-        print("\n💡 建议: 使用 DmlExecutionProvider (适用于 AMD/NVIDIA/Intel)")
+        print("\n建议: 使用 DmlExecutionProvider (适用于 AMD/NVIDIA/Intel)")
     elif 'ROCMExecutionProvider' in available:
-        print("\n💡 建议: 使用 ROCMExecutionProvider (AMD 专用)")
+        print("\n建议: 使用 ROCMExecutionProvider (AMD 专用)")
     elif 'CUDAExecutionProvider' in available:
-        print("\n💡 建议: 使用 CUDAExecutionProvider (NVIDIA 专用)")
+        print("\n建议: 使用 CUDAExecutionProvider (NVIDIA 专用)")
 else:
-    print(f"\n⚠️ 未检测到 GPU 支持，只能使用 CPU")
-    print("\n💡 解决方法:")
+    print(f"\n未检测到 GPU 支持，只能使用 CPU")
+    print("\n解决方法:")
     print("   1. 确认已安装显卡驱动")
     print("   2. 安装 GPU 版本的 ONNX Runtime:")
     print("      pip uninstall onnxruntime")

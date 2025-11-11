@@ -34,10 +34,10 @@ class MouseController:
         self.use_compensation = self._check_if_compensation_needed()
 
         if self.use_compensation:
-            utils.log("[MouseController] ⚠️ 检测到非 1:1 映射环境，启用补偿器")
+            utils.log("[MouseController] 检测到非 1:1 映射环境，启用补偿器")
             self.compensator = None
         else:
-            utils.log("[MouseController] ✅ 检测到 1:1 映射环境，无需补偿")
+            utils.log("[MouseController] 检测到 1:1 映射环境，无需补偿")
 
         # 近距 PID 控制器
         kp = get_config("PID_KP", 0.35)
@@ -46,7 +46,7 @@ class MouseController:
         self.pid = PIDController(kp=kp, ki=ki, kd=kd)
 
         # 🔍 调试：打印 PID 参数
-        utils.log(f"[MouseController] 🔍 PID 参数: KP={kp}, KI={ki}, KD={kd}")
+        utils.log(f"[MouseController] PID 参数: KP={kp}, KI={ki}, KD={kd}")
 
         # 统计
         self.move_count = 0
@@ -67,11 +67,11 @@ class MouseController:
                 0,
                 None,
             )
-            utils.log("[MouseController] ✅ 成功打开驱动")
+            utils.log("[MouseController] 成功打开驱动")
             self.mouse_thread = Thread(target=self._mouse_worker, daemon=True)
             self.mouse_thread.start()
         except win32api.error as e:
-            utils.log(f"[MouseController] ❌ 无法打开驱动: {e.winerror}")
+            utils.log(f"[MouseController] 无法打开驱动: {e.winerror}")
             self.close()
             raise
 
@@ -134,7 +134,7 @@ class MouseController:
             )
             return True
         except Exception as e:
-            utils.log(f"[MouseController] ❌ 驱动调用失败: {e}")
+            utils.log(f"[MouseController] 驱动调用失败: {e}")
             return False
 
     def _mouse_worker(self):
@@ -147,10 +147,10 @@ class MouseController:
         center_y = screen_height // 2
 
         # 🔍 调试：打印屏幕信息
-        utils.log(f"[MouseController] 🔍 屏幕尺寸: {screen_width}x{screen_height}, 中心: ({center_x}, {center_y})")
+        utils.log(f"[MouseController] 屏幕尺寸: {screen_width}x{screen_height}, 中心: ({center_x}, {center_y})")
 
         dead_zone = get_config("PRECISION_DEAD_ZONE", 2)
-        utils.log(f"[MouseController] 🔍 死区: {dead_zone}px")
+        utils.log(f"[MouseController] 死区: {dead_zone}px")
 
         try:
             while not self.stop_event.is_set():
@@ -169,7 +169,7 @@ class MouseController:
                     # 死区判断
                     if distance < dead_zone:
                         if self.move_count % 10 == 1:
-                            utils.log(f"[MouseController] 🔍 在死区内，跳过")
+                            utils.log(f"[MouseController] 在死区内，跳过")
                         self.pid.reset()
                         time.sleep(current_delay_ms / 1000.0)
                         continue
@@ -188,7 +188,7 @@ class MouseController:
                         move_x_raw *= scale
                         move_y_raw *= scale
                         if self.move_count % 10 == 1:
-                            utils.log(f"[MouseController] 🔍 限幅: {move_norm:.1f}px → {max_step}px (缩放 {scale:.2f})")
+                            utils.log(f"[MouseController] 限幅: {move_norm:.1f}px → {max_step}px (缩放 {scale:.2f})")
 
                     move_x = int(round(move_x_raw))
                     move_y = int(round(move_y_raw))
@@ -216,7 +216,7 @@ class MouseController:
         if button_flags is None:
             button_flags = get_config("APP_MOUSE_NO_BUTTON", 0)
         if not self.driver_handle or not self.mouse_thread or not self.mouse_thread.is_alive():
-            utils.log("[MouseController] ⚠️ 驱动或线程未就绪")
+            utils.log("[MouseController] ⚠驱动或线程未就绪")
             return False
 
         actual_delay_ms = delay_ms if delay_ms is not None else get_config("DEFAULT_DELAY_MS_PER_STEP", 2)
@@ -227,7 +227,7 @@ class MouseController:
             # 尝试取出旧指令（如果队列已满）
             try:
                 old_command = self.move_queue.get_nowait()
-                utils.log(f"[MouseController] 🔍 覆盖旧指令: ({old_command[0]}, {old_command[1]})")
+                utils.log(f"[MouseController] 覆盖旧指令: ({old_command[0]}, {old_command[1]})")
             except thread_queue.Empty:
                 pass
 
@@ -235,20 +235,20 @@ class MouseController:
             self.move_queue.put_nowait(move_command)
             return True
         except thread_queue.Full:
-            utils.log("[MouseController] ⚠️ 队列已满（理论上不会发生）")
+            utils.log("[MouseController] 队列已满（理论上不会发生）")
             return False
         except Exception as e:
-            utils.log(f"[MouseController] ❌ 队列操作失败: {e}")
+            utils.log(f"[MouseController] 队列操作失败: {e}")
             return False
 
     def click(self, button=None, delay_ms=50):
         """点击鼠标"""
-        utils.log(f"[MouseController] 🔍 执行点击: button={button}, delay={delay_ms}ms")
+        utils.log(f"[MouseController] 执行点击: button={button}, delay={delay_ms}ms")
 
         if button is None:
             button = get_config("APP_MOUSE_LEFT_DOWN", 1)
         if not self.driver_handle:
-            utils.log("[MouseController] ⚠️ 驱动未就绪，点击失败")
+            utils.log("[MouseController] ⚠驱动未就绪，点击失败")
             return False
 
         up_flag = {
@@ -257,7 +257,7 @@ class MouseController:
             get_config("APP_MOUSE_MIDDLE_DOWN", 16): get_config("APP_MOUSE_MIDDLE_UP", 32),
         }.get(button)
         if not up_flag:
-            utils.log(f"[MouseController] ❌ 未知按钮类型: {button}")
+            utils.log(f"[MouseController] 未知按钮类型: {button}")
             return False
 
         if not self._send_mouse_request(0, 0, button):
@@ -267,16 +267,16 @@ class MouseController:
 
     def close(self):
         """关闭控制器"""
-        utils.log("[MouseController] 🔍 开始关闭控制器...")
+        utils.log("[MouseController] 开始关闭控制器...")
 
         if self.driver_handle:
             self.stop_event.set()
             if self.mouse_thread and self.mouse_thread.is_alive():
-                utils.log("[MouseController] 🔍 等待工作线程结束...")
+                utils.log("[MouseController] 等待工作线程结束...")
                 self.mouse_thread.join(timeout=2.0)
             win32file.CloseHandle(self.driver_handle)
             self.driver_handle = None
             utils.log("[MouseController] 已关闭")
 
         # 🔍 调试：打印最终统计
-        utils.log(f"[MouseController] 📊 最终统计: 总移动次数 {self.move_count}")
+        utils.log(f"[MouseController] 最终统计: 总移动次数 {self.move_count}")

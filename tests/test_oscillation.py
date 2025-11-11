@@ -1,5 +1,7 @@
 import time
+
 import win32api
+
 from mouse_controller import MouseController
 
 controller = MouseController()

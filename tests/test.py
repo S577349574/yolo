@@ -1,8 +1,9 @@
-import win32api
-import win32file
 import ctypes
 import time
+
 import numpy as np
+import win32api
+import win32file
 from scipy.interpolate import CubicSpline
 
 
@@ -132,9 +133,9 @@ def test_desktop_calibration():
             0x80000000 | 0x40000000,
             0, None, 3, 0, None
         )
-        print("✅ 驱动已连接")
+        print("驱动已连接")
     except Exception as e:
-        print(f"❌ 驱动打开失败: {e}")
+        print(f"驱动打开失败: {e}")
         return None
 
     def send_move(dx, dy):
@@ -146,10 +147,10 @@ def test_desktop_calibration():
             return False
 
     print("\n" + "=" * 60)
-    print("🧪 桌面环境标定")
+    print("桌面环境标定")
     print("=" * 60)
-    print("⚠️  请将鼠标移至屏幕中央")
-    print("⚠️  2 秒后自动开始测试...")
+    print("请将鼠标移至屏幕中央")
+    print("2 秒后自动开始测试...")
     time.sleep(2)
 
     # 密集采样测试用例
@@ -163,7 +164,7 @@ def test_desktop_calibration():
     calibration_data = []
 
     for case in test_cases:
-        print(f"\n📌 {case['name']}")
+        print(f"\n {case['name']}")
 
         for val in case['values']:
             measurements = []
@@ -189,7 +190,7 @@ def test_desktop_calibration():
             print(f"  X 驱动{val:3d} → {avg:6.2f}px ({scale:.3f}x) | {measurements}")
 
     print("\n" + "=" * 60)
-    print(f"🎯 收集了 {len(calibration_data)} 个标定点")
+    print(f"收集了 {len(calibration_data)} 个标定点")
     print("=" * 60)
 
     # 排序并添加原点
@@ -207,8 +208,8 @@ def test_desktop_calibration():
     with open("desktop_calibration.json", "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
 
-    print("\n✅ 标定数据已保存到 desktop_calibration.json")
-    print("\n📋 配置文件格式：")
+    print("\n标定数据已保存到 desktop_calibration.json")
+    print("\n配置文件格式：")
     print('"MICKEY_CALIBRATION_POINTS": [')
     for px, mk in calibration_data:
         print(f'  [{px:.1f}, {mk:.0f}],')
@@ -229,9 +230,9 @@ def manual_game_test():
             0x80000000 | 0x40000000,
             0, None, 3, 0, None
         )
-        print("✅ 驱动已连接")
+        print("驱动已连接")
     except Exception as e:
-        print(f"❌ 驱动打开失败: {e}")
+        print(f"驱动打开失败: {e}")
         return
 
     def send_move(dx, dy):
@@ -248,9 +249,9 @@ def manual_game_test():
         with open("desktop_calibration.json", "r", encoding="utf-8") as f:
             data = json.load(f)
         desktop_calibration = data["calibration_points"]
-        print("✅ 已加载桌面标定数据（可用于参考）")
+        print("已加载桌面标定数据（可用于参考）")
 
-        print("\n📊 桌面参考数据：")
+        print("\n桌面参考数据：")
         reference_mickeys = [50, 100, 150, 200]
         for mickey_val in reference_mickeys:
             desktop_px = np.interp(

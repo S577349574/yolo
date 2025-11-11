@@ -51,7 +51,7 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             # F12：退出
             if f12_state and not F12_PRESSED:
                 should_exit_list[0] = True
-                utils.log("🛑 正在退出程序... [F12]")
+                utils.log("正在退出程序... [F12]")
                 break
             elif not f12_state:
                 F12_PRESSED = False
@@ -89,29 +89,45 @@ def key_monitor(mouse_control_active_list, should_exit_list):
 
 def main():
     print("\n" + "=" * 60)
-    print("🔧 正在初始化配置...")
-    load_config()
-    start_auto_reload()
+    print("正在初始化配置...")
+    # ✅ 加载配置并验证路径
+    try:
+        load_config()
+        start_auto_reload()
+
+        # 验证关键文件
+        model_path = get_config('MODEL_PATH')
+        from pathlib import Path
+        if not Path(model_path).exists():
+            utils.log(f"\n错误：模型文件不存在")
+            utils.log(f"期望路径: {model_path}")
+            utils.log(f"请确保将 320.onnx 放在 exe 所在目录")
+            return
+
+        utils.log(f"模型路径: {model_path}")
+
+    except Exception as e:
+        utils.log(f"配置加载失败: {e}")
 
     # 🆕 模式互斥检查
     enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
     enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
 
     if enable_auto_fire and enable_manual_recoil:
-        utils.log("\n❌ 错误：不能同时启用自动开火和手动压枪模式")
+        utils.log("\n错误：不能同时启用自动开火和手动压枪模式")
         utils.log("请在 config.json 中只保留一个为 true：")
         utils.log("  - ENABLE_AUTO_FIRE: 自动开火+自动压枪")
         utils.log("  - ENABLE_MANUAL_RECOIL: 手动射击+按键压枪")
         return
 
-    print("🎯 启动成功，FPS游戏模式")
+    print("启动成功，FPS游戏模式")
     print("=" * 60 + "\n")
 
     # 初始化YOLO模型
     try:
         model = YOLOv8Detector()
     except Exception as e:
-        utils.log(f"❌ 模型加载失败: {e}")
+        utils.log(f"模型加载失败: {e}")
         return
 
     target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config(
@@ -121,7 +137,7 @@ def main():
     try:
         mouse_controller = MouseController()
     except Exception as e:
-        utils.log(f"❌ 鼠标控制器初始化失败: {e}")
+        utils.log(f"鼠标控制器初始化失败: {e}")
         return
 
     # 初始化自动开火控制器
@@ -130,9 +146,9 @@ def main():
     # 🆕 根据模式启动对应功能
     if enable_manual_recoil:
         auto_fire.start_manual_recoil_monitor()
-        utils.log("🎮 已启用手动压枪模式（按住左键时自动压枪）")
+        utils.log("已启用手动压枪模式（按住左键时自动压枪）")
     elif enable_auto_fire:
-        utils.log("🤖 已启用自动开火模式")
+        utils.log("已启用自动开火模式")
 
     # 启动屏幕捕获进程
     frame_queue = Queue(maxsize=5)
@@ -142,7 +158,7 @@ def main():
 
     capture_ready_event.wait(timeout=10)
     if not capture_ready_event.is_set():
-        utils.log("❌ 捕获进程未就绪")
+        utils.log("捕获进程未就绪")
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()
@@ -171,15 +187,15 @@ def main():
     debug_distances = []
 
     utils.log("\n" + "=" * 60)
-    utils.log("🎯 FPS自瞄系统已启动")
+    utils.log("FPS自瞄系统已启动")
     if enable_auto_fire:
-        utils.log(f"🔥 自动开火: ✅ 已启用")
-        utils.log(f"📊 准确率阈值: {get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75) * 100:.0f}%")
-        utils.log(f"📏 距离阈值: {get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0):.1f}px")
+        utils.log(f"自动开火: 已启用")
+        utils.log(f"准确率阈值: {get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75) * 100:.0f}%")
+        utils.log(f"距离阈值: {get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0):.1f}px")
     elif enable_manual_recoil:
-        utils.log(f"🎮 手动压枪: ✅ 已启用")
-    utils.log(f"🎯 压枪速度: {get_config('RECOIL_VERTICAL_SPEED', 150.0)} px/s")
-    utils.log(f"📏 屏幕中心: ({screen_center_x}, {screen_center_y})")
+        utils.log(f"手动压枪: 已启用")
+    utils.log(f"压枪速度: {get_config('RECOIL_VERTICAL_SPEED', 150.0)} px/s")
+    utils.log(f"屏幕中心: ({screen_center_x}, {screen_center_y})")
     utils.log("=" * 60 + "\n")
 
     try:
@@ -276,15 +292,15 @@ def main():
             frame_count += 1
             if time.time() - fps_start_time >= 1.0:
                 fps = frame_count / (time.time() - fps_start_time)
-                lock_status = '🔒 已锁定' if target_selector.is_locked else '🔍 搜索中'
+                lock_status = '已锁定' if target_selector.is_locked else '搜索中'
 
                 # 状态显示
                 if enable_auto_fire:
-                    fire_status = '🔥 射击中' if auto_fire.is_firing else '⏸ 待命'
+                    fire_status = '射击中' if auto_fire.is_firing else '⏸ 待命'
                     accuracy_percent = current_accuracy * 100
                     status_info = f"{fire_status} | 准确率: {accuracy_percent:.1f}%"
                 elif enable_manual_recoil:
-                    recoil_status = '🎮 压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
+                    recoil_status = '压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
                     status_info = f"{recoil_status}"
                 else:
                     status_info = ""
@@ -314,7 +330,7 @@ def main():
                 debug_distances.clear()
 
     except KeyboardInterrupt:
-        utils.log("\n⚠ 用户中断")
+        utils.log("\n用户中断")
     finally:
         # 清理资源
         if enable_auto_fire:
@@ -327,7 +343,7 @@ def main():
         capture_process.terminate()
         capture_process.join()
         mouse_controller.close()
-        utils.log("\n✅ 程序已安全退出")
+        utils.log("\n程序已安全退出")
 
 
 if __name__ == "__main__":

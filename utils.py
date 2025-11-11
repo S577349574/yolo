@@ -1,4 +1,9 @@
+# utils.py
+# -*- coding: utf-8 -*-
+
 import math
+import sys
+import datetime
 
 
 def get_screen_info():
@@ -29,10 +34,35 @@ def calculate_distance(x1, y1, x2, y2):
     """计算两点距离"""
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
+
 def log(message):
-    """打印日志（仅当ENABLE_LOGGING为True时输出）config_manager.get_config("ENABLE_LOGGING")"""
-    if True:  # 注意：原代码这里是 if True，可修改为 if config_manager.get_config("ENABLE_LOGGING", False):
-        print(message)
+    """
+    安全的日志输出，兼容任何控制台编码（包括 GBK）
+    自动处理 emoji 和特殊字符
+    """
+    try:
+        # 添加时间戳
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        full_msg = f"[{ts}] {message}"
 
+        # 尝试直接打印
+        print(full_msg)
 
+    except UnicodeEncodeError:
+        # 控制台不支持的字符（如 emoji）用占位符替换
+        try:
+            encoding = sys.stdout.encoding or "utf-8"
+            # 用 ? 替换无法编码的字符
+            safe_msg = full_msg.encode(encoding, errors="replace").decode(encoding)
+            sys.stdout.write(safe_msg + "\n")
+            sys.stdout.flush()
+        except Exception:
+            # 极端情况：强制转 ASCII
+            try:
+                ascii_msg = full_msg.encode("ascii", errors="ignore").decode("ascii")
+                sys.stdout.write(ascii_msg + "\n")
+                sys.stdout.flush()
+            except Exception:
+                # 最后的兜底：至少不崩溃
+                pass
 

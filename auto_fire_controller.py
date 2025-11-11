@@ -106,7 +106,7 @@ class AutoFireController:
 
             current_time = time.time()
             if current_time - self.last_log_time > self.log_interval:
-                utils.log("🔥 开始自动射击")
+                utils.log("开始自动射击")
                 self.last_log_time = current_time
 
             left_down = get_config('APP_MOUSE_LEFT_DOWN', 1)
@@ -130,7 +130,7 @@ class AutoFireController:
             current_time = time.time()
             if current_time - self.last_log_time > self.log_interval:
                 utils.log(
-                    f"🛑 停止射击 | 持续: {fire_duration:.2f}s | "
+                    f"停止射击 | 持续: {fire_duration:.2f}s | "
                     f"累积: {self.total_offset_y:.1f}px | 子弹: {self.shot_count} | "
                     f"速度: {actual_speed:.1f}/{theoretical_speed:.1f} px/s"
                 )
@@ -170,7 +170,7 @@ class AutoFireController:
             max_single_move = get_config('RECOIL_MAX_SINGLE_MOVE', 50.0)
             if offset_y > max_single_move:
                 if self.debug_mode:
-                    utils.log(f"⚠️ [自动压枪] 单次偏移过大: {offset_y:.2f}px，限制为 {max_single_move}px")
+                    utils.log(f"[自动压枪] 单次偏移过大: {offset_y:.2f}px，限制为 {max_single_move}px")
                 offset_y = max_single_move
 
             self.accumulated_offset_y += offset_y
@@ -202,20 +202,20 @@ class AutoFireController:
     def start_manual_recoil_monitor(self) -> None:
         """启动手动压枪监控线程"""
         if self.manual_recoil_thread and self.manual_recoil_thread.is_alive():
-            utils.log("⚠️ 手动压枪监控已在运行")
+            utils.log("⚠手动压枪监控已在运行")
             return
 
         self.manual_recoil_stop_flag = False
         self.manual_recoil_thread = threading.Thread(target=self._manual_recoil_loop, daemon=True)
         self.manual_recoil_thread.start()
-        utils.log("✅ 手动压枪监控已启动")
+        utils.log("手动压枪监控已启动")
 
     def stop_manual_recoil_monitor(self) -> None:
         """停止手动压枪监控线程"""
         self.manual_recoil_stop_flag = True
         if self.manual_recoil_thread:
             self.manual_recoil_thread.join(timeout=2.0)
-        utils.log("✅ 手动压枪监控已停止")
+        utils.log("手动压枪监控已停止")
 
     def _manual_recoil_loop(self) -> None:
         """手动压枪监控循环（支持单键或双键触发）"""
@@ -223,9 +223,9 @@ class AutoFireController:
         trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'left_only')
 
         if trigger_mode == 'left_only':
-            utils.log("🎯 手动压枪模式已启动（按住左键时自动压枪）")
+            utils.log("手动压枪模式已启动（按住左键时自动压枪）")
         elif trigger_mode == 'both_buttons':
-            utils.log("🎯 手动压枪模式已启动（同时按住左键+右键时自动压枪）")
+            utils.log("手动压枪模式已启动（同时按住左键+右键时自动压枪）")
 
         last_trigger_state = False  # 上一帧触发状态
         manual_fire_start_time = 0.0
@@ -259,9 +259,9 @@ class AutoFireController:
                     manual_shot_count = 0
 
                     if trigger_mode == 'left_only':
-                        utils.log("🔥 开始手动压枪（左键按下）")
+                        utils.log("开始手动压枪（左键按下）")
                     else:
-                        utils.log("🔥 开始手动压枪（左键+右键按下）")
+                        utils.log("开始手动压枪（左键+右键按下）")
 
                 # 松开瞬间（从触发到未触发）
                 elif not current_trigger_state and last_trigger_state:
@@ -270,7 +270,7 @@ class AutoFireController:
                     actual_speed = manual_total_offset_y / fire_duration if fire_duration > 0 else 0
 
                     utils.log(
-                        f"🛑 停止手动压枪 | 持续: {fire_duration:.2f}s | "
+                        f"停止手动压枪 | 持续: {fire_duration:.2f}s | "
                         f"累积: {manual_total_offset_y:.1f}px | "
                         f"速度: {actual_speed:.1f} px/s"
                     )
@@ -312,7 +312,7 @@ class AutoFireController:
                 time.sleep(0.001)
 
         except Exception as e:
-            utils.log(f"❌ 手动压枪监控线程错误: {e}")
+            utils.log(f"手动压枪监控线程错误: {e}")
 
     def _calculate_linear_recoil(self, delta_time: float) -> float:
         """线性压枪：匀速向下"""

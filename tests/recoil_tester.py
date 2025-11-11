@@ -1,16 +1,16 @@
 # recoil_tester.py
 """压枪参数测试工具（修复亚像素问题）"""
 
-import time
 import threading
+import time
 from typing import Optional
 
 import win32api
 import win32con
 
+import utils
 from config_manager import get_config, load_config
 from mouse_controller import MouseController
-import utils
 
 
 class RecoilTester:
@@ -21,9 +21,9 @@ class RecoilTester:
 
         try:
             self.mouse_controller = MouseController()
-            utils.log("✅ 鼠标控制器初始化成功")
+            utils.log("鼠标控制器初始化成功")
         except Exception as e:
-            utils.log(f"❌ 鼠标控制器初始化失败: {e}")
+            utils.log(f"鼠标控制器初始化失败: {e}")
             raise
 
         # 测试状态
@@ -94,8 +94,8 @@ class RecoilTester:
     def _test_loop(self) -> None:
         """测试主循环"""
         utils.log("\n" + "=" * 60)
-        utils.log("🎯 压枪测试已启动（累积发送模式）")
-        utils.log(f"📊 当前配置:")
+        utils.log("压枪测试已启动（累积发送模式）")
+        utils.log(f"当前配置:")
         utils.log(f"   - RECOIL_VERTICAL_SPEED: {get_config('RECOIL_VERTICAL_SPEED', 150.0)} px/s")
         utils.log("\n操作说明:")
         utils.log("   - 按住鼠标左键：开始测试压枪（自动射击）")
@@ -108,7 +108,7 @@ class RecoilTester:
         try:
             while not self.stop_flag:
                 if win32api.GetAsyncKeyState(win32con.VK_ESCAPE) & 0x8000:
-                    utils.log("\n🛑 用户按下 ESC，退出测试")
+                    utils.log("\n用户按下 ESC，退出测试")
                     break
 
                 current_button_state = win32api.GetKeyState(0x01) < 0
@@ -123,7 +123,7 @@ class RecoilTester:
                     self.accumulated_offset_x = 0.0  # 🆕 重置累积缓冲
                     self.accumulated_offset_y = 0.0
 
-                    utils.log("\n🔥 开始测试压枪（按住中）...")
+                    utils.log("\n开始测试压枪（按住中）...")
 
                     left_down = get_config('APP_MOUSE_LEFT_DOWN', 1)
                     self.mouse_controller._send_mouse_request(0, 0, left_down)
@@ -137,7 +137,7 @@ class RecoilTester:
                     theoretical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
                     error_percent = abs(actual_speed - theoretical_speed) / theoretical_speed * 100
 
-                    utils.log(f"\n🛑 测试结束:")
+                    utils.log(f"\n测试结束:")
                     utils.log(f"   - 持续时间: {test_duration:.2f}s")
                     utils.log(f"   - 累积下移: {self.total_offset_y:.1f}px")
                     utils.log(f"   - 未发送缓冲: {self.accumulated_offset_y:.2f}px")
@@ -147,11 +147,11 @@ class RecoilTester:
                     utils.log(f"   - 误差: {abs(actual_speed - theoretical_speed):.1f} px/s ({error_percent:.1f}%)")
 
                     if error_percent < 5:
-                        utils.log(f"   ✅ 压枪参数准确")
+                        utils.log(f"   压枪参数准确")
                     elif error_percent < 10:
-                        utils.log(f"   ⚠️ 压枪参数可接受")
+                        utils.log(f"   ⚠压枪参数可接受")
                     else:
-                        utils.log(f"   ❌ 压枪参数需要调整")
+                        utils.log(f"   压枪参数需要调整")
 
                     utils.log("")
 
@@ -166,7 +166,7 @@ class RecoilTester:
                 time.sleep(0.001)
 
         except KeyboardInterrupt:
-            utils.log("\n⚠ 用户中断测试")
+            utils.log("\n 用户中断测试")
         finally:
             if self.is_testing:
                 left_up = get_config('APP_MOUSE_LEFT_UP', 2)
@@ -175,7 +175,7 @@ class RecoilTester:
     def start_test(self) -> None:
         """启动测试"""
         if self.test_thread and self.test_thread.is_alive():
-            utils.log("⚠️ 测试已在运行中")
+            utils.log("测试已在运行中")
             return
 
         self.stop_flag = False
@@ -189,13 +189,13 @@ class RecoilTester:
             self.test_thread.join(timeout=2.0)
 
         self.mouse_controller.close()
-        utils.log("\n✅ 测试工具已关闭")
+        utils.log("\n测试工具已关闭")
 
 
 def main():
     """主函数"""
     print("\n" + "=" * 60)
-    print("🔧 压枪参数测试工具（累积发送版本）")
+    print("压枪参数测试工具（累积发送版本）")
     print("=" * 60)
     print("\n正在初始化...\n")
 
@@ -207,7 +207,7 @@ def main():
             tester.test_thread.join()
 
     except Exception as e:
-        utils.log(f"\n❌ 测试工具启动失败: {e}")
+        utils.log(f"\n测试工具启动失败: {e}")
     finally:
         utils.log("\n程序已退出")
 

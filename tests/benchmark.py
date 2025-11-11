@@ -1,11 +1,13 @@
 import time
-import numpy as np
-import mss
+
 import cv2
+import mss
+import numpy as np
+
 from yolo_detector import YOLOv8Detector
 
 print("=" * 60)
-print("🔍 性能基准测试")
+print("性能基准测试")
 print("=" * 60)
 
 # 初始化
@@ -22,14 +24,14 @@ with mss.mss() as sct:
         'height': crop_size
     }
 
-    print(f"\n📊 测试配置:")
+    print(f"\n测试配置:")
     print(f"   截图区域: {crop_size}x{crop_size}")
     print(f"   YOLO 模型: {model.img_size}x{model.img_size}")
     print(f"   Provider: {model.session.get_providers()[0]}")
 
     # ==================== 测试1：纯截图速度 ====================
     print("\n" + "=" * 60)
-    print("📸 测试1: 纯截图速度（100次）")
+    print("测试1: 纯截图速度（100次）")
     print("=" * 60)
 
     capture_times = []
@@ -49,7 +51,7 @@ with mss.mss() as sct:
 
     # ==================== 测试2：纯 YOLO 推理速度 ====================
     print("\n" + "=" * 60)
-    print("🧠 测试2: 纯 YOLO 推理速度（100次）")
+    print("测试2: 纯 YOLO 推理速度（100次）")
     print("=" * 60)
 
     # 先截一张图
@@ -73,7 +75,7 @@ with mss.mss() as sct:
 
     # ==================== 测试3：完整流程 ====================
     print("\n" + "=" * 60)
-    print("🔄 测试3: 完整流程（截图+推理，100次）")
+    print("测试3: 完整流程（截图+推理，100次）")
     print("=" * 60)
 
     full_times = []
@@ -100,7 +102,7 @@ with mss.mss() as sct:
 
     # ==================== 性能分析 ====================
     print("\n" + "=" * 60)
-    print("📊 性能瓶颈分析")
+    print("性能瓶颈分析")
     print("=" * 60)
 
     capture_percent = (avg_capture / avg_full) * 100
@@ -113,17 +115,17 @@ with mss.mss() as sct:
 
     # 判断瓶颈
     if inference_percent > 60:
-        print(f"\n   ⚠️ 瓶颈: YOLO 推理（{inference_percent:.1f}%）")
+        print(f"\n   瓶颈: YOLO 推理（{inference_percent:.1f}%）")
         print(f"   建议: 降低 INFERENCE_FPS 到 {int(1000 / avg_inference)}")
     elif capture_percent > 60:
-        print(f"\n   ⚠️ 瓶颈: 屏幕截图（{capture_percent:.1f}%）")
+        print(f"\n   瓶颈: 屏幕截图（{capture_percent:.1f}%）")
         print(f"   建议: 降低 CAPTURE_FPS 到 {int(1000 / avg_capture)}")
     else:
-        print(f"\n   ✅ 性能均衡")
+        print(f"\n   性能均衡")
 
     # ==================== 推荐配置 ====================
     print("\n" + "=" * 60)
-    print("🎯 推荐配置")
+    print("推荐配置")
     print("=" * 60)
 
     max_fps = int(1000 / avg_full * 0.9)  # 留 10% 余量
@@ -144,5 +146,5 @@ with mss.mss() as sct:
     ''')
 
 print("\n" + "=" * 60)
-print("✅ 测试完成")
+print("测试完成")
 print("=" * 60)

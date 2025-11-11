@@ -188,7 +188,7 @@ class TargetSelector:
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
                 is_new_target = True
-                utils.log(f"🔄 切换目标 | 得分差: {score_diff:.2f}")
+                utils.log(f"切换目标 | 得分差: {score_diff:.2f}")
             else:
                 selected_target = current_locked_target
                 self.target_lock_frames += 1

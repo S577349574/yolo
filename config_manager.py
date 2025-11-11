@@ -1,9 +1,8 @@
-# config_manager.py
 """配置文件管理器（支持热重载、性能优化、安全验证）"""
 
+import json
 import os
 import sys
-import json
 import threading
 import time
 from pathlib import Path
@@ -12,33 +11,26 @@ from typing import Any, Dict, Optional
 
 class ConfigManager:
     def __init__(self):
-        # 确定应用目录
+        # ✅ 始终使用 exe 运行目录
         if getattr(sys, "frozen", False):
-            if hasattr(sys, "_MEIPASS"):
-                self.app_dir = Path(sys._MEIPASS)
-            else:
-                self.app_dir = Path(os.getcwd())
-            try:
-                exe_final_path = Path(sys.executable).resolve()
-                if exe_final_path.exists():
-                    self.app_dir = exe_final_path.parent
-                    self._log(f"[ConfigManager] ✅ 使用EXE目录: {self.app_dir}")
-            except Exception:
-                pass
+            # 打包后：exe 所在目录
+            self.app_dir = Path(sys.executable).parent.resolve()
+            self._log(f"[ConfigManager] 使用EXE运行目录: {self.app_dir}")
         else:
-            self.app_dir = Path(os.getcwd())
-            self._log(f"[ConfigManager] ✅ 使用开发目录: {self.app_dir}")
+            # 开发模式：脚本所在目录
+            self.app_dir = Path(__file__).parent.resolve()
+            self._log(f"[ConfigManager] 使用开发目录: {self.app_dir}")
 
         self.config_file = self.app_dir / "config.json"
         self.config: Dict[str, Any] = {}
         self.last_modified_time: float = 0
 
-        # ✅ 线程安全：读写锁
+        # 线程安全：读写锁
         self._lock = threading.RLock()
 
-        # ✅ 性能优化：缓存常用配置（带过期时间）
-        self._cache: Dict[str, tuple] = {}  # key -> (value, expire_time)
-        self._cache_ttl = 0.1  # 缓存100ms，平衡性能和实时性
+        # 性能优化：缓存常用配置（带过期时间）
+        self._cache: Dict[str, tuple] = {}
+        self._cache_ttl = 0.1
 
         # 自动重载线程
         self._monitor_thread: Optional[threading.Thread] = None
@@ -56,7 +48,7 @@ class ConfigManager:
         """默认配置（带类型注释和安全范围）"""
         return {
             # YOLO 检测
-            "MODEL_PATH": "320.onnx",
+            "MODEL_PATH": "320.onnx",  # ✅ 相对于 exe 运行目录
             "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.75,
             "IOU_THRESHOLD": 0.45,
@@ -109,27 +101,23 @@ class ConfigManager:
             "PREDICT_DELAY_SEC": 0.030,
             "VELOCITY_SMOOTH_ALPHA": 0.3,
             "ENABLE_ACCEL_PREDICTION": False,
-
-
             "ACCEL_SMOOTH_ALPHA": 0.2,
 
-            # 自动开火配置（优化版）
+            # 自动开火配置
             "ENABLE_AUTO_FIRE": False,
-
-            "ENABLE_MANUAL_RECOIL": False,  # 手动射击+按键压枪
-            "MANUAL_RECOIL_TRIGGER_MODE": "left_only",  # left_only / both_buttons
-
+            "ENABLE_MANUAL_RECOIL": False,
+            "MANUAL_RECOIL_TRIGGER_MODE": "left_only",
             "AUTO_FIRE_ACCURACY_THRESHOLD": 0.75,
             "AUTO_FIRE_DISTANCE_THRESHOLD": 20.0,
             "AUTO_FIRE_MIN_LOCK_FRAMES": 3,
-            "AUTO_FIRE_DEBUG_MODE": False,  # 🆕 调试模式（详细日志）
+            "AUTO_FIRE_DEBUG_MODE": False,
 
-            # 压枪配置（优化版）
+            # 压枪配置
             "ENABLE_RECOIL_CONTROL": True,
             "RECOIL_PATTERN": "linear",
             "RECOIL_VERTICAL_SPEED": 150.0,
             "RECOIL_INCREMENT_Y": 0.5,
-            "RECOIL_MAX_SINGLE_MOVE": 50.0,  # 🆕 单次最大移动（替代累积限制）
+            "RECOIL_MAX_SINGLE_MOVE": 50.0,
             "RECOIL_CUSTOM_PATTERN": [],
         }
 
@@ -151,60 +139,60 @@ class ConfigManager:
                 v = typ(hi)
             c[name] = v
 
-        # ✅ 严格的参数范围限制（防止恶意配置）
+        # 参数范围限制
         clamp("CROP_SIZE", 64, 1280, int, 320)
         clamp("CONF_THRESHOLD", 0.1, 0.99, float, 0.75)
         clamp("IOU_THRESHOLD", 0.1, 0.99, float, 0.45)
-
         clamp("AIM_Y_RATIO", 0.0, 1.0, float, 0.55)
         clamp("AIM_X_OFFSET", -100, 100, int, 0)
-
         clamp("MIN_TARGET_LOCK_FRAMES", 1, 100, int, 15)
         clamp("TARGET_SWITCH_THRESHOLD", 0.01, 1.0, float, 0.2)
         clamp("TARGET_IDENTITY_DISTANCE", 10, 500, int, 100)
         clamp("MAX_LOST_FRAMES", 1, 300, int, 30)
         clamp("DISTANCE_WEIGHT", 0.0, 1.0, float, 0.8)
         clamp("AIM_POINT_SMOOTH_ALPHA", 0.01, 1.0, float, 0.25)
-
         clamp("PID_KP", 0.0, 10.0, float, 0.95)
         clamp("PID_KD", 0.0, 5.0, float, 0.05)
         clamp("MAX_SINGLE_MOVE_PX", 1, 1000, int, 200)
         clamp("PRECISION_DEAD_ZONE", 0, 50, int, 2)
         clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 2)
-
         clamp("KEY_MONITOR_INTERVAL_MS", 10, 1000, int, 50)
         clamp("CONFIG_MONITOR_INTERVAL_SEC", 1, 60, int, 5)
         clamp("CAPTURE_FPS", 1, 500, int, 60)
         clamp("INFERENCE_FPS", 1, 500, int, 60)
-
-        # 在 _validate_and_clamp() 方法中添加：
-
         clamp("AUTO_FIRE_ACCURACY_THRESHOLD", 0.5, 0.99, float, 0.75)
         clamp("AUTO_FIRE_DISTANCE_THRESHOLD", 5.0, 100.0, float, 20.0)
         clamp("AUTO_FIRE_MIN_LOCK_FRAMES", 1, 100, int, 3)
-
         clamp("RECOIL_VERTICAL_SPEED", 50.0, 1000.0, float, 150.0)
         clamp("RECOIL_INCREMENT_Y", 0.0, 10.0, float, 0.5)
         clamp("RECOIL_MAX_SINGLE_MOVE", 10.0, 200.0, float, 50.0)
 
-        if config.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
-            config["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
-        if config.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
-            config["RECOIL_PATTERN"] = "linear"
+        # 验证枚举值
+        if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
+            c["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
+        if c.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
+            c["RECOIL_PATTERN"] = "linear"
 
-        # ✅ 验证 TARGET_CLASS_NAMES 是列表
+        # 验证列表
         if not isinstance(c.get("TARGET_CLASS_NAMES"), list):
             c["TARGET_CLASS_NAMES"] = ["敌人"]
 
-        # ✅ MODEL_PATH 绝对化
+        # ✅ MODEL_PATH 处理（基于 exe 运行目录）
         model_path = c.get("MODEL_PATH", "320.onnx")
         if isinstance(model_path, str) and model_path.strip():
             p = Path(model_path)
             if not p.is_absolute():
                 p = (self.app_dir / p).resolve()
+
+            if not p.exists():
+                self._log(f"⚠ 模型文件不存在: {p}")
+
             c["MODEL_PATH"] = str(p)
 
         return c
+
+    # ... 其余方法保持不变（load_config, save_config, get, set 等）
+    # 这里省略，使用你原有的代码
 
     def load_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """✅ 线程安全的配置加载"""
@@ -229,8 +217,8 @@ class ConfigManager:
 
             # 文件不存在：导出默认配置
             if not self.config_file.exists():
-                self._log(f"⚠️ 未找到配置文件: {self.config_file}")
-                self._log("📝 正在创建默认配置...")
+                self._log(f"⚠未找到配置文件: {self.config_file}")
+                self._log("正在创建默认配置...")
                 default = self._validate_and_clamp(self.get_default_config())
                 self._write_config(default)
                 self.config = default
@@ -250,7 +238,7 @@ class ConfigManager:
                     if key not in new_config or new_config[key] is None:
                         new_config[key] = value
                         updated = True
-                        self._log(f"➕ 补全配置项: {key}")
+                        self._log(f"补全配置项: {key}")
 
                 # ✅ 验证和限制范围
                 new_config = self._validate_and_clamp(new_config)
@@ -262,18 +250,18 @@ class ConfigManager:
                 if updated:
                     self._write_config(new_config)
 
-                self._log(f"✅ 已加载配置文件: {self.config_file}")
+                self._log(f"已加载配置文件: {self.config_file}")
                 return self.config
 
             except json.JSONDecodeError as e:
-                self._log(f"❌ 配置文件格式错误: {e}")
-                self._log("📝 使用默认配置...")
+                self._log(f"配置文件格式错误: {e}")
+                self._log("使用默认配置...")
                 default = self._validate_and_clamp(self.get_default_config())
                 self.config = default
                 self._cache.clear()
                 return self.config
             except Exception as e:
-                self._log(f"❌ 加载配置失败: {e}")
+                self._log(f"加载配置失败: {e}")
                 default = self._validate_and_clamp(self.get_default_config())
                 self.config = default
                 self._cache.clear()
@@ -286,14 +274,14 @@ class ConfigManager:
                 json.dump(config, f, indent=4, ensure_ascii=False)
             return True
         except Exception as e:
-            self._log(f"❌ 写入配置失败: {e}")
+            self._log(f"写入配置失败: {e}")
             return False
 
     def save_config(self) -> bool:
         """✅ 线程安全的配置保存"""
         with self._lock:
             if self._write_config(self.config):
-                self._log(f"✅ 配置已保存: {self.config_file}")
+                self._log(f"配置已保存: {self.config_file}")
                 try:
                     self.last_modified_time = os.path.getmtime(self.config_file)
                 except OSError:
@@ -338,14 +326,14 @@ class ConfigManager:
     def start_auto_reload(self, interval_sec: Optional[int] = None) -> None:
         """✅ 启动自动配置重载线程"""
         if self._monitor_thread is not None and self._monitor_thread.is_alive():
-            self._log("⚠️ 配置监控线程已在运行")
+            self._log("配置监控线程已在运行")
             return
 
         if interval_sec is None:
             interval_sec = self.get("CONFIG_MONITOR_INTERVAL_SEC", 5)
 
         def monitor_loop():
-            self._log(f"✅ 配置自动重载已启动 (间隔: {interval_sec}秒)")
+            self._log(f"配置自动重载已启动 (间隔: {interval_sec}秒)")
             while not self._stop_monitor:
                 time.sleep(interval_sec)
                 if not self._stop_monitor:
@@ -360,7 +348,7 @@ class ConfigManager:
         self._stop_monitor = True
         if self._monitor_thread:
             self._monitor_thread.join(timeout=2)
-            self._log("✅ 配置自动重载已停止")
+            self._log("配置自动重载已停止")
 
 
 # ✅ 全局单例
