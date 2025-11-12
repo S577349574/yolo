@@ -1,9 +1,10 @@
 # target_selector.py
-"""目标选择器（支持动态配置、性能优化、速度/加速度预测 - 完全修复版）"""
+"""目标选择器（增强特效干扰抵抗能力）"""
 
 import math
 import time
 from typing import List, Dict, Optional, Tuple
+from collections import deque
 
 import utils
 from config_manager import get_config
@@ -26,26 +27,34 @@ class TargetSelector:
 
         self.last_send_time: float = 0
 
-        # 🆕 保存原始位置（未经平滑，用于速度计算）
+        # 原始位置（未经平滑，用于速度计算）
         self.last_raw_x: Optional[float] = None
         self.last_raw_y: Optional[float] = None
 
-        # 🆕 速度跟踪（用于线性预测）
+        # 速度跟踪
         self.last_target_time: float = time.time()
         self.target_velocity_x: float = 0.0
         self.target_velocity_y: float = 0.0
         self.velocity_smooth_alpha: float = get_config('VELOCITY_SMOOTH_ALPHA', 0.3)
 
-        # 🆕 加速度跟踪（用于二阶预测，圆周运动等）
+        # 加速度跟踪
         self.last_velocity_x: float = 0.0
         self.last_velocity_y: float = 0.0
         self.target_accel_x: float = 0.0
         self.target_accel_y: float = 0.0
         self.accel_smooth_alpha: float = get_config('ACCEL_SMOOTH_ALPHA', 0.2)
 
-        # 🆕 预测开关（可在配置中动态控制）
+        # 预测开关
         self.enable_velocity_prediction: bool = get_config('ENABLE_VELOCITY_PREDICTION', True)
         self.enable_accel_prediction: bool = get_config('ENABLE_ACCEL_PREDICTION', False)
+
+        # 🔥 新增: 置信度历史记忆（用于抵抗特效干扰）
+        self.confidence_history: deque = deque(maxlen=get_config('CONFIDENCE_HISTORY_SIZE', 10))
+        self.baseline_confidence: float = 0.0  # 未受干扰时的基准置信度
+
+        # 🔥 新增: 攻击状态保护
+        self.under_attack_frames: int = 0  # 连续低置信度帧数（疑似被攻击）
+        self.attack_protection_enabled: bool = False  # 攻击保护激活标志
 
     def calculate_aim_point(
             self,
@@ -57,12 +66,10 @@ class TargetSelector:
         box_width = x2 - x1
         box_height = y2 - y1
 
-        # ✅ 每次都从配置读取（支持热更新）
         y_ratio = get_config('AIM_Y_RATIO', 0.5)
         x_offset = get_config('AIM_X_OFFSET', 0)
 
-        # 计算瞄准点
-        center_x_cropped = int(x1 + box_width * 0.5 + x_offset)
+        center_x_cropped = int(x1 + box_width * x_offset)
         center_y_cropped = int(y1 + box_height * y_ratio)
 
         target_x = capture_area['left'] + center_x_cropped
@@ -94,18 +101,71 @@ class TargetSelector:
 
         return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
+    def _update_confidence_tracking(self, confidence: float) -> None:
+        """🔥 新增: 更新置信度历史并检测攻击状态"""
+        self.confidence_history.append(confidence)
+
+        if len(self.confidence_history) >= 3:
+            # 计算基准置信度（使用中位数，更抗噪声）
+            sorted_conf = sorted(self.confidence_history)
+            self.baseline_confidence = sorted_conf[len(sorted_conf) // 2]
+
+            # 检测置信度骤降（疑似被攻击）
+            conf_drop_threshold = get_config('CONFIDENCE_DROP_THRESHOLD', 0.15)
+            recent_avg = sum(list(self.confidence_history)[-3:]) / 3
+
+            if self.baseline_confidence - recent_avg > conf_drop_threshold:
+                self.under_attack_frames += 1
+            else:
+                self.under_attack_frames = max(0, self.under_attack_frames - 1)
+
+            # 激活攻击保护（连续3帧置信度低）
+            attack_protection_frames = get_config('ATTACK_PROTECTION_TRIGGER_FRAMES', 3)
+            self.attack_protection_enabled = (self.under_attack_frames >= attack_protection_frames)
+
+    def _calculate_enhanced_score(
+            self,
+            target: Dict,
+            ref_x: float,
+            ref_y: float,
+            max_distance: float,
+            is_locked_target: bool
+    ) -> float:
+        """🔥 新增: 增强的目标评分（考虑攻击状态）"""
+        distance = math.hypot(target['x'] - ref_x, target['y'] - ref_y)
+        normalized_distance = distance / max_distance
+        distance_score = 1.0 - normalized_distance
+
+        conf_score = target['confidence']
+
+        # 🔥 如果是锁定目标且处于攻击保护状态，使用基准置信度而非当前置信度
+        if is_locked_target and self.attack_protection_enabled:
+            conf_score = max(conf_score, self.baseline_confidence * 0.9)  # 使用90%基准值
+            utils.log(f"🛡️ 攻击保护激活 | 原始conf={target['confidence']:.2f} → 修正conf={conf_score:.2f}")
+
+        distance_weight = get_config('DISTANCE_WEIGHT', 0.8)
+        composite_score = (
+                distance_weight * distance_score +
+                (1 - distance_weight) * conf_score
+        )
+
+        # 🔥 锁定目标额外加成（增强粘性）
+        if is_locked_target:
+            lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.15)
+            composite_score += lock_bonus
+
+        return composite_score
+
     def select_best_target(
             self,
             candidate_targets: List[Dict],
             screen_width: int,
             screen_height: int
     ) -> Tuple[Optional[int], Optional[int]]:
-        """✅ 完全动态配置的目标选择（速度预测完全修复版）"""
+        """✅ 修复多目标+特效干扰问题"""
 
-        # ✅ 动态读取所有配置参数
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
         target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
-        distance_weight = get_config('DISTANCE_WEIGHT', 0.8)
         min_target_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 15)
         target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.2)
 
@@ -116,13 +176,17 @@ class TargetSelector:
                 self._reset_tracking()
             return None, None
 
-        # 为候选目标生成ID（基于位置网格）
+        # 生成目标ID
         id_grid_size = 20
         for target in candidate_targets:
             target['id'] = (
                 f"{int(target['x'] / id_grid_size)}_"
                 f"{int(target['y'] / id_grid_size)}"
             )
+
+        # 🔥 扩大搜索范围以应对特效导致的位置偏移
+        search_multiplier = 2.0 if self.attack_protection_enabled else 1.0
+        effective_identity_distance = target_identity_distance * search_multiplier
 
         # 检查锁定目标是否还存在
         current_locked_target: Optional[Dict] = None
@@ -133,35 +197,47 @@ class TargetSelector:
                         target['x'] - self.last_target_x,
                         target['y'] - self.last_target_y
                     )
-                    if distance < target_identity_distance:
+                    if distance < effective_identity_distance:
                         current_locked_target = target
                         break
 
-        # ✅ 性能优化：预计算最大距离
-        max_distance = math.hypot(screen_width, screen_height)
+            # 🔥 ID匹配失败，尝试位置匹配（容错机制）
+            if current_locked_target is None:
+                closest_target = min(
+                    candidate_targets,
+                    key=lambda t: math.hypot(
+                        t['x'] - self.last_target_x,
+                        t['y'] - self.last_target_y
+                    )
+                )
+                distance = math.hypot(
+                    closest_target['x'] - self.last_target_x,
+                    closest_target['y'] - self.last_target_y
+                )
+                if distance < effective_identity_distance:
+                    current_locked_target = closest_target
+                    self.locked_target_id = closest_target['id']  # 更新ID
+                    utils.log(f"⚠️ ID丢失，使用位置匹配恢复目标 (距离={distance:.1f}px)")
 
         # 计算所有目标得分
-        scored_targets = []
+        max_distance = math.hypot(screen_width, screen_height)
         ref_x = self.last_target_x if self.last_target_x is not None else screen_width // 2
         ref_y = self.last_target_y if self.last_target_y is not None else screen_height // 2
 
+        scored_targets = []
         for target in candidate_targets:
-            distance = math.hypot(
-                target['x'] - ref_x,
-                target['y'] - ref_y
-            )
-            normalized_distance = distance / max_distance
-            distance_score = 1.0 - normalized_distance
-            conf_score = target['confidence']
+            is_locked = (current_locked_target is not None and
+                         target['id'] == current_locked_target['id'])
 
-            composite_score = (
-                    distance_weight * distance_score +
-                    (1 - distance_weight) * conf_score
+            score = self._calculate_enhanced_score(
+                target, ref_x, ref_y, max_distance, is_locked
             )
+
+            distance = math.hypot(target['x'] - ref_x, target['y'] - ref_y)
 
             scored_targets.append({
                 'target': target,
-                'score': composite_score,
+                'score': score,
                 'distance': distance
             })
 
@@ -181,13 +257,19 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            # ✅ 目标切换逻辑（使用动态阈值）
+            # 🔥 攻击保护状态下提高切换阈值
+            effective_switch_threshold = target_switch_threshold
+            if self.attack_protection_enabled:
+                effective_switch_threshold *= 2.0  # 双倍阈值
+                utils.log(f"🛡️ 提高切换阈值: {target_switch_threshold:.2f} → {effective_switch_threshold:.2f}")
+
             if (self.target_lock_frames >= min_target_lock_frames and
-                    score_diff > target_switch_threshold):
+                    score_diff > effective_switch_threshold):
                 selected_target = best_candidate['target']
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
                 is_new_target = True
+                self._reset_motion_params()
                 utils.log(f"切换目标 | 得分差: {score_diff:.2f}")
             else:
                 selected_target = current_locked_target
@@ -197,79 +279,85 @@ class TargetSelector:
             self.locked_target_id = selected_target['id']
             self.target_lock_frames = 0
             is_new_target = True
+            self._reset_motion_params()
+
+        # 🔥 更新置信度追踪
+        self._update_confidence_tracking(selected_target['confidence'])
 
         # 获取原始位置
         raw_x = selected_target['x']
         raw_y = selected_target['y']
 
-        # 🆕 关键修复：在平滑之前计算速度（使用原始位置）
+        # 新目标处理
+        if is_new_target:
+            self.last_raw_x = raw_x
+            self.last_raw_y = raw_y
+            self.smoothed_aim_x = float(raw_x)
+            self.smoothed_aim_y = float(raw_y)
+            self.last_target_time = time.time()
+
+            self.last_target_x = int(raw_x)
+            self.last_target_y = int(raw_y)
+            self.frames_without_target = 0
+            self.is_locked = True
+
+            return self.last_target_x, self.last_target_y
+
+        # 速度计算和预测（保持原有逻辑）
         current_time = time.time()
         dt = current_time - self.last_target_time
 
-        # 防止除零或异常时间差
         if dt < 0.001:
-            dt = 0.016  # 回退到 60fps 标准帧时间
+            dt = 0.016
 
-        if self.enable_velocity_prediction and not is_new_target and self.last_raw_x is not None:
-            # ✅ 使用原始位置计算速度（未经平滑）
+        if self.enable_velocity_prediction and self.last_raw_x is not None:
             instant_vel_x = (raw_x - self.last_raw_x) / dt
             instant_vel_y = (raw_y - self.last_raw_y) / dt
 
-            # 平滑速度（指数移动平均，减少噪声）
+            max_reasonable_speed = 3000
+            speed = math.hypot(instant_vel_x, instant_vel_y)
+
+            if speed > max_reasonable_speed:
+                utils.log(f"⚠️ 检测到异常速度: {speed:.0f} px/s, 重置")
+                self._reset_motion_params()
+                instant_vel_x = 0
+                instant_vel_y = 0
+
             alpha = self.velocity_smooth_alpha
             self.target_velocity_x = alpha * instant_vel_x + (1 - alpha) * self.target_velocity_x
             self.target_velocity_y = alpha * instant_vel_y + (1 - alpha) * self.target_velocity_y
 
-            # 🆕 加速度估算（用于圆周运动等复杂场景）
             if self.enable_accel_prediction:
                 instant_accel_x = (self.target_velocity_x - self.last_velocity_x) / dt
                 instant_accel_y = (self.target_velocity_y - self.last_velocity_y) / dt
 
-                # 平滑加速度（更保守的平滑因子）
                 accel_alpha = self.accel_smooth_alpha
                 self.target_accel_x = accel_alpha * instant_accel_x + (1 - accel_alpha) * self.target_accel_x
                 self.target_accel_y = accel_alpha * instant_accel_y + (1 - accel_alpha) * self.target_accel_y
 
-                # 保存上次速度
                 self.last_velocity_x = self.target_velocity_x
                 self.last_velocity_y = self.target_velocity_y
 
-        elif is_new_target:
-            # 新目标，重置运动参数
-            self.target_velocity_x = 0.0
-            self.target_velocity_y = 0.0
-            self.target_accel_x = 0.0
-            self.target_accel_y = 0.0
-            self.last_velocity_x = 0.0
-            self.last_velocity_y = 0.0
-
-        # 🆕 保存原始位置（用于下一帧计算速度）
         self.last_raw_x = raw_x
         self.last_raw_y = raw_y
 
-        # 应用平滑（用于最终瞄准点，但不影响速度计算）
-        smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
+        smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, False)
 
-        # 🆕 位置预测（补偿系统延迟）
         predict_delay = get_config('PREDICT_DELAY_SEC', 0.025)
         predict_x = smoothed_x
         predict_y = smoothed_y
 
         if self.enable_velocity_prediction:
-            # 一阶预测：位置 + 速度 * 时间
             predict_x += self.target_velocity_x * predict_delay
             predict_y += self.target_velocity_y * predict_delay
 
             if self.enable_accel_prediction:
-                # 二阶预测：+ 0.5 * 加速度 * 时间²（运动学公式）
                 predict_x += 0.5 * self.target_accel_x * (predict_delay ** 2)
                 predict_y += 0.5 * self.target_accel_y * (predict_delay ** 2)
 
-        # 边界限制（防止预测超出屏幕）
         predict_x = max(0, min(predict_x, screen_width - 1))
         predict_y = max(0, min(predict_y, screen_height - 1))
 
-        # 更新状态（使用预测位置）
         self.last_target_x = int(predict_x)
         self.last_target_y = int(predict_y)
         self.last_target_time = current_time
@@ -293,23 +381,32 @@ class TargetSelector:
         precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 2)
         return offset_distance >= precision_dead_zone
 
-    def _reset_tracking(self) -> None:
-        """重置所有跟踪状态"""
-        self.last_target_x = None
-        self.last_target_y = None
-        self.last_raw_x = None  # 🆕
-        self.last_raw_y = None  # 🆕
-        self.is_locked = False
-        self.locked_target_id = None
-        self.target_lock_frames = 0
-        self.smoothed_aim_x = None
-        self.smoothed_aim_y = None
-
-        # 🆕 重置运动参数
+    def _reset_motion_params(self) -> None:
+        """重置运动相关参数"""
         self.target_velocity_x = 0.0
         self.target_velocity_y = 0.0
         self.target_accel_x = 0.0
         self.target_accel_y = 0.0
         self.last_velocity_x = 0.0
         self.last_velocity_y = 0.0
+        self.smoothed_aim_x = None
+        self.smoothed_aim_y = None
+        self.last_raw_x = None
+        self.last_raw_y = None
+
+    def _reset_tracking(self) -> None:
+        """重置所有跟踪状态"""
+        self.last_target_x = None
+        self.last_target_y = None
+        self.is_locked = False
+        self.locked_target_id = None
+        self.target_lock_frames = 0
+        self.frames_without_target = 0
+        self._reset_motion_params()
         self.last_target_time = time.time()
+
+        # 🔥 重置攻击状态追踪
+        self.confidence_history.clear()
+        self.baseline_confidence = 0.0
+        self.under_attack_frames = 0
+        self.attack_protection_enabled = False

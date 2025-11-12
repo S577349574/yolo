@@ -19,7 +19,6 @@ from target_selector import TargetSelector
 from auto_fire_controller import AutoFireController
 from utils import get_screen_info, calculate_capture_area
 
-
 def key_monitor(mouse_control_active_list, should_exit_list):
     """
     全局按键监控（功能键模式）
