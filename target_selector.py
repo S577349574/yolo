@@ -201,7 +201,6 @@ class TargetSelector:
                         current_locked_target = target
                         break
 
-            # 🔥 ID匹配失败，尝试位置匹配（容错机制）
             if current_locked_target is None:
                 closest_target = min(
                     candidate_targets,
@@ -217,7 +216,6 @@ class TargetSelector:
                 if distance < effective_identity_distance:
                     current_locked_target = closest_target
                     self.locked_target_id = closest_target['id']  # 更新ID
-                    utils.log(f"⚠️ ID丢失，使用位置匹配恢复目标 (距离={distance:.1f}px)")
 
         # 计算所有目标得分
         max_distance = math.hypot(screen_width, screen_height)

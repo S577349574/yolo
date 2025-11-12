@@ -1,5 +1,5 @@
 # main.py
-"""主程序入口（FPS游戏专用版 + 互斥压枪模式）"""
+"""主程序入口（FPS游戏专用版 + 互斥压枪模式 + 右键触发自动开火）"""
 import math
 import queue as thread_queue
 import time
@@ -19,17 +19,20 @@ from target_selector import TargetSelector
 from auto_fire_controller import AutoFireController
 from utils import get_screen_info, calculate_capture_area
 
-def key_monitor(mouse_control_active_list, should_exit_list):
+
+def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit_list):
     """
     全局按键监控（功能键模式）
     - F12：退出
     - 鼠标左键/右键：控制瞄准开关（根据配置）
+    - 右键状态：用于自动开火模式的触发条件
     """
     F12_PRESSED = False
 
     # 从配置中读取鼠标监视开关
     enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', False)
     enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
+    enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
     key_monitor_interval = get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
 
     # 初始化鼠标状态
@@ -41,7 +44,10 @@ def key_monitor(mouse_control_active_list, should_exit_list):
     if enable_left_monitor:
         utils.log("  鼠标左键：按下启用瞄准，释放禁用瞄准")
     if enable_right_monitor:
-        utils.log("  鼠标右键：按下启用瞄准，释放禁用瞄准")
+        if enable_auto_fire:
+            utils.log("  鼠标右键：按下启用瞄准并触发自动开火，释放禁用")
+        else:
+            utils.log("  鼠标右键：按下启用瞄准，释放禁用瞄准")
 
     while not should_exit_list[0]:
         try:
@@ -70,13 +76,23 @@ def key_monitor(mouse_control_active_list, should_exit_list):
             # 鼠标右键监视
             if enable_right_monitor:
                 right_state = win32api.GetKeyState(0x02) < 0
+
+                # 🆕 更新右键状态（用于自动开火判断）
+                right_mouse_pressed_list[0] = right_state
+
                 if right_state and not right_mouse_pressed:
                     mouse_control_active_list[0] = True
-                    utils.log("▶ 已启用瞄准 [鼠标右键按下]")
+                    if enable_auto_fire:
+                        utils.log("▶ 已启用瞄准+自动开火 [鼠标右键按下]")
+                    else:
+                        utils.log("▶ 已启用瞄准 [鼠标右键按下]")
                     right_mouse_pressed = True
                 elif not right_state and right_mouse_pressed:
                     mouse_control_active_list[0] = False
-                    utils.log("⏸ 已禁用瞄准 [鼠标右键释放]")
+                    if enable_auto_fire:
+                        utils.log("⏸ 已禁用瞄准+自动开火 [鼠标右键释放]")
+                    else:
+                        utils.log("⏸ 已禁用瞄准 [鼠标右键释放]")
                     right_mouse_pressed = False
 
             time.sleep(key_monitor_interval)
@@ -147,7 +163,7 @@ def main():
         auto_fire.start_manual_recoil_monitor()
         utils.log("已启用手动压枪模式（按住左键时自动压枪）")
     elif enable_auto_fire:
-        utils.log("已启用自动开火模式")
+        utils.log("已启用自动开火模式（需按住右键触发）")
 
     # 启动屏幕捕获进程
     frame_queue = Queue(maxsize=5)
@@ -172,12 +188,17 @@ def main():
     # 初始化目标选择器
     target_selector = TargetSelector()
 
-    # 控制变量
+    # 🆕 控制变量（增加右键状态）
     mouse_control_active = [False]
+    right_mouse_pressed = [False]  # 新增：右键按下状态
     should_exit = [False]
 
     # 启动按键监控线程
-    key_thread = Thread(target=key_monitor, args=(mouse_control_active, should_exit), daemon=True)
+    key_thread = Thread(
+        target=key_monitor,
+        args=(mouse_control_active, right_mouse_pressed, should_exit),  # 传递右键状态
+        daemon=True
+    )
     key_thread.start()
 
     # 统计变量
@@ -188,7 +209,7 @@ def main():
     utils.log("\n" + "=" * 60)
     utils.log("FPS自瞄系统已启动")
     if enable_auto_fire:
-        utils.log(f"自动开火: 已启用")
+        utils.log(f"自动开火: 已启用（按住右键触发）")
         utils.log(f"准确率阈值: {get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75) * 100:.0f}%")
         utils.log(f"距离阈值: {get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0):.1f}px")
     elif enable_manual_recoil:
@@ -259,9 +280,10 @@ def main():
                 # 更新准确率
                 current_accuracy = auto_fire.update_accuracy(offset_distance)
 
-                # 🆕 自动开火模式逻辑
+                # 🆕 自动开火模式逻辑（增加右键检查）
                 if enable_auto_fire:
-                    if auto_fire.should_auto_fire(
+                    # 必须同时满足：右键按下 + 瞄准条件达标
+                    if right_mouse_pressed[0] and auto_fire.should_auto_fire(
                             target_selector.is_locked,
                             target_selector.target_lock_frames,
                             current_accuracy,
@@ -291,15 +313,17 @@ def main():
             frame_count += 1
             if time.time() - fps_start_time >= 1.0:
                 fps = frame_count / (time.time() - fps_start_time)
-                lock_status = '已锁定' if target_selector.is_locked else '搜索中'
+                lock_status = '🔒已锁定' if target_selector.is_locked else '🔍搜索中'
 
                 # 状态显示
                 if enable_auto_fire:
-                    fire_status = '射击中' if auto_fire.is_firing else '⏸ 待命'
+                    # 🆕 显示右键状态
+                    right_key_status = '✓右键按下' if right_mouse_pressed[0] else '✗右键释放'
+                    fire_status = '🔥射击中' if auto_fire.is_firing else '⏸ 待命'
                     accuracy_percent = current_accuracy * 100
-                    status_info = f"{fire_status} | 准确率: {accuracy_percent:.1f}%"
+                    status_info = f"{fire_status} | {right_key_status} | 准确率: {accuracy_percent:.1f}%"
                 elif enable_manual_recoil:
-                    recoil_status = '压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
+                    recoil_status = '⬇️压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
                     status_info = f"{recoil_status}"
                 else:
                     status_info = ""

@@ -1,5 +1,5 @@
 # auto_fire_controller.py
-"""自动开火与压枪控制器（支持两种互斥模式）"""
+"""自动开火与压枪控制器（支持两种互斥模式 + XY双轴压枪）"""
 
 import threading
 import time
@@ -12,7 +12,7 @@ from config_manager import get_config
 
 
 class AutoFireController:
-    """自动开火控制器（含压枪功能 - 支持手动/自动两种模式）"""
+    """自动开火控制器（含压枪功能 - 支持手动/自动两种模式 + XY双轴）"""
 
     def __init__(self, mouse_controller):
         self.mouse_controller = mouse_controller
@@ -29,9 +29,11 @@ class AutoFireController:
         self.recent_errors: List[float] = []
         self.max_error_history = 30
 
-        # 压枪状态
+        # 🔥 压枪状态（XY双轴）
+        self.total_offset_x = 0.0  # 新增：X轴总偏移
         self.total_offset_y = 0.0
         self.last_recoil_time = 0.0
+        self.accumulated_offset_x = 0.0  # 新增：X轴累积
         self.accumulated_offset_y = 0.0
 
         # 性能优化
@@ -99,7 +101,9 @@ class AutoFireController:
             self.is_firing = True
             self.fire_start_time = time.time()
             self.last_recoil_time = time.time()
+            self.total_offset_x = 0.0  # 🔥 重置 X 轴
             self.total_offset_y = 0.0
+            self.accumulated_offset_x = 0.0  # 🔥 重置 X 轴累积
             self.accumulated_offset_y = 0.0
             self.shot_count = 0
             self.debug_counter = 0
@@ -124,24 +128,30 @@ class AutoFireController:
             left_up = get_config('APP_MOUSE_LEFT_UP', 2)
             self.mouse_controller._send_mouse_request(0, 0, left_up)
 
-            actual_speed = self.total_offset_y / fire_duration if fire_duration > 0 else 0
-            theoretical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
+            # 🔥 计算 XY 双轴速度
+            actual_speed_x = self.total_offset_x / fire_duration if fire_duration > 0 else 0
+            actual_speed_y = self.total_offset_y / fire_duration if fire_duration > 0 else 0
+            theoretical_speed_x = get_config('RECOIL_HORIZONTAL_SPEED', 0.0)
+            theoretical_speed_y = get_config('RECOIL_VERTICAL_SPEED', 150.0)
 
             current_time = time.time()
             if current_time - self.last_log_time > self.log_interval:
                 utils.log(
-                    f"停止射击 | 持续: {fire_duration:.2f}s | "
-                    f"累积: {self.total_offset_y:.1f}px | 子弹: {self.shot_count} | "
-                    f"速度: {actual_speed:.1f}/{theoretical_speed:.1f} px/s"
+                    f"停止射击 | 持续: {fire_duration:.2f}s | 子弹: {self.shot_count} | "
+                    f"累积: X={self.total_offset_x:+.1f}px Y={self.total_offset_y:+.1f}px | "
+                    f"速度: X={actual_speed_x:+.1f}/{theoretical_speed_x:+.1f} "
+                    f"Y={actual_speed_y:.1f}/{theoretical_speed_y:.1f} px/s"
                 )
                 self.last_log_time = current_time
 
+            self.total_offset_x = 0.0
             self.total_offset_y = 0.0
+            self.accumulated_offset_x = 0.0
             self.accumulated_offset_y = 0.0
             self.shot_count = 0
 
     def apply_recoil_control(self) -> None:
-        """应用压枪偏移（自动开火模式 - 累积发送版本）"""
+        """应用压枪偏移（自动开火模式 - XY双轴累积发送版本）"""
         if not get_config('ENABLE_RECOIL_CONTROL', True) or not self.is_firing:
             return
 
@@ -158,42 +168,65 @@ class AutoFireController:
 
             pattern = get_config('RECOIL_PATTERN', 'linear')
 
+            # 🔥 获取 XY 双轴偏移
             if pattern == 'linear':
-                offset_y = self._calculate_linear_recoil(delta_time)
+                offset_x, offset_y = self._calculate_linear_recoil(delta_time)
             elif pattern == 'exponential':
-                offset_y = self._calculate_exponential_recoil(delta_time)
+                offset_x, offset_y = self._calculate_exponential_recoil(delta_time)
             elif pattern == 'custom':
-                offset_y = self._calculate_custom_recoil()
+                offset_x, offset_y = self._calculate_custom_recoil()
             else:
-                offset_y = self._calculate_linear_recoil(delta_time)
+                offset_x, offset_y = self._calculate_linear_recoil(delta_time)
 
-            max_single_move = get_config('RECOIL_MAX_SINGLE_MOVE', 50.0)
-            if offset_y > max_single_move:
+            # 🔥 双轴独立限幅
+            max_single_move_x = get_config('RECOIL_MAX_SINGLE_MOVE_X', 50.0)
+            max_single_move_y = get_config('RECOIL_MAX_SINGLE_MOVE_Y', 50.0)
+
+            if abs(offset_x) > max_single_move_x:
                 if self.debug_mode:
-                    utils.log(f"[自动压枪] 单次偏移过大: {offset_y:.2f}px，限制为 {max_single_move}px")
-                offset_y = max_single_move
+                    utils.log(f"[自动压枪] X轴单次偏移过大: {offset_x:+.2f}px，限制为 {max_single_move_x:+.2f}px")
+                offset_x = max_single_move_x if offset_x > 0 else -max_single_move_x
 
+            if offset_y > max_single_move_y:
+                if self.debug_mode:
+                    utils.log(f"[自动压枪] Y轴单次偏移过大: {offset_y:.2f}px，限制为 {max_single_move_y}px")
+                offset_y = max_single_move_y
+
+            # 🔥 XY 双轴累积
+            self.accumulated_offset_x += offset_x
             self.accumulated_offset_y += offset_y
+            self.total_offset_x += offset_x
             self.total_offset_y += offset_y
+
+            # 🔥 XY 双轴发送（≥1px 才发送）
+            move_x = 0
+            move_y = 0
+
+            if abs(self.accumulated_offset_x) >= 1.0:
+                move_x = int(self.accumulated_offset_x)
+                self.accumulated_offset_x -= move_x
 
             if abs(self.accumulated_offset_y) >= 1.0:
                 move_y = int(self.accumulated_offset_y)
                 self.accumulated_offset_y -= move_y
 
+            # 🔥 只有有移动时才发送
+            if move_x != 0 or move_y != 0:
                 if self.debug_mode:
                     self.debug_counter += 1
                     if self.debug_counter % 50 == 1:
                         elapsed = current_time - self.fire_start_time
-                        current_speed = self.total_offset_y / elapsed if elapsed > 0 else 0
+                        current_speed_x = self.total_offset_x / elapsed if elapsed > 0 else 0
+                        current_speed_y = self.total_offset_y / elapsed if elapsed > 0 else 0
                         utils.log(
                             f"[自动压枪] 第{self.shot_count}次 | "
                             f"delta: {delta_time * 1000:.2f}ms | "
-                            f"实际移动: {move_y}px | "
-                            f"速度: {current_speed:.1f} px/s"
+                            f"移动: ({move_x:+3d}, {move_y:+3d})px | "
+                            f"速度: X={current_speed_x:+.1f} Y={current_speed_y:.1f} px/s"
                         )
 
                 self.mouse_controller._send_mouse_request(
-                    0,
+                    move_x,
                     move_y,
                     get_config('APP_MOUSE_NO_BUTTON', 0)
                 )
@@ -218,8 +251,7 @@ class AutoFireController:
         utils.log("手动压枪监控已停止")
 
     def _manual_recoil_loop(self) -> None:
-        """手动压枪监控循环（支持单键或双键触发）"""
-        # 🆕 读取触发模式
+        """手动压枪监控循环（支持单键或双键触发 + XY双轴）"""
         trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'left_only')
 
         if trigger_mode == 'left_only':
@@ -227,34 +259,35 @@ class AutoFireController:
         elif trigger_mode == 'both_buttons':
             utils.log("手动压枪模式已启动（同时按住左键+右键时自动压枪）")
 
-        last_trigger_state = False  # 上一帧触发状态
+        last_trigger_state = False
         manual_fire_start_time = 0.0
         manual_last_recoil_time = 0.0
+        manual_accumulated_offset_x = 0.0  # 🔥 新增 X 轴
         manual_accumulated_offset_y = 0.0
+        manual_total_offset_x = 0.0  # 🔥 新增 X 轴
         manual_total_offset_y = 0.0
         manual_shot_count = 0
 
         try:
             while not self.manual_recoil_stop_flag:
-                # 🆕 根据模式检测触发条件
                 left_button_state = win32api.GetKeyState(0x01) < 0
                 right_button_state = win32api.GetKeyState(0x02) < 0
 
                 if trigger_mode == 'left_only':
-                    # 模式1：只需按下左键
                     current_trigger_state = left_button_state
                 elif trigger_mode == 'both_buttons':
-                    # 模式2：左键+右键同时按下
                     current_trigger_state = left_button_state and right_button_state
                 else:
                     current_trigger_state = False
 
-                # 按下瞬间（从未触发到触发）
+                # 按下瞬间
                 if current_trigger_state and not last_trigger_state:
                     self.manual_recoil_active = True
                     manual_fire_start_time = time.time()
                     manual_last_recoil_time = time.time()
+                    manual_accumulated_offset_x = 0.0
                     manual_accumulated_offset_y = 0.0
+                    manual_total_offset_x = 0.0
                     manual_total_offset_y = 0.0
                     manual_shot_count = 0
 
@@ -263,16 +296,17 @@ class AutoFireController:
                     else:
                         utils.log("开始手动压枪（左键+右键按下）")
 
-                # 松开瞬间（从触发到未触发）
+                # 松开瞬间
                 elif not current_trigger_state and last_trigger_state:
                     self.manual_recoil_active = False
                     fire_duration = time.time() - manual_fire_start_time
-                    actual_speed = manual_total_offset_y / fire_duration if fire_duration > 0 else 0
+                    actual_speed_x = manual_total_offset_x / fire_duration if fire_duration > 0 else 0
+                    actual_speed_y = manual_total_offset_y / fire_duration if fire_duration > 0 else 0
 
                     utils.log(
                         f"停止手动压枪 | 持续: {fire_duration:.2f}s | "
-                        f"累积: {manual_total_offset_y:.1f}px | "
-                        f"速度: {actual_speed:.1f} px/s"
+                        f"累积: X={manual_total_offset_x:+.1f}px Y={manual_total_offset_y:+.1f}px | "
+                        f"速度: X={actual_speed_x:+.1f} Y={actual_speed_y:.1f} px/s"
                     )
 
                 # 持续压枪
@@ -284,26 +318,43 @@ class AutoFireController:
                         manual_last_recoil_time = current_time
                         manual_shot_count += 1
 
-                        # 计算压枪偏移
+                        # 🔥 计算 XY 双轴压枪偏移
+                        horizontal_speed = get_config('RECOIL_HORIZONTAL_SPEED', 0.0)
                         vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
+
+                        offset_x = horizontal_speed * delta_time
                         offset_y = vertical_speed * delta_time
 
-                        # 单次限制
-                        max_single_move = get_config('RECOIL_MAX_SINGLE_MOVE', 50.0)
-                        if offset_y > max_single_move:
-                            offset_y = max_single_move
+                        # 🔥 双轴限制
+                        max_single_move_x = get_config('RECOIL_MAX_SINGLE_MOVE_X', 50.0)
+                        max_single_move_y = get_config('RECOIL_MAX_SINGLE_MOVE_Y', 50.0)
 
-                        # 累积
+                        if abs(offset_x) > max_single_move_x:
+                            offset_x = max_single_move_x if offset_x > 0 else -max_single_move_x
+                        if offset_y > max_single_move_y:
+                            offset_y = max_single_move_y
+
+                        # 🔥 累积
+                        manual_accumulated_offset_x += offset_x
                         manual_accumulated_offset_y += offset_y
+                        manual_total_offset_x += offset_x
                         manual_total_offset_y += offset_y
 
-                        # 发送移动
+                        # 🔥 发送移动
+                        move_x = 0
+                        move_y = 0
+
+                        if abs(manual_accumulated_offset_x) >= 1.0:
+                            move_x = int(manual_accumulated_offset_x)
+                            manual_accumulated_offset_x -= move_x
+
                         if abs(manual_accumulated_offset_y) >= 1.0:
                             move_y = int(manual_accumulated_offset_y)
                             manual_accumulated_offset_y -= move_y
 
+                        if move_x != 0 or move_y != 0:
                             self.mouse_controller._send_mouse_request(
-                                0,
+                                move_x,
                                 move_y,
                                 get_config('APP_MOUSE_NO_BUTTON', 0)
                             )
@@ -314,27 +365,50 @@ class AutoFireController:
         except Exception as e:
             utils.log(f"手动压枪监控线程错误: {e}")
 
-    def _calculate_linear_recoil(self, delta_time: float) -> float:
-        """线性压枪：匀速向下"""
+    # 🔥 修改压枪计算方法，返回 (offset_x, offset_y)
+    def _calculate_linear_recoil(self, delta_time: float) -> tuple:
+        """线性压枪：匀速向下 + 可选横向偏移"""
+        horizontal_speed = get_config('RECOIL_HORIZONTAL_SPEED', 0.0)
         vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
-        return vertical_speed * delta_time
 
-    def _calculate_exponential_recoil(self, delta_time: float) -> float:
-        """指数压枪：随子弹数增加而加速"""
-        base_speed = get_config('RECOIL_VERTICAL_SPEED', 100.0)
+        offset_x = horizontal_speed * delta_time
+        offset_y = vertical_speed * delta_time
+
+        return offset_x, offset_y
+
+    def _calculate_exponential_recoil(self, delta_time: float) -> tuple:
+        """指数压枪：随子弹数增加而加速（XY双轴）"""
+        base_speed_x = get_config('RECOIL_HORIZONTAL_SPEED', 0.0)
+        base_speed_y = get_config('RECOIL_VERTICAL_SPEED', 100.0)
         increment = get_config('RECOIL_INCREMENT_Y', 0.5)
-        current_speed = base_speed * (1.0 + increment * self.shot_count)
-        return current_speed * delta_time
 
-    def _calculate_custom_recoil(self) -> float:
-        """自定义压枪：使用预设的偏移序列"""
+        current_speed_x = base_speed_x * (1.0 + increment * self.shot_count * 0.5)  # X轴增长慢一些
+        current_speed_y = base_speed_y * (1.0 + increment * self.shot_count)
+
+        offset_x = current_speed_x * delta_time
+        offset_y = current_speed_y * delta_time
+
+        return offset_x, offset_y
+
+    def _calculate_custom_recoil(self) -> tuple:
+        """自定义压枪：使用预设的偏移序列（支持 [x, y] 或 [y] 格式）"""
         custom_pattern = get_config('RECOIL_CUSTOM_PATTERN', [])
 
         if not custom_pattern:
             return self._calculate_linear_recoil(0.016)
 
         index = self.shot_count % len(custom_pattern)
-        return float(custom_pattern[index])
+        pattern_value = custom_pattern[index]
+
+        # 🔥 支持两种格式
+        if isinstance(pattern_value, (list, tuple)) and len(pattern_value) == 2:
+            # 格式1：[x, y]
+            return float(pattern_value[0]), float(pattern_value[1])
+        else:
+            # 格式2：只有 y 值，x 使用默认速度
+            horizontal_speed = get_config('RECOIL_HORIZONTAL_SPEED', 0.0)
+            offset_x = horizontal_speed * 0.016  # 假设 60fps
+            return offset_x, float(pattern_value)
 
     def reset(self) -> None:
         """重置状态（目标丢失时调用）"""
@@ -343,6 +417,8 @@ class AutoFireController:
 
         with self._lock:
             self.recent_errors.clear()
+            self.total_offset_x = 0.0
             self.total_offset_y = 0.0
+            self.accumulated_offset_x = 0.0
             self.accumulated_offset_y = 0.0
             self.shot_count = 0
