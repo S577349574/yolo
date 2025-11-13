@@ -279,7 +279,6 @@ def main():
 
                 # 更新准确率
                 current_accuracy = auto_fire.update_accuracy(offset_distance)
-
                 # 🆕 自动开火模式逻辑（增加右键检查）
                 if enable_auto_fire:
                     # 必须同时满足：右键按下 + 瞄准条件达标
