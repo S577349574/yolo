@@ -10,7 +10,25 @@ from typing import Any, Dict, Optional
 
 
 class ConfigManager:
+    _instance = None  # 🔥 单例模式：确保只有一个实例
+    _initialized = False  # 🔥 防止重复初始化
+    _lock = threading.Lock()  # 🔥 线程安全的单例锁
+
+    def __new__(cls):
+        """单例模式：确保全局只有一个 ConfigManager 实例"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # ✅ 防止重复初始化
+        if ConfigManager._initialized:
+            return
+
+        ConfigManager._initialized = True
+
         # ✅ 修复：更可靠的打包环境检测
         is_frozen = (
                 getattr(sys, "frozen", False) or  # PyInstaller/cx_Freeze
@@ -18,10 +36,6 @@ class ConfigManager:
                 "__compiled__" in sys.modules or  # Nuitka
                 Path(sys.argv[0]).suffix.lower() == ".exe"  # 任何 exe
         )
-
-        print(f"[DEBUG] is_frozen = {is_frozen}")
-        print(f"[DEBUG] sys.frozen = {getattr(sys, 'frozen', None)}")
-        print(f"[DEBUG] __compiled__ in modules = {'__compiled__' in sys.modules}")
 
         if is_frozen:
             # 打包后：使用 exe 所在目录
@@ -44,7 +58,7 @@ class ConfigManager:
         self.last_modified_time: float = 0
 
         # 线程安全：读写锁
-        self._lock = threading.RLock()
+        self._rw_lock = threading.RLock()
 
         # 性能优化：缓存常用配置（带过期时间）
         self._cache: Dict[str, tuple] = {}
@@ -53,6 +67,7 @@ class ConfigManager:
         # 自动重载线程
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_monitor = False
+
 
     def _log(self, message: str):
         """安全日志输出"""
@@ -83,13 +98,6 @@ class ConfigManager:
             "MAX_LOST_FRAMES": 30,
             "DISTANCE_WEIGHT": 0.8,
             "AIM_POINT_SMOOTH_ALPHA": 0.12,
-
-            # ========== 速度和加速度预测 ==========
-            "ENABLE_VELOCITY_PREDICTION": True,
-            "PREDICT_DELAY_SEC": 0.035,
-            "VELOCITY_SMOOTH_ALPHA": 0.4,
-            "ENABLE_ACCEL_PREDICTION": False,
-            "ACCEL_SMOOTH_ALPHA": 0.2,
 
             # 🔥 新增：特效干扰抵抗参数
             "CONFIDENCE_HISTORY_SIZE": 10,              # 置信度历史记录长度
@@ -125,6 +133,7 @@ class ConfigManager:
 
             # ========== 系统配置 ==========
             "ENABLE_LOGGING": False,
+            "LOG_LEVEL": "ERROR",
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 300,
             "INFERENCE_FPS": 300,
@@ -183,11 +192,6 @@ class ConfigManager:
         clamp("DISTANCE_WEIGHT", 0.0, 1.0, float, 0.8)
         clamp("AIM_POINT_SMOOTH_ALPHA", 0.01, 1.0, float, 0.12)
 
-        # 速度预测参数
-        clamp("PREDICT_DELAY_SEC", 0.001, 0.2, float, 0.035)
-        clamp("VELOCITY_SMOOTH_ALPHA", 0.01, 1.0, float, 0.4)
-        clamp("ACCEL_SMOOTH_ALPHA", 0.01, 1.0, float, 0.2)
-
         # 🔥 特效干扰抵抗参数
         clamp("CONFIDENCE_HISTORY_SIZE", 3, 50, int, 10)
         clamp("CONFIDENCE_DROP_THRESHOLD", 0.05, 0.5, float, 0.15)
@@ -234,13 +238,16 @@ class ConfigManager:
         # ========== 验证布尔值 ==========
         bool_keys = [
             "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-            "ENABLE_LOGGING", "ENABLE_VELOCITY_PREDICTION", "ENABLE_ACCEL_PREDICTION",
-            "ENABLE_AUTO_FIRE", "ENABLE_MANUAL_RECOIL", "AUTO_FIRE_DEBUG_MODE",
-            "ENABLE_RECOIL_CONTROL"
+            "ENABLE_LOGGING", "ENABLE_AUTO_FIRE", "ENABLE_MANUAL_RECOIL",
+            "AUTO_FIRE_DEBUG_MODE", "ENABLE_RECOIL_CONTROL"
         ]
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
                 c[key] = False
+
+        # LOG_LEVEL 特殊处理
+        if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+            c["LOG_LEVEL"] = "ERROR"
 
         # ========== MODEL_PATH 处理（基于 exe 运行目录）==========
         model_path = c.get("MODEL_PATH", "320.onnx")
@@ -259,7 +266,7 @@ class ConfigManager:
 
     def load_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """✅ 线程安全的配置加载"""
-        with self._lock:
+        with self._rw_lock:
             try:
                 current_modified_time = (
                     os.path.getmtime(self.config_file)
@@ -314,11 +321,11 @@ class ConfigManager:
                     self._log("检测到配置更新，正在保存...")
                     self._write_config(new_config)
 
-                self._log(f"✅ 已加载配置文件: {self.config_file}")
+                self._log(f"已加载配置文件: {self.config_file}")
                 return self.config
 
             except json.JSONDecodeError as e:
-                self._log(f"❌ 配置文件格式错误: {e}")
+                self._log(f"配置文件格式错误: {e}")
                 self._log("使用默认配置并备份损坏文件...")
 
                 # 备份损坏的配置文件
@@ -374,11 +381,6 @@ class ConfigManager:
                 "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES",
                 "DISTANCE_WEIGHT", "AIM_POINT_SMOOTH_ALPHA"
             ],
-            "速度和加速度预测": [
-                "ENABLE_VELOCITY_PREDICTION", "PREDICT_DELAY_SEC",
-                "VELOCITY_SMOOTH_ALPHA", "ENABLE_ACCEL_PREDICTION",
-                "ACCEL_SMOOTH_ALPHA"
-            ],
             "特效干扰抵抗": [
                 "CONFIDENCE_HISTORY_SIZE", "CONFIDENCE_DROP_THRESHOLD",
                 "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"
@@ -401,7 +403,7 @@ class ConfigManager:
                 "KEY_MONITOR_INTERVAL_MS"
             ],
             "系统配置": [
-                "ENABLE_LOGGING", "CONFIG_MONITOR_INTERVAL_SEC",
+                "ENABLE_LOGGING", "LOG_LEVEL", "CONFIG_MONITOR_INTERVAL_SEC",
                 "CAPTURE_FPS", "INFERENCE_FPS"
             ],
             "自动开火": [
@@ -445,7 +447,7 @@ class ConfigManager:
 
     def save_config(self) -> bool:
         """✅ 线程安全的配置保存"""
-        with self._lock:
+        with self._rw_lock:
             if self._write_config(self.config):
                 self._log(f"✅ 配置已保存: {self.config_file}")
                 try:
@@ -467,7 +469,7 @@ class ConfigManager:
                 return cached_value
 
         # 缓存未命中或过期
-        with self._lock:
+        with self._rw_lock:
             if not self.config:
                 self.load_config()
 
@@ -479,14 +481,14 @@ class ConfigManager:
 
     def set(self, key: str, value: Any) -> None:
         """✅ 线程安全的配置设置"""
-        with self._lock:
+        with self._rw_lock:
             self.config[key] = value
             # 立即使缓存失效
             self._cache.pop(key, None)
 
     def get_all(self) -> Dict[str, Any]:
         """获取所有配置（副本）"""
-        with self._lock:
+        with self._rw_lock:
             return self.config.copy()
 
     def start_auto_reload(self, interval_sec: Optional[int] = None) -> None:
@@ -499,7 +501,7 @@ class ConfigManager:
             interval_sec = self.get("CONFIG_MONITOR_INTERVAL_SEC", 5)
 
         def monitor_loop():
-            self._log(f"🔄 配置自动重载已启动 (间隔: {interval_sec}秒)")
+            self._log(f"配置自动重载已启动 (间隔: {interval_sec}秒)")
             while not self._stop_monitor:
                 time.sleep(interval_sec)
                 if not self._stop_monitor:
@@ -559,3 +561,10 @@ def start_auto_reload(interval_sec: Optional[int] = None) -> None:
 def stop_auto_reload() -> None:
     """停止自动重载"""
     _config_manager.stop_auto_reload()
+
+
+# ✅ 仅在直接运行时执行测试
+if __name__ == "__main__":
+    config = load_config()
+    print(f"配置加载成功，共 {len(config)} 项")
+    print(f"配置文件位置: {_config_manager.config_file}")

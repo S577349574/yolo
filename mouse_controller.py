@@ -24,11 +24,44 @@ class MouseController:
     def __init__(self, device_path=None):
         if device_path is None:
             device_path = get_config("DRIVER_PATH")
+
         self.driver_handle = None
         self.device_path = device_path
         self.move_queue = thread_queue.Queue(maxsize=1)
         self.mouse_thread = None
         self.stop_event = ThreadEvent()
+
+        # 🆕 预计算所有常量和配置
+        self.screen_width = win32api.GetSystemMetrics(0)
+        self.screen_height = win32api.GetSystemMetrics(1)
+        self.center_x = self.screen_width // 2
+        self.center_y = self.screen_height // 2
+
+        dead_zone = get_config("PRECISION_DEAD_ZONE", 2)
+        self.dead_zone_sq = dead_zone * dead_zone
+        self.max_step = get_config("MAX_SINGLE_MOVE_PX", 80)
+        self.max_step_sq = self.max_step * self.max_step
+
+        # 时间转换常量
+        self.ms_to_sec = 0.001
+        self.default_delay_sec = get_config("DEFAULT_DELAY_MS_PER_STEP", 2) * self.ms_to_sec
+
+        # 按钮标志
+        self.no_button_flag = get_config("APP_MOUSE_NO_BUTTON", 0)
+        self.button_up_map = {
+            get_config("APP_MOUSE_LEFT_DOWN", 1): get_config("APP_MOUSE_LEFT_UP", 2),
+            get_config("APP_MOUSE_RIGHT_DOWN", 4): get_config("APP_MOUSE_RIGHT_UP", 8),
+            get_config("APP_MOUSE_MIDDLE_DOWN", 16): get_config("APP_MOUSE_MIDDLE_UP", 32),
+        }
+
+        # IOCTL 代码
+        self.mouse_request_code = get_config("MOUSE_REQUEST")
+
+        # 调试模式
+        self.debug_mode = get_config("DEBUG_MODE", False)
+
+        # 🆕 重用结构体对象
+        self.mouse_req = KMouseRequest()
 
         # 检查是否需要 Mickey 补偿
         self.use_compensation = self._check_if_compensation_needed()
@@ -45,8 +78,11 @@ class MouseController:
         kd = get_config("PID_KD", 0.03)
         self.pid = PIDController(kp=kp, ki=ki, kd=kd)
 
-        # 🔍 调试：打印 PID 参数
-        utils.log(f"[MouseController] PID 参数: KP={kp}, KI={ki}, KD={kd}")
+        if self.debug_mode:
+            utils.log(f"[MouseController] PID 参数: KP={kp}, KI={ki}, KD={kd}")
+            utils.log(
+                f"[MouseController] 屏幕尺寸: {self.screen_width}x{self.screen_height}, 中心: ({self.center_x}, {self.center_y})")
+            utils.log(f"[MouseController] 死区: {math.sqrt(self.dead_zone_sq):.1f}px (平方: {self.dead_zone_sq})")
 
         # 统计
         self.move_count = 0
@@ -114,20 +150,28 @@ class MouseController:
         mickey_x = int(x)
         mickey_y = int(y)
 
-        # 🔍 调试：打印发送给驱动的值
-
         # 安全限幅
         MAX_MICKEY = 500
-        mickey_x = max(-MAX_MICKEY, min(mickey_x, MAX_MICKEY))
-        mickey_y = max(-MAX_MICKEY, min(mickey_y, MAX_MICKEY))
+        if mickey_x > MAX_MICKEY:
+            mickey_x = MAX_MICKEY
+        elif mickey_x < -MAX_MICKEY:
+            mickey_x = -MAX_MICKEY
 
-        mouse_req_data = KMouseRequest(x=mickey_x, y=mickey_y, button_flags=int(button_flags))
-        in_buffer = bytes(mouse_req_data)
+        if mickey_y > MAX_MICKEY:
+            mickey_y = MAX_MICKEY
+        elif mickey_y < -MAX_MICKEY:
+            mickey_y = -MAX_MICKEY
+
+        # 🆕 重用结构体对象
+        self.mouse_req.x = mickey_x
+        self.mouse_req.y = mickey_y
+        self.mouse_req.button_flags = int(button_flags)
+        in_buffer = bytes(self.mouse_req)
 
         try:
             win32file.DeviceIoControl(
                 self.driver_handle,
-                get_config("MOUSE_REQUEST"),
+                self.mouse_request_code,
                 in_buffer,
                 0,
                 None,
@@ -138,19 +182,8 @@ class MouseController:
             return False
 
     def _mouse_worker(self):
-        """主工作线程（纯PID版）"""
+        """主工作线程（纯PID版 - 性能优化）"""
         utils.log("[MouseController Thread] 纯PID模式已启动")
-
-        screen_width = win32api.GetSystemMetrics(0)
-        screen_height = win32api.GetSystemMetrics(1)
-        center_x = screen_width // 2
-        center_y = screen_height // 2
-
-        # 🔍 调试：打印屏幕信息
-        utils.log(f"[MouseController] 屏幕尺寸: {screen_width}x{screen_height}, 中心: ({center_x}, {center_y})")
-
-        dead_zone = get_config("PRECISION_DEAD_ZONE", 2)
-        utils.log(f"[MouseController] 死区: {dead_zone}px")
 
         try:
             while not self.stop_event.is_set():
@@ -158,49 +191,47 @@ class MouseController:
                     move_command = self.move_queue.get(timeout=0.01)
                     target_x, target_y, _, delay_ms, button_flags = move_command
 
-                    current_delay_ms = max(1, delay_ms or get_config("DEFAULT_DELAY_MS_PER_STEP", 2))
+                    # 🆕 使用预计算的延迟
+                    sleep_time = (delay_ms * self.ms_to_sec) if delay_ms else self.default_delay_sec
                     self.move_count += 1
 
-                    # 🔧 简化：直接计算误差
-                    error_x = target_x - center_x
-                    error_y = target_y - center_y
-                    distance = math.hypot(error_x, error_y)
+                    # 🆕 快速距离检查（避免开方）
+                    error_x = target_x - self.center_x
+                    error_y = target_y - self.center_y
+                    distance_sq = error_x * error_x + error_y * error_y
 
                     # 死区判断
-                    if distance < dead_zone:
-                        if self.move_count % 10 == 1:
-                            utils.log(f"[MouseController] 在死区内，跳过")
+                    if distance_sq < self.dead_zone_sq:
+                        if self.debug_mode and self.move_count % 10 == 1:
+                            utils.log("[MouseController] 在死区内，跳过")
                         self.pid.reset()
-                        time.sleep(current_delay_ms / 1000.0)
+                        time.sleep(sleep_time)
                         continue
 
-                    # 🔧 核心：只用PID计算移动量
+                    # PID 计算
                     move_x_raw, move_y_raw = self.pid.calculate(error_x, error_y)
 
-
-                    # 🔍 调试：打印 PID 输出
-
-
-                    max_step = get_config("MAX_SINGLE_MOVE_PX", 80)
-                    move_norm = math.hypot(move_x_raw, move_y_raw)
-                    if move_norm > max_step:
-                        scale = max_step / move_norm
+                    # 🆕 快速限幅检查（避免开方）
+                    move_sq = move_x_raw * move_x_raw + move_y_raw * move_y_raw
+                    if move_sq > self.max_step_sq:
+                        scale = self.max_step / math.sqrt(move_sq)
                         move_x_raw *= scale
                         move_y_raw *= scale
-                        if self.move_count % 10 == 1:
-                            utils.log(f"[MouseController] 限幅: {move_norm:.1f}px → {max_step}px (缩放 {scale:.2f})")
+                        if self.debug_mode and self.move_count % 10 == 1:
+                            utils.log(
+                                f"[MouseController] 限幅: {math.sqrt(move_sq):.1f}px → {self.max_step}px (缩放 {scale:.2f})")
 
-                    move_x = int(round(move_x_raw))
-                    move_y = int(round(move_y_raw))
+                    # 🆕 快速四舍五入
+                    move_x = int(move_x_raw + 0.5 if move_x_raw > 0 else move_x_raw - 0.5)
+                    move_y = int(move_y_raw + 0.5 if move_y_raw > 0 else move_y_raw - 0.5)
 
+                    # 发送移动指令（使用位运算检查）
+                    if move_x | move_y:  # 比 move_x != 0 or move_y != 0 稍快
+                        self._send_mouse_request(move_x, move_y, self.no_button_flag)
 
-                    # 发送移动指令
-                    if move_x != 0 or move_y != 0:
-                        self._send_mouse_request(move_x, move_y, get_config("APP_MOUSE_NO_BUTTON", 0))
+                    time.sleep(sleep_time)
 
-                    time.sleep(current_delay_ms / 1000.0)
-
-                    if button_flags != get_config("APP_MOUSE_NO_BUTTON", 0):
+                    if button_flags != self.no_button_flag:
                         self._send_mouse_request(0, 0, button_flags)
 
                 except thread_queue.Empty:
@@ -211,10 +242,9 @@ class MouseController:
 
     def move_to_target(self, target_x, target_y, delay_ms=None, button_flags=None):
         """将目标坐标加入移动队列"""
-        # 🔍 调试：打印接收到的目标
-
         if button_flags is None:
-            button_flags = get_config("APP_MOUSE_NO_BUTTON", 0)
+            button_flags = self.no_button_flag
+
         if not self.driver_handle or not self.mouse_thread or not self.mouse_thread.is_alive():
             utils.log("[MouseController] ⚠驱动或线程未就绪")
             return False
@@ -222,20 +252,21 @@ class MouseController:
         actual_delay_ms = delay_ms if delay_ms is not None else get_config("DEFAULT_DELAY_MS_PER_STEP", 2)
         move_command = (target_x, target_y, 0, actual_delay_ms, button_flags)
 
-        # 🆕 强制覆盖旧指令
-        try:
-            # 尝试取出旧指令（如果队列已满）
+        # 🆕 优化队列操作
+        if self.move_queue.full():
             try:
                 old_command = self.move_queue.get_nowait()
-                utils.log(f"[MouseController] 覆盖旧指令: ({old_command[0]}, {old_command[1]})")
+                if self.debug_mode:
+                    utils.log(f"[MouseController] 覆盖旧指令: ({old_command[0]}, {old_command[1]})")
             except thread_queue.Empty:
                 pass
 
-            # 放入新指令
+        try:
             self.move_queue.put_nowait(move_command)
             return True
         except thread_queue.Full:
-            utils.log("[MouseController] 队列已满（理论上不会发生）")
+            if self.debug_mode:
+                utils.log("[MouseController] 队列已满（理论上不会发生）")
             return False
         except Exception as e:
             utils.log(f"[MouseController] 队列操作失败: {e}")
@@ -243,26 +274,25 @@ class MouseController:
 
     def click(self, button=None, delay_ms=50):
         """点击鼠标"""
-        utils.log(f"[MouseController] 执行点击: button={button}, delay={delay_ms}ms")
+        if self.debug_mode:
+            utils.log(f"[MouseController] 执行点击: button={button}, delay={delay_ms}ms")
 
         if button is None:
             button = get_config("APP_MOUSE_LEFT_DOWN", 1)
+
         if not self.driver_handle:
             utils.log("[MouseController] ⚠驱动未就绪，点击失败")
             return False
 
-        up_flag = {
-            get_config("APP_MOUSE_LEFT_DOWN", 1): get_config("APP_MOUSE_LEFT_UP", 2),
-            get_config("APP_MOUSE_RIGHT_DOWN", 4): get_config("APP_MOUSE_RIGHT_UP", 8),
-            get_config("APP_MOUSE_MIDDLE_DOWN", 16): get_config("APP_MOUSE_MIDDLE_UP", 32),
-        }.get(button)
+        # 🆕 使用预计算的按钮映射
+        up_flag = self.button_up_map.get(button)
         if not up_flag:
             utils.log(f"[MouseController] 未知按钮类型: {button}")
             return False
 
         if not self._send_mouse_request(0, 0, button):
             return False
-        time.sleep(delay_ms / 1000.0)
+        time.sleep(delay_ms * self.ms_to_sec)
         return self._send_mouse_request(0, 0, up_flag)
 
     def close(self):
@@ -278,5 +308,5 @@ class MouseController:
             self.driver_handle = None
             utils.log("[MouseController] 已关闭")
 
-        # 🔍 调试：打印最终统计
-        utils.log(f"[MouseController] 最终统计: 总移动次数 {self.move_count}")
+        if self.debug_mode:
+            utils.log(f"[MouseController] 最终统计: 总移动次数 {self.move_count}")

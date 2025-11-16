@@ -2,9 +2,8 @@
 """目标选择器（增强特效干扰抵抗能力）"""
 
 import math
-import time
-from typing import List, Dict, Optional, Tuple
 from collections import deque
+from typing import List, Dict, Optional, Tuple
 
 import utils
 from config_manager import get_config
@@ -26,27 +25,6 @@ class TargetSelector:
         self.smoothed_aim_y: Optional[float] = None
 
         self.last_send_time: float = 0
-
-        # 原始位置（未经平滑，用于速度计算）
-        self.last_raw_x: Optional[float] = None
-        self.last_raw_y: Optional[float] = None
-
-        # 速度跟踪
-        self.last_target_time: float = time.time()
-        self.target_velocity_x: float = 0.0
-        self.target_velocity_y: float = 0.0
-        self.velocity_smooth_alpha: float = get_config('VELOCITY_SMOOTH_ALPHA', 0.3)
-
-        # 加速度跟踪
-        self.last_velocity_x: float = 0.0
-        self.last_velocity_y: float = 0.0
-        self.target_accel_x: float = 0.0
-        self.target_accel_y: float = 0.0
-        self.accel_smooth_alpha: float = get_config('ACCEL_SMOOTH_ALPHA', 0.2)
-
-        # 预测开关
-        self.enable_velocity_prediction: bool = get_config('ENABLE_VELOCITY_PREDICTION', True)
-        self.enable_accel_prediction: bool = get_config('ENABLE_ACCEL_PREDICTION', False)
 
         # 🔥 新增: 置信度历史记忆（用于抵抗特效干扰）
         self.confidence_history: deque = deque(maxlen=get_config('CONFIDENCE_HISTORY_SIZE', 10))
@@ -288,11 +266,8 @@ class TargetSelector:
 
         # 新目标处理
         if is_new_target:
-            self.last_raw_x = raw_x
-            self.last_raw_y = raw_y
             self.smoothed_aim_x = float(raw_x)
             self.smoothed_aim_y = float(raw_y)
-            self.last_target_time = time.time()
 
             self.last_target_x = int(raw_x)
             self.last_target_y = int(raw_y)
@@ -301,64 +276,15 @@ class TargetSelector:
 
             return self.last_target_x, self.last_target_y
 
-        # 速度计算和预测（保持原有逻辑）
-        current_time = time.time()
-        dt = current_time - self.last_target_time
-
-        if dt < 0.001:
-            dt = 0.016
-
-        if self.enable_velocity_prediction and self.last_raw_x is not None:
-            instant_vel_x = (raw_x - self.last_raw_x) / dt
-            instant_vel_y = (raw_y - self.last_raw_y) / dt
-
-            max_reasonable_speed = 3000
-            speed = math.hypot(instant_vel_x, instant_vel_y)
-
-            if speed > max_reasonable_speed:
-                utils.log(f"⚠️ 检测到异常速度: {speed:.0f} px/s, 重置")
-                self._reset_motion_params()
-                instant_vel_x = 0
-                instant_vel_y = 0
-
-            alpha = self.velocity_smooth_alpha
-            self.target_velocity_x = alpha * instant_vel_x + (1 - alpha) * self.target_velocity_x
-            self.target_velocity_y = alpha * instant_vel_y + (1 - alpha) * self.target_velocity_y
-
-            if self.enable_accel_prediction:
-                instant_accel_x = (self.target_velocity_x - self.last_velocity_x) / dt
-                instant_accel_y = (self.target_velocity_y - self.last_velocity_y) / dt
-
-                accel_alpha = self.accel_smooth_alpha
-                self.target_accel_x = accel_alpha * instant_accel_x + (1 - accel_alpha) * self.target_accel_x
-                self.target_accel_y = accel_alpha * instant_accel_y + (1 - accel_alpha) * self.target_accel_y
-
-                self.last_velocity_x = self.target_velocity_x
-                self.last_velocity_y = self.target_velocity_y
-
-        self.last_raw_x = raw_x
-        self.last_raw_y = raw_y
-
+        # 应用平滑
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, False)
 
-        predict_delay = get_config('PREDICT_DELAY_SEC', 0.025)
-        predict_x = smoothed_x
-        predict_y = smoothed_y
+        # 边界限制
+        smoothed_x = max(0, min(smoothed_x, screen_width - 1))
+        smoothed_y = max(0, min(smoothed_y, screen_height - 1))
 
-        if self.enable_velocity_prediction:
-            predict_x += self.target_velocity_x * predict_delay
-            predict_y += self.target_velocity_y * predict_delay
-
-            if self.enable_accel_prediction:
-                predict_x += 0.5 * self.target_accel_x * (predict_delay ** 2)
-                predict_y += 0.5 * self.target_accel_y * (predict_delay ** 2)
-
-        predict_x = max(0, min(predict_x, screen_width - 1))
-        predict_y = max(0, min(predict_y, screen_height - 1))
-
-        self.last_target_x = int(predict_x)
-        self.last_target_y = int(predict_y)
-        self.last_target_time = current_time
+        self.last_target_x = int(smoothed_x)
+        self.last_target_y = int(smoothed_y)
         self.frames_without_target = 0
         self.is_locked = True
 
@@ -381,16 +307,8 @@ class TargetSelector:
 
     def _reset_motion_params(self) -> None:
         """重置运动相关参数"""
-        self.target_velocity_x = 0.0
-        self.target_velocity_y = 0.0
-        self.target_accel_x = 0.0
-        self.target_accel_y = 0.0
-        self.last_velocity_x = 0.0
-        self.last_velocity_y = 0.0
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
-        self.last_raw_x = None
-        self.last_raw_y = None
 
     def _reset_tracking(self) -> None:
         """重置所有跟踪状态"""
@@ -401,7 +319,6 @@ class TargetSelector:
         self.target_lock_frames = 0
         self.frames_without_target = 0
         self._reset_motion_params()
-        self.last_target_time = time.time()
 
         # 🔥 重置攻击状态追踪
         self.confidence_history.clear()

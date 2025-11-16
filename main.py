@@ -108,15 +108,18 @@ def main():
     # ✅ 加载配置并验证路径
     try:
         load_config()
+
+        config = load_config()
+        print(f"配置加载成功，共 {len(config)} 项")
         start_auto_reload()
 
         # 验证关键文件
         model_path = get_config('MODEL_PATH')
         from pathlib import Path
         if not Path(model_path).exists():
-            utils.log(f"\n错误：模型文件不存在")
-            utils.log(f"期望路径: {model_path}")
-            utils.log(f"请确保将 320.onnx 放在 exe 所在目录")
+            utils.log_debug(f"\n错误：模型文件不存在")
+            utils.log_debug(f"期望路径: {model_path}")
+            utils.log_debug(f"请确保将 onnx 放在 exe 所在目录")
             return
 
         utils.log(f"模型路径: {model_path}")
@@ -142,7 +145,7 @@ def main():
     try:
         model = YOLOv8Detector()
     except Exception as e:
-        utils.log(f"模型加载失败: {e}")
+        utils.log_debug(f"模型加载失败: {e}")
         return
 
     target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config(
@@ -152,7 +155,7 @@ def main():
     try:
         mouse_controller = MouseController()
     except Exception as e:
-        utils.log(f"鼠标控制器初始化失败: {e}")
+        utils.log_debug(f"鼠标控制器初始化失败: {e}")
         return
 
     # 初始化自动开火控制器
@@ -312,17 +315,17 @@ def main():
             frame_count += 1
             if time.time() - fps_start_time >= 1.0:
                 fps = frame_count / (time.time() - fps_start_time)
-                lock_status = '🔒已锁定' if target_selector.is_locked else '🔍搜索中'
+                lock_status = '已锁定' if target_selector.is_locked else '搜索中'
 
                 # 状态显示
                 if enable_auto_fire:
-                    # 🆕 显示右键状态
+                    # 🆕显示右键状态
                     right_key_status = '✓右键按下' if right_mouse_pressed[0] else '✗右键释放'
-                    fire_status = '🔥射击中' if auto_fire.is_firing else '⏸ 待命'
+                    fire_status = '射击中' if auto_fire.is_firing else '⏸ 待命'
                     accuracy_percent = current_accuracy * 100
                     status_info = f"{fire_status} | {right_key_status} | 准确率: {accuracy_percent:.1f}%"
                 elif enable_manual_recoil:
-                    recoil_status = '⬇️压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
+                    recoil_status = '⬇压枪中' if auto_fire.manual_recoil_active else '⏸ 待命'
                     status_info = f"{recoil_status}"
                 else:
                     status_info = ""
