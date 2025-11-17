@@ -80,15 +80,13 @@ class TargetSelector:
         return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
     def _update_confidence_tracking(self, confidence: float) -> None:
-        """🔥 新增: 更新置信度历史并检测攻击状态"""
+
         self.confidence_history.append(confidence)
 
         if len(self.confidence_history) >= 3:
-            # 计算基准置信度（使用中位数，更抗噪声）
             sorted_conf = sorted(self.confidence_history)
             self.baseline_confidence = sorted_conf[len(sorted_conf) // 2]
 
-            # 检测置信度骤降（疑似被攻击）
             conf_drop_threshold = get_config('CONFIDENCE_DROP_THRESHOLD', 0.15)
             recent_avg = sum(list(self.confidence_history)[-3:]) / 3
 
@@ -97,7 +95,6 @@ class TargetSelector:
             else:
                 self.under_attack_frames = max(0, self.under_attack_frames - 1)
 
-            # 激活攻击保护（连续3帧置信度低）
             attack_protection_frames = get_config('ATTACK_PROTECTION_TRIGGER_FRAMES', 3)
             self.attack_protection_enabled = (self.under_attack_frames >= attack_protection_frames)
 

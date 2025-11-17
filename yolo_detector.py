@@ -13,7 +13,6 @@ class YOLOv8Detector:
         img_size = get_config('CROP_SIZE')
         self.img_size = img_size
 
-        # 修改这里 - 使用 AzureExecutionProvider 而不是 DmlExecutionProvider
         providers = ['DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
         available_providers = ort.get_available_providers()
         active_providers = [p for p in providers if p in available_providers]
