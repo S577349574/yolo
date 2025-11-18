@@ -4,7 +4,7 @@ import numpy as np
 import onnxruntime as ort
 
 import utils
-from config_manager import get_config  # 修改：直接导入 get_config
+from config_manager import get_config
 
 
 class YOLOv8Detector:
@@ -13,19 +13,53 @@ class YOLOv8Detector:
         img_size = get_config('CROP_SIZE')
         self.img_size = img_size
 
-        providers = ['DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
-        available_providers = ort.get_available_providers()
-        active_providers = [p for p in providers if p in available_providers]
-
         if model_path is None:
             raise ValueError("MODEL_PATH is None. Check config loading.")
-        self.session = ort.InferenceSession(model_path, providers=active_providers)
 
-        utils.log(f"✓ 使用Provider: {self.session.get_providers()[0]}")
+        # 智能选择 Provider（优先 TensorRT）
+        providers = self._get_best_providers()
+        self.session = ort.InferenceSession(model_path, providers=providers)
+
+        active_provider = self.session.get_providers()[0]
+        utils.log(f"✓ 使用 Provider: {active_provider}")
 
         self.names = self._load_names_from_metadata()
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]
+
+    def _get_best_providers(self):
+        """根据硬件自动选择最优 Provider（优先 TensorRT）"""
+        available = ort.get_available_providers()
+
+        # 定义优先级（从高到低）
+        priority = []
+
+        # 第一优先级：TensorRT（NVIDIA GPU 极致性能）
+        if 'TensorrtExecutionProvider' in available:
+            trt_options = {
+                'trt_fp16_enable': True,  # 启用 FP16 加速
+                'trt_engine_cache_enable': True,  # 启用引擎缓存
+                'trt_engine_cache_path': './trt_cache',  # 缓存路径
+                'trt_max_workspace_size': 2147483648,  # 2GB workspace
+            }
+            priority.append(('TensorrtExecutionProvider', trt_options))
+            utils.log("✓ TensorRT 可用，已设置为第一优先级")
+
+        # 第二优先级：CUDA（NVIDIA GPU 稳定方案）
+        if 'CUDAExecutionProvider' in available:
+            priority.append('CUDAExecutionProvider')
+
+        # 第三优先级：DirectML（AMD/Intel 显卡）
+        if 'DmlExecutionProvider' in available:
+            priority.append('DmlExecutionProvider')
+
+        # 兜底：CPU
+        priority.append('CPUExecutionProvider')
+
+        utils.log(f"可用 Providers: {available}")
+        utils.log(f"选择 Providers: {[p if isinstance(p, str) else p[0] for p in priority]}")
+
+        return priority
 
     def _load_names_from_metadata(self):
         try:
