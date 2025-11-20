@@ -85,7 +85,7 @@ class ConfigManager:
             "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.55,
             "IOU_THRESHOLD": 0.45,
-            "TARGET_CLASS_NAMES": ["敌人"],
+            "TARGET_CLASS_NAMES": ["敌"],
 
             # ========== 瞄准点配置 ==========
             "AIM_Y_RATIO": 0.45,

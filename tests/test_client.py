@@ -1,180 +1,22 @@
-# test_client.py - 安全增强版
+# test_client.py - 适配新版本（使用machine_code）
 import hashlib
 import hmac
 import threading
 import time
+import platform
+import socket
 import uuid
 from datetime import datetime
 from typing import Optional
 
 import requests
 
-# 🆕 服务器配置
+from license_auth import LicenseAuthenticator
+
+# 服务器配置
 SERVER_URL = "http://1.14.184.43:45000"
 ADMIN_KEY = "change_me_in_production"
-SECRET_KEY = "your_secret_key_change_this"  # 🆕 与服务端保持一致
-
-
-# 🆕 生成签名
-def generate_signature(data: str, timestamp: int) -> str:
-    """使用HMAC-SHA256生成签名"""
-    message = f"{data}|{timestamp}"
-    signature = hmac.new(
-        SECRET_KEY.encode(),
-        message.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    return signature
-
-
-# 🆕 获取当前时间戳
-def get_timestamp() -> int:
-    """获取当前Unix时间戳"""
-    return int(time.time())
-
-
-class LicenseClient:
-    """许可证客户端类（安全增强版）"""
-
-    def __init__(self, server_url: str = SERVER_URL):
-        self.server_url = server_url.rstrip('/')
-        self.card_key: Optional[str] = None
-        self.device_id = str(uuid.uuid4())  # 生成唯一设备ID
-        self.is_online = False
-        self.heartbeat_thread: Optional[threading.Thread] = None
-        self.server_time_offset = 0  # 🆕 服务器时间偏移
-
-    def sync_server_time(self, server_time: int):
-        """🆕 同步服务器时间"""
-        local_time = get_timestamp()
-        self.server_time_offset = server_time - local_time
-
-    def get_synced_timestamp(self) -> int:
-        """🆕 获取同步后的时间戳"""
-        return get_timestamp() + self.server_time_offset
-
-    def verify_login(self, card_key: str) -> dict:
-        """登录验证（带签名）"""
-        # 🆕 生成时间戳和签名
-        timestamp = self.get_synced_timestamp()
-        data = f"{card_key}|{self.device_id}"
-        signature = generate_signature(data, timestamp)
-
-        url = f"{self.server_url}/verify"
-        request_data = {
-            "card_key": card_key,
-            "device_id": self.device_id,
-            "timestamp": timestamp,  # 🆕
-            "signature": signature  # 🆕
-        }
-
-        try:
-            response = requests.post(url, json=request_data)
-            if response.status_code == 200:
-                result = response.json()
-                self.card_key = card_key
-                self.is_online = True
-
-                # 🆕 同步服务器时间
-                if 'server_time' in result:
-                    self.sync_server_time(result['server_time'])
-
-                print(f"✅ 登录成功!")
-                print(f"   卡密: {card_key}")
-                print(f"   设备ID: {self.device_id}")
-                print(f"   过期时间: {result['expire_date']}")
-                print(f"   最大设备数: {result['max_devices']}")
-                print(f"   当前在线: {result['current_online']}")
-                return result
-            elif response.status_code == 429:
-                print(f"⚠️ 请求过于频繁，请稍后再试")
-                return {"error": "rate_limit"}
-            else:
-                print(f"❌ 登录失败: {response.json()['detail']}")
-                return {"error": response.json()['detail']}
-        except Exception as e:
-            print(f"❌ 连接错误: {str(e)}")
-            return {"error": str(e)}
-
-    def send_heartbeat(self) -> bool:
-        """发送心跳（带签名）"""
-        if not self.card_key or not self.is_online:
-            return False
-
-        # 🆕 生成时间戳和签名
-        timestamp = self.get_synced_timestamp()
-        data = f"{self.card_key}|{self.device_id}"
-        signature = generate_signature(data, timestamp)
-
-        url = f"{self.server_url}/heartbeat"
-        request_data = {
-            "card_key": self.card_key,
-            "device_id": self.device_id,
-            "timestamp": timestamp,  # 🆕
-            "signature": signature  # 🆕
-        }
-
-        try:
-            response = requests.post(url, json=request_data)
-            if response.status_code == 200:
-                result = response.json()
-                # 🆕 更新服务器时间同步
-                if 'server_time' in result:
-                    self.sync_server_time(result['server_time'])
-                return True
-            else:
-                print(f"⚠️ 心跳失败: {response.json()['detail']}")
-                self.is_online = False
-                return False
-        except Exception as e:
-            print(f"⚠️ 心跳错误: {str(e)}")
-            return False
-
-    def logout(self):
-        """登出"""
-        if not self.card_key:
-            return
-
-        # 🆕 生成时间戳和签名
-        timestamp = self.get_synced_timestamp()
-        data = f"{self.card_key}|{self.device_id}"
-        signature = generate_signature(data, timestamp)
-
-        url = f"{self.server_url}/logout"
-        request_data = {
-            "card_key": self.card_key,
-            "device_id": self.device_id,
-            "timestamp": timestamp,  # 🆕
-            "signature": signature  # 🆕
-        }
-
-        try:
-            response = requests.post(url, json=request_data)
-            if response.status_code == 200:
-                print(f"✅ 登出成功")
-                self.is_online = False
-                self.card_key = None
-        except Exception as e:
-            print(f"❌ 登出错误: {str(e)}")
-
-    def start_heartbeat(self, interval: int = 30):
-        """启动心跳线程"""
-
-        def heartbeat_worker():
-            while self.is_online:
-                time.sleep(interval)
-                if self.is_online:
-                    success = self.send_heartbeat()
-                    timestamp = datetime.now().strftime("%H:%M:%S")
-                    if success:
-                        print(f"💓 [{timestamp}] 心跳成功")
-                    else:
-                        print(f"💔 [{timestamp}] 心跳失败，停止心跳")
-                        break
-
-        self.heartbeat_thread = threading.Thread(target=heartbeat_worker, daemon=True)
-        self.heartbeat_thread.start()
-        print(f"💓 心跳线程已启动 (间隔: {interval}秒)")
+SECRET_KEY = "your_secret_key_change_this"
 
 
 class AdminClient:
@@ -184,13 +26,14 @@ class AdminClient:
         self.server_url = server_url.rstrip('/')
         self.admin_key = admin_key
 
-    def create_license(self, days: int = 30, max_devices: int = 1, bind_ip: bool = False) -> dict:
+    def create_license(self, days: int = 30, max_devices: int = 1,
+                       remark: str = None) -> dict:
         """创建卡密"""
         url = f"{self.server_url}/admin/create"
         data = {
             "days": days,
             "max_devices": max_devices,
-            "bind_ip": bind_ip,  # 🆕
+            "remark": remark,
             "admin_key": self.admin_key
         }
 
@@ -202,7 +45,8 @@ class AdminClient:
                 print(f"   卡密: {result['card_key']}")
                 print(f"   过期时间: {result['expire_date']}")
                 print(f"   最大设备数: {result['max_devices']}")
-                print(f"   IP绑定: {'是' if result.get('bind_ip') else '否'}")
+                if result.get('remark'):
+                    print(f"   备注: {result['remark']}")
                 return result
             else:
                 print(f"❌ 创建失败: {response.json()['detail']}")
@@ -210,6 +54,26 @@ class AdminClient:
         except Exception as e:
             print(f"❌ 连接错误: {str(e)}")
             return {}
+
+    def update_remark(self, card_key: str, remark: str):
+        """更新卡密备注"""
+        url = f"{self.server_url}/admin/update_remark"
+        data = {
+            "card_key": card_key,
+            "remark": remark,
+            "admin_key": self.admin_key
+        }
+
+        try:
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                print(f"✅ 备注已更新")
+                print(f"   卡密: {card_key}")
+                print(f"   新备注: {remark}")
+            else:
+                print(f"❌ 更新失败: {response.json()['detail']}")
+        except Exception as e:
+            print(f"❌ 连接错误: {str(e)}")
 
     def list_licenses(self):
         """列出所有卡密"""
@@ -221,7 +85,7 @@ class AdminClient:
             if response.status_code == 200:
                 licenses = response.json()['licenses']
                 print(f"\n📋 卡密列表 (共 {len(licenses)} 个):")
-                print("-" * 120)
+                print("-" * 130)
                 for i, lic in enumerate(licenses, 1):
                     status = "🚫已封禁" if lic['is_banned'] else "✅正常"
                     online = f"🟢在线({lic['current_online']}/{lic['max_devices']})" if lic[
@@ -230,9 +94,10 @@ class AdminClient:
                     print(f"{i}. {lic['card_key']}")
                     print(f"   状态: {status} | {online}")
                     print(f"   过期: {lic['expire_date']}")
-                    print(f"   设备: {lic['device_id'] or '未绑定'}")
-                    print(f"   绑定IP: {lic['allowed_ip'] or '无'}")  # 🆕
-                    print(f"   失败尝试: {lic['login_attempts']}")  # 🆕
+                    print(f"   机器码: {lic['machine_code'][:16] + '...' if lic['machine_code'] else '未绑定'}")
+                    if lic.get('remark'):
+                        print(f"   备注: {lic['remark']}")
+                    print(f"   失败尝试: {lic['login_attempts']}")
                     print(f"   最后登录: {lic['last_login'] or '从未登录'}")
                     print()
             else:
@@ -267,7 +132,7 @@ class AdminClient:
                     valid_licenses.append(lic)
 
                 print(f"\n✅ 有效卡密列表 (共 {len(valid_licenses)} 个):")
-                print("-" * 120)
+                print("-" * 130)
 
                 if not valid_licenses:
                     print("   暂无有效卡密")
@@ -287,8 +152,9 @@ class AdminClient:
                     print(f"{i}. {lic['card_key']}")
                     print(f"   状态: {online}")
                     print(f"   过期: {expire_info}")
-                    print(f"   设备: {lic['device_id'] or '未绑定'}")
-                    print(f"   绑定IP: {lic['allowed_ip'] or '无'}")
+                    print(f"   机器码: {lic['machine_code'][:16] + '...' if lic['machine_code'] else '未绑定'}")
+                    if lic.get('remark'):
+                        print(f"   备注: {lic['remark']}")
                     print(f"   最后登录: {lic['last_login'] or '从未登录'}")
                     print()
             else:
@@ -307,10 +173,10 @@ class AdminClient:
                 result = response.json()
                 devices = result['online_devices']
                 print(f"\n🟢 在线设备 (共 {result['total']} 个):")
-                print("-" * 100)
+                print("-" * 120)
                 for i, dev in enumerate(devices, 1):
                     print(f"{i}. 卡密: {dev['card_key']}")
-                    print(f"   设备ID: {dev['device_id']}")
+                    print(f"   机器码: {dev['machine_code'][:16]}...")
                     print(f"   最后心跳: {dev['last_heartbeat']}")
                     print(f"   在线时长: {dev['online_duration']}")
                     print()
@@ -320,7 +186,7 @@ class AdminClient:
             print(f"❌ 连接错误: {str(e)}")
 
     def get_security_logs(self, limit: int = 50):
-        """🆕 查看安全日志"""
+        """查看安全日志"""
         url = f"{self.server_url}/admin/security_logs"
         params = {
             "admin_key": self.admin_key,
@@ -332,7 +198,7 @@ class AdminClient:
             if response.status_code == 200:
                 logs = response.json()['logs']
                 print(f"\n🔒 安全日志 (最近 {len(logs)} 条):")
-                print("-" * 120)
+                print("-" * 130)
 
                 if not logs:
                     print("   暂无安全事件")
@@ -342,8 +208,7 @@ class AdminClient:
                     "replay_attack": "🔴 重放攻击",
                     "rate_limit": "⚠️ 请求限制",
                     "invalid_signature": "🔴 签名错误",
-                    "ip_mismatch": "⚠️ IP不匹配",
-                    "fingerprint_mismatch": "⚠️ 设备指纹变化"
+                    "machine_code_mismatch": "🔴 机器码不匹配"
                 }
 
                 for i, log in enumerate(logs, 1):
@@ -352,7 +217,7 @@ class AdminClient:
                     print(f"   时间: {log['event_time']}")
                     print(f"   IP: {log['ip_address']}")
                     print(f"   卡密: {log['card_key'] or 'N/A'}")
-                    print(f"   设备: {log['device_id'] or 'N/A'}")
+                    print(f"   机器码: {log['machine_code'][:16] + '...' if log['machine_code'] else 'N/A'}")
                     print(f"   详情: {log['details'] or 'N/A'}")
                     print()
             else:
@@ -377,12 +242,12 @@ class AdminClient:
         except Exception as e:
             print(f"❌ 连接错误: {str(e)}")
 
-    def kick_device(self, card_key: str, device_id: str):
+    def kick_device(self, card_key: str, machine_code: str):
         """踢出设备"""
         url = f"{self.server_url}/admin/kick"
         params = {
             "card_key": card_key,
-            "device_id": device_id,
+            "machine_code": machine_code,
             "admin_key": self.admin_key
         }
 
@@ -431,63 +296,86 @@ def test_connection():
 def test_scenario_1():
     """测试场景1: 基础登录和心跳"""
     print("\n" + "=" * 50)
-    print("测试场景1: 基础登录和心跳（安全增强版）")
+    print("测试场景1: 基础登录和心跳")
     print("=" * 50)
 
     admin = AdminClient()
-    license_info = admin.create_license(days=30, max_devices=1)
+    license_info = admin.create_license(days=30, max_devices=1, remark="测试账号1")
     if not license_info:
         return
 
     card_key = license_info['card_key']
 
-    client = LicenseClient()
-    client.verify_login(card_key)
-    client.start_heartbeat(interval=10)
+    auth = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+    success, message = auth.verify(card_key)
 
-    print("\n⏳ 保持在线30秒...")
-    time.sleep(30)
+    if success:
+        print(f"✅ {message}")
 
-    client.logout()
+        print("\n⏳ 保持在线30秒，每10秒发送一次心跳...")
+        for i in range(3):
+            time.sleep(10)
+            if auth.send_heartbeat():
+                print(f"💓 心跳#{i + 1} 成功")
+            else:
+                print(f"❌ 心跳#{i + 1} 失败")
+
+        auth.logout()
+        print("✅ 已登出")
+    else:
+        print(f"❌ {message}")
 
 
 def test_scenario_2():
     """测试场景2: 多设备登录限制"""
     print("\n" + "=" * 50)
-    print("测试场景2: 多设备登录限制")
+    print("测试场景2: 多设备登录限制（机器码绑定）")
     print("=" * 50)
 
     admin = AdminClient()
-    license_info = admin.create_license(days=30, max_devices=1)
+    license_info = admin.create_license(days=30, max_devices=1, remark="多设备测试")
     if not license_info:
         return
 
     card_key = license_info['card_key']
 
-    client1 = LicenseClient()
     print("\n--- 设备1尝试登录 ---")
-    client1.verify_login(card_key)
-    client1.start_heartbeat(interval=10)
+    auth1 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+    success1, msg1 = auth1.verify(card_key)
+    print(f"结果: {msg1}")
+    print(f"设备1机器码: {auth1.machine_code[:16]}...")
 
-    time.sleep(2)
+    if success1:
+        time.sleep(2)
 
-    client2 = LicenseClient()
-    print("\n--- 设备2尝试登录 (应该失败) ---")
-    client2.verify_login(card_key)
+        print("\n--- 设备2尝试登录 (应该失败 - 机器码不同) ---")
+        auth2 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+        success2, msg2 = auth2.verify(card_key)
+        print(f"结果: {msg2}")
+        print(f"设备2机器码: {auth2.machine_code[:16]}...")
 
-    time.sleep(5)
+        if not success2:
+            print("✅ 多设备限制生效，第二台设备登录被拒绝")
+        else:
+            print("⚠️ 多设备限制未生效")
 
-    print("\n--- 设备1登出 ---")
-    client1.logout()
+        time.sleep(2)
 
-    time.sleep(2)
+        print("\n--- 设备1登出 ---")
+        auth1.logout()
+        print("✅ 设备1已登出")
 
-    print("\n--- 设备2再次尝试登录 (应该成功) ---")
-    client2.verify_login(card_key)
-    client2.start_heartbeat(interval=10)
+        time.sleep(2)
 
-    time.sleep(10)
-    client2.logout()
+        print("\n--- 设备2再次尝试登录 (应该成功) ---")
+        success2_retry, msg2_retry = auth2.verify(card_key)
+        print(f"结果: {msg2_retry}")
+
+        if success2_retry:
+            print("✅ 设备1登出后，设备2成功登录")
+            auth2.logout()
+        else:
+            print("❌ 设备2仍然无法登录")
 
 
 def test_scenario_3():
@@ -501,7 +389,7 @@ def test_scenario_3():
     print("\n--- 创建3个卡密 ---")
     licenses = []
     for i in range(3):
-        lic = admin.create_license(days=30, max_devices=2)
+        lic = admin.create_license(days=30, max_devices=2, remark=f"管理测试账号{i + 1}")
         if lic:
             licenses.append(lic['card_key'])
         time.sleep(0.5)
@@ -509,10 +397,11 @@ def test_scenario_3():
     print("\n--- 模拟3个客户端登录 ---")
     clients = []
     for i, card_key in enumerate(licenses):
-        client = LicenseClient()
-        client.verify_login(card_key)
-        client.start_heartbeat(interval=10)
-        clients.append(client)
+        auth = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+        success, msg = auth.verify(card_key)
+        if success:
+            clients.append(auth)
+            print(f"✅ 客户端{i + 1}登录成功")
         time.sleep(1)
 
     time.sleep(5)
@@ -523,107 +412,134 @@ def test_scenario_3():
     print("\n--- 查看所有卡密 ---")
     admin.list_licenses()
 
-    print("\n--- 查看安全日志 ---")  # 🆕
+    print("\n--- 查看安全日志 ---")
     admin.get_security_logs(limit=20)
 
     if licenses:
-        print(f"\n--- 封禁卡密: {licenses[0]} ---")
-        admin.ban_license(licenses[0])
+        print(f"\n--- 更新卡密备注: {licenses[0][:8]}... ---")
+        admin.update_remark(licenses[0], "已被修改的测试卡密")
 
-    time.sleep(5)
+    time.sleep(2)
 
-    for client in clients:
-        client.logout()
+    print("\n--- 再次查看卡密列表（验证备注更新） ---")
+    admin.list_licenses()
+
+    time.sleep(2)
+
+    print("\n--- 所有客户端登出 ---")
+    for i, auth in enumerate(clients):
+        auth.logout()
+        print(f"✅ 客户端{i + 1}已登出")
 
 
 def test_scenario_4():
-    """🆕 测试场景4: 安全防护测试"""
+    """测试场景4: 安全防护测试"""
     print("\n" + "=" * 50)
     print("测试场景4: 安全防护测试")
     print("=" * 50)
 
     admin = AdminClient()
 
-    # 创建测试卡密
     print("\n--- 创建测试卡密 ---")
-    license_info = admin.create_license(days=30, max_devices=1, bind_ip=True)
+    license_info = admin.create_license(days=30, max_devices=1, remark="安全测试账号")
     if not license_info:
         return
 
     card_key = license_info['card_key']
 
-    # 测试1: 正常登录
     print("\n--- 测试1: 正常登录 ---")
-    client = LicenseClient()
-    result = client.verify_login(card_key)
+    auth = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+    success, message = auth.verify(card_key)
 
-    if result.get('status') == 'success':
+    if success:
         print("✅ 正常登录成功")
         time.sleep(2)
-        client.logout()
+        auth.logout()
+    else:
+        print(f"❌ 登录失败: {message}")
 
-    # 测试2: 尝试重放攻击（使用旧时间戳）
-    print("\n--- 测试2: 模拟重放攻击 ---")
-    old_timestamp = get_timestamp() - 400  # 使用过期时间戳
-    data = f"{card_key}|{str(uuid.uuid4())}"
-    signature = generate_signature(data, old_timestamp)
-
-    try:
-        response = requests.post(
-            f"{SERVER_URL}/verify",
-            json={
-                "card_key": card_key,
-                "device_id": str(uuid.uuid4()),
-                "timestamp": old_timestamp,
-                "signature": signature
-            }
-        )
-        if response.status_code == 403:
-            print("✅ 重放攻击已被拦截")
-        else:
-            print("⚠️ 重放攻击未被拦截")
-    except Exception as e:
-        print(f"❌ 测试错误: {str(e)}")
-
-    # 测试3: 频率限制
-    print("\n--- 测试3: 频率限制测试 ---")
-    print("连续发送15次请求...")
+    print("\n--- 测试2: 频率限制测试 ---")
+    print("连续发送15次快速请求...")
+    rate_limited = False
     for i in range(15):
-        client_temp = LicenseClient()
-        result = client_temp.verify_login(card_key)
-        if result.get('error') == 'rate_limit':
+        auth_temp = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+        success, msg = auth_temp.verify(card_key)
+        if "频繁" in msg or "429" in msg:
             print(f"✅ 第{i + 1}次请求被频率限制拦截")
+            rate_limited = True
             break
-        time.sleep(0.1)
+        time.sleep(0.05)
+
+    if not rate_limited:
+        print("⚠️ 频率限制可能未启用或未触发")
+
+    time.sleep(5)
+
+    print("\n--- 查看安全日志 ---")
+    admin.get_security_logs(limit=10)
+
+
+def test_scenario_5():
+    """测试场景5: 机器码一致性验证"""
+    print("\n" + "=" * 50)
+    print("测试场景5: 机器码一致性验证")
+    print("=" * 50)
+
+    admin = AdminClient()
+    license_info = admin.create_license(days=30, max_devices=1, remark="机器码一致性测试")
+    if not license_info:
+        return
+
+    card_key = license_info['card_key']
+
+    print("\n--- 首次登录，绑定机器码 ---")
+    auth1 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+    machine_code_1 = auth1.machine_code
+    success1, msg1 = auth1.verify(card_key)
+    print(f"结果: {msg1}")
+    print(f"绑定机器码: {machine_code_1[:16]}...")
+    auth1.logout()
 
     time.sleep(2)
 
-    # 查看安全日志
-    print("\n--- 查看安全日志 ---")
-    admin.get_security_logs(limit=10)
+    print("\n--- 第二次登录，验证机器码一致性 ---")
+    auth2 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
+    machine_code_2 = auth2.machine_code
+    success2, msg2 = auth2.verify(card_key)
+    print(f"结果: {msg2}")
+    print(f"当前机器码: {machine_code_2[:16]}...")
+
+    if machine_code_1 == machine_code_2:
+        print("✅ 机器码一致性验证通过 - 相同设备可以重复登录")
+    else:
+        print("⚠️ 机器码不一致 - 这可能表示硬件信息已变化")
+
+    auth2.logout()
 
 
 def interactive_mode():
     """交互式测试模式"""
     print("\n" + "=" * 50)
-    print("交互式测试工具（安全增强版）")
+    print("交互式测试工具（新版本）")
     print("=" * 50)
 
     admin = AdminClient()
-    client = LicenseClient()
+    auth = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
 
     while True:
         print("\n--- 菜单 ---")
         print("1. 创建卡密")
         print("2. 登录")
         print("3. 登出")
-        print("4. 查看所有卡密")
-        print("5. 查看有效卡密")
-        print("6. 查看在线设备")
-        print("7. 查看安全日志 🆕")
-        print("8. 封禁卡密")
-        print("9. 踢出设备")
-        print("10. 测试服务器连接")
+        print("4. 发送心跳")
+        print("5. 查看所有卡密")
+        print("6. 查看有效卡密")
+        print("7. 查看在线设备")
+        print("8. 查看安全日志")
+        print("9. 更新卡密备注")
+        print("10. 封禁卡密")
+        print("11. 踢出设备")
+        print("12. 测试服务器连接")
         print("0. 退出")
 
         choice = input("\n请选择: ").strip()
@@ -631,52 +547,66 @@ def interactive_mode():
         if choice == "1":
             days = int(input("有效期(天): ") or "30")
             max_devices = int(input("最大设备数: ") or "1")
-            bind_ip_input = input("是否绑定IP? (y/n): ").strip().lower()
-            bind_ip = bind_ip_input == 'y'
-            admin.create_license(days, max_devices, bind_ip)
+            remark = input("备注(可选): ").strip() or None
+            admin.create_license(days, max_devices, remark)
 
         elif choice == "2":
             card_key = input("输入卡密: ").strip()
-            result = client.verify_login(card_key)
-            if result.get('status') == 'success':
-                client.start_heartbeat(interval=30)
+            success, message = auth.verify(card_key)
+            print(f"结果: {message}")
 
         elif choice == "3":
-            client.logout()
+            auth.logout()
 
         elif choice == "4":
-            admin.list_licenses()
+            if auth.send_heartbeat():
+                print("✅ 心跳发送成功")
+            else:
+                print("❌ 心跳发送失败")
 
         elif choice == "5":
-            admin.list_valid_licenses()
+            admin.list_licenses()
 
         elif choice == "6":
+            admin.list_valid_licenses()
+
+        elif choice == "7":
             admin.get_online_devices()
 
-        elif choice == "7":  # 🆕
+        elif choice == "8":
             limit = int(input("显示条数(默认50): ") or "50")
             admin.get_security_logs(limit)
 
-        elif choice == "8":
+        elif choice == "9":
+            card_key = input("输入卡密: ").strip()
+            remark = input("输入新备注: ").strip()
+            admin.update_remark(card_key, remark)
+
+        elif choice == "10":
             card_key = input("输入要封禁的卡密: ").strip()
             admin.ban_license(card_key)
 
-        elif choice == "9":
+        elif choice == "11":
             card_key = input("输入卡密: ").strip()
-            device_id = input("输入设备ID: ").strip()
-            admin.kick_device(card_key, device_id)
+            machine_code = input("输入机器码: ").strip()
+            admin.kick_device(card_key, machine_code)
 
-        elif choice == "10":
+        elif choice == "12":
             test_connection()
 
         elif choice == "0":
-            client.logout()
+            auth.logout()
+            print("再见！")
             break
+
+        else:
+            print("❌ 无效选择，请重试")
 
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("许可证服务器测试工具 v3.0（安全增强版）")
+    print("许可证服务器测试工具 v4.0")
+    print("（适配machine_code版本）")
     print("=" * 50)
     print(f"服务器地址: {SERVER_URL}")
     print(f"管理员密钥: {ADMIN_KEY}")
@@ -689,12 +619,13 @@ if __name__ == "__main__":
 
     print("\n选择测试模式:")
     print("1. 基础登录和心跳测试")
-    print("2. 多设备限制测试")
+    print("2. 多设备限制测试（机器码绑定）")
     print("3. 管理员功能测试")
-    print("4. 安全防护测试 🆕")
-    print("5. 交互式模式")
+    print("4. 安全防护测试")
+    print("5. 机器码一致性验证")
+    print("6. 交互式模式")
 
-    mode = input("\n请选择(1-5): ").strip()
+    mode = input("\n请选择(1-6): ").strip()
 
     if mode == "1":
         test_scenario_1()
@@ -705,6 +636,10 @@ if __name__ == "__main__":
     elif mode == "4":
         test_scenario_4()
     elif mode == "5":
+        test_scenario_5()
+    elif mode == "6":
         interactive_mode()
     else:
-        print("无效选择")
+        print("❌ 无效选择")
+
+    print("\n测试完成！")
