@@ -601,7 +601,7 @@ def interactive_mode():
 
         else:
             print("❌ 无效选择，请重试")
-
+6
 
 if __name__ == "__main__":
     print("=" * 50)

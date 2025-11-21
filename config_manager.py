@@ -131,8 +131,8 @@ class ConfigManager:
             "KEY_MONITOR_INTERVAL_MS": 50,
 
             # ========== 系统配置 ==========
-            "ENABLE_LOGGING": False,
-            "LOG_LEVEL": "ERROR",
+            "ENABLE_LOGGING": True,
+            "LOG_LEVEL": "INFO",
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 300,
             "INFERENCE_FPS": 300,
@@ -246,7 +246,7 @@ class ConfigManager:
 
         # LOG_LEVEL 特殊处理
         if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
-            c["LOG_LEVEL"] = "ERROR"
+            c["LOG_LEVEL"] = "INFO"
 
         # ========== MODEL_PATH 处理（基于 exe 运行目录）==========
         model_path = c.get("MODEL_PATH", "320.onnx")
