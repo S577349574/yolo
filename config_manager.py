@@ -71,15 +71,14 @@ class ConfigManager:
 
     def _log(self, message: str):
         """安全日志输出"""
-        try:
-            import utils
-            utils.log(message)
-        except Exception:
-            print(message)
+
+        print(f"[ConfigManager] {message}")
 
     def get_default_config(self) -> Dict[str, Any]:
         """默认配置（带类型注释和安全范围）"""
         return {
+            # ========== 许可证配置 (仅保留用户需要填写的项) ==========
+            "LICENSE_KEY": "",  # 用户需在此处填写自己的卡密
             # ========== YOLO 检测 ==========
             "MODEL_PATH": "320.onnx",  # ✅ 相对于 exe 运行目录
             "CROP_SIZE": 320,
@@ -369,6 +368,9 @@ class ConfigManager:
 
         # 定义分组
         groups = {
+            "许可证配置": [
+                "LICENSE_KEY"  # 只剩下卡密
+            ],
             "YOLO 检测": [
                 "MODEL_PATH", "CROP_SIZE", "CONF_THRESHOLD",
                 "IOU_THRESHOLD", "TARGET_CLASS_NAMES"
