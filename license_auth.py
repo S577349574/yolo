@@ -58,7 +58,8 @@ class LicenseAuthenticator:
             # 生成机器码哈希
             machine_code = hashlib.sha256(machine_info.encode()).hexdigest()
 
-            print(f"[LicenseAuth] 机器码已生成: {machine_code[:16]}...")
+            # 修改：显示完整机器码，不再截断
+            print(f"[LicenseAuth] 机器码已生成: {machine_code}")
             return machine_code
 
         except Exception as e:

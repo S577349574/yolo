@@ -1,13 +1,6 @@
-# test_client.py - 适配新版本（使用machine_code）
-import hashlib
-import hmac
-import threading
+# test_client.py - 适配新版本（显示完整机器码 + 查看本机机器码功能）
 import time
-import platform
-import socket
-import uuid
 from datetime import datetime
-from typing import Optional
 
 import requests
 
@@ -94,7 +87,7 @@ class AdminClient:
                     print(f"{i}. {lic['card_key']}")
                     print(f"   状态: {status} | {online}")
                     print(f"   过期: {lic['expire_date']}")
-                    print(f"   机器码: {lic['machine_code'][:16] + '...' if lic['machine_code'] else '未绑定'}")
+                    print(f"   机器码: {lic['machine_code'] if lic['machine_code'] else '未绑定'}")
                     if lic.get('remark'):
                         print(f"   备注: {lic['remark']}")
                     print(f"   失败尝试: {lic['login_attempts']}")
@@ -152,7 +145,7 @@ class AdminClient:
                     print(f"{i}. {lic['card_key']}")
                     print(f"   状态: {online}")
                     print(f"   过期: {expire_info}")
-                    print(f"   机器码: {lic['machine_code'][:16] + '...' if lic['machine_code'] else '未绑定'}")
+                    print(f"   机器码: {lic['machine_code'] if lic['machine_code'] else '未绑定'}")
                     if lic.get('remark'):
                         print(f"   备注: {lic['remark']}")
                     print(f"   最后登录: {lic['last_login'] or '从未登录'}")
@@ -176,7 +169,7 @@ class AdminClient:
                 print("-" * 120)
                 for i, dev in enumerate(devices, 1):
                     print(f"{i}. 卡密: {dev['card_key']}")
-                    print(f"   机器码: {dev['machine_code'][:16]}...")
+                    print(f"   机器码: {dev['machine_code']}")
                     print(f"   最后心跳: {dev['last_heartbeat']}")
                     print(f"   在线时长: {dev['online_duration']}")
                     print()
@@ -217,7 +210,7 @@ class AdminClient:
                     print(f"   时间: {log['event_time']}")
                     print(f"   IP: {log['ip_address']}")
                     print(f"   卡密: {log['card_key'] or 'N/A'}")
-                    print(f"   机器码: {log['machine_code'][:16] + '...' if log['machine_code'] else 'N/A'}")
+                    print(f"   机器码: {log['machine_code'] if log['machine_code'] else 'N/A'}")
                     print(f"   详情: {log['details'] or 'N/A'}")
                     print()
             else:
@@ -343,7 +336,7 @@ def test_scenario_2():
     auth1 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
     success1, msg1 = auth1.verify(card_key)
     print(f"结果: {msg1}")
-    print(f"设备1机器码: {auth1.machine_code[:16]}...")
+    print(f"设备1机器码: {auth1.machine_code}")
 
     if success1:
         time.sleep(2)
@@ -352,7 +345,7 @@ def test_scenario_2():
         auth2 = LicenseAuthenticator(SERVER_URL, SECRET_KEY)
         success2, msg2 = auth2.verify(card_key)
         print(f"结果: {msg2}")
-        print(f"设备2机器码: {auth2.machine_code[:16]}...")
+        print(f"设备2机器码: {auth2.machine_code}")
 
         if not success2:
             print("✅ 多设备限制生效，第二台设备登录被拒绝")
@@ -497,7 +490,7 @@ def test_scenario_5():
     machine_code_1 = auth1.machine_code
     success1, msg1 = auth1.verify(card_key)
     print(f"结果: {msg1}")
-    print(f"绑定机器码: {machine_code_1[:16]}...")
+    print(f"绑定机器码: {machine_code_1}")
     auth1.logout()
 
     time.sleep(2)
@@ -507,7 +500,7 @@ def test_scenario_5():
     machine_code_2 = auth2.machine_code
     success2, msg2 = auth2.verify(card_key)
     print(f"结果: {msg2}")
-    print(f"当前机器码: {machine_code_2[:16]}...")
+    print(f"当前机器码: {machine_code_2}")
 
     if machine_code_1 == machine_code_2:
         print("✅ 机器码一致性验证通过 - 相同设备可以重复登录")
@@ -540,6 +533,7 @@ def interactive_mode():
         print("10. 封禁卡密")
         print("11. 踢出设备")
         print("12. 测试服务器连接")
+        print("13. 查看本机机器码")
         print("0. 退出")
 
         choice = input("\n请选择: ").strip()
@@ -594,6 +588,9 @@ def interactive_mode():
         elif choice == "12":
             test_connection()
 
+        elif choice == "13":
+            print(f"\n🆔 本机机器码: {auth.machine_code}")
+
         elif choice == "0":
             auth.logout()
             print("再见！")
@@ -601,7 +598,7 @@ def interactive_mode():
 
         else:
             print("❌ 无效选择，请重试")
-6
+
 
 if __name__ == "__main__":
     print("=" * 50)
