@@ -26,13 +26,18 @@ class TargetSelector:
 
         self.last_send_time: float = 0
 
-        # 🔥 新增: 置信度历史记忆（用于抵抗特效干扰）
+        # 置信度历史记忆（用于抵抗特效干扰）
         self.confidence_history: deque = deque(maxlen=get_config('CONFIDENCE_HISTORY_SIZE', 10))
         self.baseline_confidence: float = 0.0  # 未受干扰时的基准置信度
 
-        # 🔥 新增: 攻击状态保护
+        # 攻击状态保护
         self.under_attack_frames: int = 0  # 连续低置信度帧数（疑似被攻击）
         self.attack_protection_enabled: bool = False  # 攻击保护激活标志
+
+        # 🔥 新增：战斗保护模式
+        self.combat_mode_threshold = get_config('COMBAT_MODE_THRESHOLD', 10)  # 锁定10帧后进入战斗模式
+        self.in_combat_mode = False
+        self.lock_initial_confidence = 0.0  # 锁定时的初始置信度快照
 
     def calculate_aim_point(
             self,
@@ -80,13 +85,15 @@ class TargetSelector:
         return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
     def _update_confidence_tracking(self, confidence: float) -> None:
-
+        """更新置信度历史并检测攻击状态"""
         self.confidence_history.append(confidence)
 
         if len(self.confidence_history) >= 3:
+            # 计算基准置信度（使用中位数，更抗噪声）
             sorted_conf = sorted(self.confidence_history)
             self.baseline_confidence = sorted_conf[len(sorted_conf) // 2]
 
+            # 检测置信度骤降（疑似被攻击）
             conf_drop_threshold = get_config('CONFIDENCE_DROP_THRESHOLD', 0.15)
             recent_avg = sum(list(self.confidence_history)[-3:]) / 3
 
@@ -95,6 +102,7 @@ class TargetSelector:
             else:
                 self.under_attack_frames = max(0, self.under_attack_frames - 1)
 
+            # 激活攻击保护（连续3帧置信度低）
             attack_protection_frames = get_config('ATTACK_PROTECTION_TRIGGER_FRAMES', 3)
             self.attack_protection_enabled = (self.under_attack_frames >= attack_protection_frames)
 
@@ -106,17 +114,33 @@ class TargetSelector:
             max_distance: float,
             is_locked_target: bool
     ) -> float:
-        """🔥 新增: 增强的目标评分（考虑攻击状态）"""
+        """🔥 增强的目标评分（精简日志版 - 压枪时无日志）"""
         distance = math.hypot(target['x'] - ref_x, target['y'] - ref_y)
         normalized_distance = distance / max_distance
         distance_score = 1.0 - normalized_distance
 
         conf_score = target['confidence']
 
-        # 🔥 如果是锁定目标且处于攻击保护状态，使用基准置信度而非当前置信度
-        if is_locked_target and self.attack_protection_enabled:
-            conf_score = max(conf_score, self.baseline_confidence * 0.9)  # 使用90%基准值
-            utils.log(f"🛡️ 攻击保护激活 | 原始conf={target['confidence']:.2f} → 修正conf={conf_score:.2f}")
+        # 🔥 攻击保护机制（移除重复日志）
+        if is_locked_target and self.in_combat_mode:
+            baseline_ratio = get_config('CONFIDENCE_BASELINE_RATIO', 0.95)
+            conf_score = max(conf_score, self.lock_initial_confidence * baseline_ratio)
+
+            distance_boost = get_config('COMBAT_MODE_DISTANCE_BOOST', 5.0)
+            distance_score = min(1.0, distance_score * distance_boost)
+
+            # ⚠️ 只在置信度被修正且锁定时间较短时输出日志（避免压枪时日志泛滥）
+            if conf_score > target['confidence'] and self.target_lock_frames < 30:
+                utils.log(
+                    f"🛡️ 修正置信度 | "
+                    f"{target['confidence']:.2f}→{conf_score:.2f}"
+                )
+
+        elif is_locked_target and self.attack_protection_enabled:
+            baseline_ratio = get_config('CONFIDENCE_BASELINE_RATIO', 0.95)
+            conf_score = max(conf_score, self.baseline_confidence * baseline_ratio)
+            distance_boost = get_config('ATTACK_PROTECTION_DISTANCE_BOOST', 1.5)
+            distance_score = min(1.0, distance_score * distance_boost)
 
         distance_weight = get_config('DISTANCE_WEIGHT', 0.8)
         composite_score = (
@@ -124,9 +148,11 @@ class TargetSelector:
                 (1 - distance_weight) * conf_score
         )
 
-        # 🔥 锁定目标额外加成（增强粘性）
         if is_locked_target:
-            lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.15)
+            if self.in_combat_mode:
+                lock_bonus = get_config('COMBAT_MODE_LOCK_BONUS', 0.60)
+            else:
+                lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.25)
             composite_score += lock_bonus
 
         return composite_score
@@ -137,14 +163,13 @@ class TargetSelector:
             screen_width: int,
             screen_height: int
     ) -> Tuple[Optional[int], Optional[int]]:
-        """✅ 修复多目标+特效干扰问题"""
+        """✅ 精简日志版本 + 目标对比信息"""
 
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
         target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
         min_target_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 15)
         target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.2)
 
-        # 无候选目标处理
         if not candidate_targets:
             self.frames_without_target += 1
             if self.frames_without_target >= max_lost_frames:
@@ -159,8 +184,7 @@ class TargetSelector:
                 f"{int(target['y'] / id_grid_size)}"
             )
 
-        # 🔥 扩大搜索范围以应对特效导致的位置偏移
-        search_multiplier = 2.0 if self.attack_protection_enabled else 1.0
+        search_multiplier = 2.0 if (self.attack_protection_enabled or self.in_combat_mode) else 1.0
         effective_identity_distance = target_identity_distance * search_multiplier
 
         # 检查锁定目标是否还存在
@@ -190,7 +214,7 @@ class TargetSelector:
                 )
                 if distance < effective_identity_distance:
                     current_locked_target = closest_target
-                    self.locked_target_id = closest_target['id']  # 更新ID
+                    self.locked_target_id = closest_target['id']
 
         # 计算所有目标得分
         max_distance = math.hypot(screen_width, screen_height)
@@ -198,7 +222,7 @@ class TargetSelector:
         ref_y = self.last_target_y if self.last_target_y is not None else screen_height // 2
 
         scored_targets = []
-        for target in candidate_targets:
+        for idx, target in enumerate(candidate_targets):
             is_locked = (current_locked_target is not None and
                          target['id'] == current_locked_target['id'])
 
@@ -211,7 +235,8 @@ class TargetSelector:
             scored_targets.append({
                 'target': target,
                 'score': score,
-                'distance': distance
+                'distance': distance,
+                'index': idx
             })
 
         scored_targets.sort(key=lambda x: x['score'], reverse=True)
@@ -222,6 +247,12 @@ class TargetSelector:
         is_new_target = False
 
         if current_locked_target is not None:
+            # 🔥 更新战斗模式状态（只在进入时输出日志）
+            if self.target_lock_frames >= self.combat_mode_threshold:
+                if not self.in_combat_mode:
+                    self.in_combat_mode = True
+                    utils.log(f"⚔️ 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
+
             locked_score = next(
                 (st['score'] for st in scored_targets
                  if st['target']['id'] == self.locked_target_id),
@@ -230,11 +261,12 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            # 🔥 攻击保护状态下提高切换阈值
+            # 🔥 计算切换阈值（移除重复日志）
             effective_switch_threshold = target_switch_threshold
-            if self.attack_protection_enabled:
-                effective_switch_threshold *= 2.0  # 双倍阈值
-                utils.log(f"🛡️ 提高切换阈值: {target_switch_threshold:.2f} → {effective_switch_threshold:.2f}")
+            if self.in_combat_mode:
+                effective_switch_threshold *= 3.0
+            elif self.attack_protection_enabled:
+                effective_switch_threshold *= 2.0
 
             if (self.target_lock_frames >= min_target_lock_frames and
                     score_diff > effective_switch_threshold):
@@ -242,8 +274,13 @@ class TargetSelector:
                 self.locked_target_id = selected_target['id']
                 self.target_lock_frames = 0
                 is_new_target = True
+                self.in_combat_mode = False
                 self._reset_motion_params()
-                utils.log(f"切换目标 | 得分差: {score_diff:.2f}")
+                # ⚠️ 只在切换时输出详细日志
+                utils.log(
+                    f"🔄 切换目标 | "
+                    f"得分差:{score_diff:.2f} > 阈值:{effective_switch_threshold:.2f}"
+                )
             else:
                 selected_target = current_locked_target
                 self.target_lock_frames += 1
@@ -252,9 +289,30 @@ class TargetSelector:
             self.locked_target_id = selected_target['id']
             self.target_lock_frames = 0
             is_new_target = True
+            self.in_combat_mode = False
             self._reset_motion_params()
 
-        # 🔥 更新置信度追踪
+        # 🔥 记录锁定时的置信度 + 其他目标信息
+        if is_new_target:
+            self.lock_initial_confidence = selected_target['confidence']
+
+            # 生成其他目标的置信度列表
+            other_targets_info = []
+            for st in scored_targets:
+                if st['target']['id'] != self.locked_target_id:
+                    other_targets_info.append(
+                        f"T{st['index']}({st['target']['confidence']:.2f})"
+                    )
+
+            other_targets_str = " | ".join(other_targets_info) if other_targets_info else "无"
+
+            utils.log(
+                f"🎯 锁定新目标 | "
+                f"T{best_candidate['index']}({self.lock_initial_confidence:.2f}) | "
+                f"其他目标: {other_targets_str}"
+            )
+
+        # 更新置信度追踪
         self._update_confidence_tracking(selected_target['confidence'])
 
         # 获取原始位置
@@ -317,8 +375,12 @@ class TargetSelector:
         self.frames_without_target = 0
         self._reset_motion_params()
 
-        # 🔥 重置攻击状态追踪
+        # 重置攻击状态追踪
         self.confidence_history.clear()
         self.baseline_confidence = 0.0
         self.under_attack_frames = 0
         self.attack_protection_enabled = False
+
+        # 🔥 重置战斗模式
+        self.in_combat_mode = False
+        self.lock_initial_confidence = 0.0
