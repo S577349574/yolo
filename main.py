@@ -25,6 +25,7 @@ from screen_capture import capture_screen
 from target_selector import TargetSelector
 from auto_fire_controller import AutoFireController
 from utils import get_screen_info, calculate_capture_area
+from driver_loader import ensure_driver_loaded, unload_driver
 
 # ⭐️ 1. 将服务器信息安全地硬编码在程序内部
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
@@ -163,11 +164,23 @@ def main():
         heartbeat_thread.start()
         utils.log("✅ 后台心跳与配置监控已启动")
 
+        # ⭐️ 4.5 自动加载驱动（替代手动 InstDrv）
+        utils.log("正在自动加载驱动 (需要管理员权限)...")
+        if not ensure_driver_loaded():
+            utils.log("❌ 驱动加载失败，请检查：")
+            utils.log("   1) 当前程序是否以管理员身份运行")
+            utils.log("   3) 驱动文件是否存在 / 是否可被系统加载")
+            input("按回车键退出...")
+            return
+        utils.log("✅ 驱动已准备就绪")
+
     except Exception as e:
         utils.log(f"初始化或验证过程中发生严重错误: {e}")
         traceback.print_exc()
         input("按回车键退出...")
         return
+
+
 
     # 模式互斥检查
     enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
@@ -331,11 +344,8 @@ def main():
         utils.log(f"\n主程序发生致命错误: {e}")
         traceback.print_exc()
     finally:
-        # ⭐️ 5. 清理所有资源
         utils.log("\n正在清理资源并安全退出...")
-
         should_exit[0] = True
-
         if auth and auth.is_valid():
             utils.log("正在注销许可证...")
             auth.logout()
@@ -357,7 +367,10 @@ def main():
 
         if mouse_controller:
             mouse_controller.close()
-
+        try:
+            unload_driver(delete_service=False)
+        except Exception as e:
+            utils.log(f"[Driver] 卸载驱动时出现错误: {e}")
         utils.log("\n程序已安全退出")
 
 
