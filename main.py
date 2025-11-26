@@ -201,6 +201,7 @@ def main():
     try:
         # 初始化核心组件
         model = YOLOv8Detector()
+
         target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config(
             'TARGET_CLASS_NAMES') else []
         mouse_controller = MouseController()
@@ -259,6 +260,7 @@ def main():
         last_inference_time = 0
 
         while not should_exit[0]:
+
             current_time = time.time()
             target_inference_fps = get_config("INFERENCE_FPS", 60)
             inference_interval = 1.0 / target_inference_fps
@@ -278,7 +280,9 @@ def main():
 
             candidate_targets = []
             for result in results:
-                if (not target_class_ids) or (result['class_id'] in target_class_ids):
+                if target_class_ids:  # 改为正向判断
+                    if result['class_id'] not in target_class_ids:
+                        continue
                     target_x, target_y = target_selector.calculate_aim_point(result['box'], capture_area)
                     candidate_targets.append({'x': target_x, 'y': target_y, 'confidence': result['confidence']})
 
@@ -332,6 +336,9 @@ def main():
                     avg_dist = sum(debug_distances) / len(debug_distances)
                     stats += f" | 偏移: {avg_dist:.1f}px"
 
+                utils.log(f"模型检测到 {len(results)} 个对象")
+                utils.log(f"过滤后候选目标: {len(candidate_targets)} 个")
+                utils.log(f"目标类别ID: {target_class_ids}")
                 utils.log(stats)
 
                 frame_count, total_movements, skipped_movements = 0, 0, 0

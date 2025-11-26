@@ -119,7 +119,7 @@ class TargetSelector:
             baseline_ratio = get_config('CONFIDENCE_BASELINE_RATIO', 0.95)
             conf_score = max(conf_score, self.lock_initial_confidence * baseline_ratio)
 
-            distance_boost = get_config('COMBAT_MODE_DISTANCE_BOOST', 5.0)
+            distance_boost = get_config('COMBAT_MODE_DISTANCE_BOOST', 7.0)
             distance_score = min(1.0, distance_score * distance_boost)
 
             if conf_score > target['confidence'] and self.target_lock_frames < 30:
@@ -144,7 +144,7 @@ class TargetSelector:
             if self.in_combat_mode:
                 lock_bonus = get_config('COMBAT_MODE_LOCK_BONUS', 0.60)
             else:
-                lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.25)
+                lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.35)
             composite_score += lock_bonus
 
         return composite_score
@@ -159,7 +159,7 @@ class TargetSelector:
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
         target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
         min_target_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 15)
-        target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.2)
+        target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.1)
 
         if not candidate_targets:
             self.frames_without_target += 1
