@@ -336,9 +336,6 @@ def main():
                     avg_dist = sum(debug_distances) / len(debug_distances)
                     stats += f" | 偏移: {avg_dist:.1f}px"
 
-                utils.log(f"模型检测到 {len(results)} 个对象")
-                utils.log(f"过滤后候选目标: {len(candidate_targets)} 个")
-                utils.log(f"目标类别ID: {target_class_ids}")
                 utils.log(stats)
 
                 frame_count, total_movements, skipped_movements = 0, 0, 0
