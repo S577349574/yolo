@@ -124,7 +124,7 @@ class TargetSelector:
 
             if conf_score > target['confidence'] and self.target_lock_frames < 30:
                 utils.log(
-                    f"🛡️ 修正置信度 | "
+                    f" 修正置信度 | "
                     f"{target['confidence']:.2f}→{conf_score:.2f}"
                 )
 
@@ -247,7 +247,6 @@ class TargetSelector:
 
             score_diff = best_candidate['score'] - locked_score
 
-            # 🔥 计算切换阈值（移除重复日志）
             effective_switch_threshold = target_switch_threshold
             if self.in_combat_mode:
                 effective_switch_threshold *= 3.0
@@ -290,7 +289,7 @@ class TargetSelector:
             other_targets_str = " | ".join(other_targets_info) if other_targets_info else "无"
 
             utils.log(
-                f"🎯 锁定新目标 | "
+                f"  锁定新目标 | "
                 f"T{best_candidate['index']}({self.lock_initial_confidence:.2f}) | "
                 f"其他目标: {other_targets_str}"
             )

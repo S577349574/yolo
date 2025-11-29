@@ -12,32 +12,25 @@ from config_manager import get_config
 
 
 def _get_driver_sys_path() -> str:
-    """
-    获得驱动 .sys 的绝对路径：
-    - 优先读取 config.json 中的 DRIVER_SYS_PATH
-    - 否则默认使用 程序同目录下的 mouse.sys
-    """
+    """获取驱动 .sys 的绝对路径（支持 Nuitka onefile 打包）"""
     cfg_path = str(get_config("DRIVER_SYS_PATH", "") or "").strip()
+
+    # 确定基础目录
+    if getattr(sys, "frozen", False):
+        # 打包环境
+        base_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    else:
+        # 开发环境
+        base_dir = Path(__file__).parent
 
     if cfg_path:
         p = Path(cfg_path)
         if not p.is_absolute():
-            # 相对路径则认为是相对 exe / 脚本所在目录
-            if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
-                base_dir = Path(sys.executable).parent
-            else:
-                base_dir = Path(__file__).parent
             p = (base_dir / p).resolve()
     else:
-        # 默认：同目录 mouse.sys
-        if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
-            base_dir = Path(sys.executable).parent
-        else:
-            base_dir = Path(__file__).parent
         p = (base_dir / "mouse.sys").resolve()
 
     return str(p)
-
 
 def ensure_driver_loaded() -> bool:
     """

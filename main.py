@@ -92,12 +92,12 @@ def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit
 
                 if right_state and not right_mouse_pressed:
                     mouse_control_active_list[0] = True
-                    log_msg = "▶ 已启用瞄准+自动开火" if enable_auto_fire else "▶ 已启用瞄准"
+                    log_msg = "▶已启用瞄准+自动开火" if enable_auto_fire else "▶已启用瞄准"
                     utils.log(f"{log_msg} [鼠标右键按下]")
                     right_mouse_pressed = True
                 elif not right_state and right_mouse_pressed:
                     mouse_control_active_list[0] = False
-                    log_msg = "⏸ 已禁用瞄准+自动开火" if enable_auto_fire else "⏸ 已禁用瞄准"
+                    log_msg = "⏸已禁用瞄准+自动开火" if enable_auto_fire else "⏸已禁用瞄准"
                     utils.log(f"{log_msg} [鼠标右键释放]")
                     right_mouse_pressed = False
 
@@ -115,7 +115,7 @@ def heartbeat_worker(auth: LicenseAuthenticator, should_exit_list: list):
         if should_exit_list[0]:
             break
         if not auth.send_heartbeat():
-            utils.log(f"❌ 心跳验证失败！可能是卡密已到期、被封禁或在其他设备登录。")
+            utils.log(f" 心跳验证失败！可能是卡密已到期、被封禁或在其他设备登录。")
             utils.log("程序将在3秒后自动退出。")
             time.sleep(3)
             should_exit_list[0] = True
@@ -136,7 +136,7 @@ def main():
 
         if not card_key:
             utils.log("\n" + "=" * 60)
-            utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
+            utils.log("  许可证密钥 (LICENSE_KEY) 为空！")
             utils.log("请打开程序目录下的 config.json 文件，")
             utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
             utils.log("=" * 60)
@@ -150,29 +150,27 @@ def main():
         success, message = auth.verify(card_key)
 
         if not success:
-            utils.log(f"❌ 许可证验证失败: {message}")
+            utils.log(f"  许可证验证失败: {message}")
             utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
             input("按回车键退出...")
             return
 
-        utils.log(f"✅ 验证成功: {message}")
+        utils.log(f" 验证成功: {message}")
         utils.log(f"   - 过期时间: {auth.expire_date}")
 
-        # ⭐️ 4. 启动后台任务
         start_auto_reload()
         heartbeat_thread = Thread(target=heartbeat_worker, args=(auth, should_exit), daemon=True)
         heartbeat_thread.start()
-        utils.log("✅ 后台心跳与配置监控已启动")
+        utils.log(" 后台心跳与配置监控已启动")
 
-        # ⭐️ 4.5 自动加载驱动（替代手动 InstDrv）
         utils.log("正在自动加载驱动 (需要管理员权限)...")
         if not ensure_driver_loaded():
-            utils.log("❌ 驱动加载失败，请检查：")
+            utils.log("  驱动加载失败，请检查：")
             utils.log("   1) 当前程序是否以管理员身份运行")
             utils.log("   3) 驱动文件是否存在 / 是否可被系统加载")
             input("按回车键退出...")
             return
-        utils.log("✅ 驱动已准备就绪")
+        utils.log(" 驱动已准备就绪")
 
     except Exception as e:
         utils.log(f"初始化或验证过程中发生严重错误: {e}")
@@ -323,10 +321,10 @@ def main():
                 status_info = ""
                 if enable_auto_fire:
                     right_key_status = '✓右键' if right_mouse_pressed[0] else '✗右键'
-                    fire_status = '🔥射击' if auto_fire.is_firing else '⏸待命'
+                    fire_status = '射击' if auto_fire.is_firing else '待命'
                     status_info = f"{fire_status} | {right_key_status} | 准度: {current_accuracy * 100:.1f}%"
                 elif enable_manual_recoil:
-                    status_info = '⬇压枪' if auto_fire.manual_recoil_active else '⏸待命'
+                    status_info = '⬇压枪' if auto_fire.manual_recoil_active else '待命'
 
                 efficiency = (skipped_movements / (total_movements + skipped_movements)) * 100 if (
                                                                                                               total_movements + skipped_movements) > 0 else 0
@@ -354,7 +352,7 @@ def main():
         if auth and auth.is_valid():
             utils.log("正在注销许可证...")
             auth.logout()
-            utils.log("✅ 许可证已注销")
+            utils.log("许可证已注销")
 
         if heartbeat_thread and heartbeat_thread.is_alive():
             heartbeat_thread.join(timeout=1.0)
