@@ -74,4 +74,4 @@ def capture_screen(frame_queue, capture_ready_event, crop_size):
 
 
     except Exception as e:
-        utils.log(f"❌ 捕获进程错误: {e}")
+        utils.log(f"捕获进程错误: {e}")

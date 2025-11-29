@@ -156,7 +156,7 @@ def main():
             return
 
         utils.log(f" 验证成功: {message}")
-        utils.log(f"   - 过期时间: {auth.expire_date}")
+        utils.log(f" 过期时间: {auth.expire_date}")
 
         start_auto_reload()
         heartbeat_thread = Thread(target=heartbeat_worker, args=(auth, should_exit), daemon=True)

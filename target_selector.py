@@ -237,7 +237,7 @@ class TargetSelector:
             if self.target_lock_frames >= self.combat_mode_threshold:
                 if not self.in_combat_mode:
                     self.in_combat_mode = True
-                    utils.log(f"⚔️ 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
+                    utils.log(f" 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
 
             locked_score = next(
                 (st['score'] for st in scored_targets

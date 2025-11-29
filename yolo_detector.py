@@ -13,8 +13,8 @@ class YOLOv8Detector:
     def __init__(self):
         model_path = get_config('MODEL_PATH')
         if not os.path.isfile(model_path):
-            utils.log(f"❌ 模型文件不存在: {model_path}")
-            utils.log("👉 请检查 MODEL_PATH 是否正确，或模型文件是否放在正确目录。")
+            utils.log(f"模型文件不存在: {model_path}")
+            utils.log("请检查 MODEL_PATH 是否正确，或模型文件是否放在正确目录。")
             raise FileNotFoundError(f"模型文件未找到: {model_path}")
         img_size = get_config('CROP_SIZE')
         self.img_size = img_size

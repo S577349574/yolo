@@ -45,7 +45,7 @@ def ensure_driver_loaded() -> bool:
 
     p = Path(driver_path)
     if not p.exists():
-        utils.log(f"❌ 驱动文件不存在: {driver_path}")
+        utils.log(f"驱动文件不存在: {driver_path}")
         return False
 
     utils.log(f"[Driver] 准备加载驱动: {driver_path}")
