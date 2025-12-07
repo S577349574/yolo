@@ -22,7 +22,6 @@ class YOLOv8Detector:
         if model_path is None:
             raise ValueError("MODEL_PATH is None. Check config loading.")
 
-        # 智能选择 Provider（优先 TensorRT）
         providers = self._get_best_providers()
         self.session = ort.InferenceSession(model_path, providers=providers)
 
@@ -43,10 +42,10 @@ class YOLOv8Detector:
         # 第一优先级：TensorRT（NVIDIA GPU 极致性能）
         if 'TensorrtExecutionProvider' in available:
             trt_options = {
-                'trt_fp16_enable': True,  # 启用 FP16 加速
-                'trt_engine_cache_enable': True,  # 启用引擎缓存
-                'trt_engine_cache_path': './trt_cache',  # 缓存路径
-                'trt_max_workspace_size': 2147483648,  # 2GB workspace
+                'trt_fp16_enable': True,
+                'trt_engine_cache_enable': True,
+                'trt_engine_cache_path': './trt_cache',
+                'trt_max_workspace_size': 2147483648,
             }
             priority.append(('TensorrtExecutionProvider', trt_options))
             utils.log("✓ TensorRT 可用，已设置为第一优先级")

@@ -21,7 +21,6 @@ def run_benchmark():
     print(f"   YOLO 模型: {model.img_size}x{model.img_size}")
     print(f"   Provider: {model.session.get_providers()[0]}")
 
-    # ==================== 测试1：纯截图速度（使用 screen_capture）====================
     print("\n" + "=" * 60)
     print("测试1: 纯截图速度（使用真实捕获流程，100次）")
     print("=" * 60)
@@ -38,13 +37,13 @@ def run_benchmark():
         daemon=True
     )
     capture_process.start()
-    capture_ready_event.wait()  # 等待截图进程就绪
-    time.sleep(0.5)  # 让队列填充
+    capture_ready_event.wait()
+    time.sleep(0.5)
 
     capture_times = []
     for i in range(100):
         start = time.perf_counter()
-        img = frame_queue.get()  # 从队列获取
+        frame_queue.get()
         capture_times.append((time.perf_counter() - start) * 1000)
 
     avg_capture = sum(capture_times) / len(capture_times)
@@ -68,7 +67,7 @@ def run_benchmark():
     inference_times = []
     for i in range(100):
         start = time.perf_counter()
-        results = model.predict(img_bgr)
+        model.predict(img_bgr)
         inference_times.append((time.perf_counter() - start) * 1000)
 
     avg_inference = sum(inference_times) / len(inference_times)
@@ -105,7 +104,7 @@ def run_benchmark():
 
         # 3. 推理
         inference_start = time.perf_counter()
-        results = model.predict(img_bgr)
+        model.predict(img_bgr)
         actual_inference_times.append((time.perf_counter() - inference_start) * 1000)
 
         full_times.append((time.perf_counter() - full_start) * 1000)
@@ -191,7 +190,7 @@ def run_benchmark():
             start = time.perf_counter()
             img = np.array(sct.grab(crop_area))
             img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            results = model.predict(img_bgr)
+            model.predict(img_bgr)
             direct_times.append((time.perf_counter() - start) * 1000)
 
     avg_direct = sum(direct_times) / len(direct_times)
@@ -211,6 +210,5 @@ def run_benchmark():
 
 
 if __name__ == '__main__':
-    # Windows 多进程必需
     mp.freeze_support()
     run_benchmark()

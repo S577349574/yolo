@@ -274,6 +274,9 @@ def main():
 
             img_bgr = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2BGR)
             results = model.predict(img_bgr)
+            if results:
+                names = [model.names.get(r['class_id'], '?') for r in results]
+                utils.log(f"[检测] {names}")
             last_inference_time = current_time
 
             candidate_targets = []
