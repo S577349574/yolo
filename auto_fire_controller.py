@@ -336,7 +336,6 @@ class AutoFireController:
                     manual_shot_count = 0
                     recoil_paused_logged = False
 
-                    utils.log(f"🔫 开始手动压枪（{mode_desc} + 目标确认）")
 
                 elif not should_recoil and last_recoil_active:
                     # 停止压枪
@@ -354,12 +353,6 @@ class AutoFireController:
                             reason = "目标丢失"
                         else:
                             reason = "条件不满足"
-
-                        utils.log(
-                            f"⏹ 停止手动压枪 | 原因: {reason} | 持续: {fire_duration:.2f}s | "
-                            f"累积: X={manual_total_offset_x:+.1f}px Y={manual_total_offset_y:+.1f}px"
-                        )
-
                     recoil_paused_logged = False
 
                 # ⭐ 按键按下但目标丢失的情况

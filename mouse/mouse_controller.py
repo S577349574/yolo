@@ -81,14 +81,14 @@ class MouseControllerBase(ABC):
 
         """初始化双轴PID控制器"""
         # X轴参数
-        kp_x = get_config("PID_KP_X", get_config("PID_KP", 0.85))
-        ki_x = get_config("PID_KI_X", get_config("PID_KI", 0.0))
-        kd_x = get_config("PID_KD_X", get_config("PID_KD", 0.05))
+        kp_x = get_config("PID_KP_X")
+        ki_x = get_config("PID_KI_X")
+        kd_x = get_config("PID_KD_X")
 
         # Y轴参数（默认比X轴更激进）
-        kp_y = get_config("PID_KP_Y", get_config("PID_KP", 0.95))
-        ki_y = get_config("PID_KI_Y", get_config("PID_KI", 0.0))
-        kd_y = get_config("PID_KD_Y", get_config("PID_KD", 0.06))
+        kp_y = get_config("PID_KP_Y")
+        ki_y = get_config("PID_KI_Y")
+        kd_y = get_config("PID_KD_Y")
 
         self.pid = PIDController(
             kp_x=kp_x, ki_x=ki_x, kd_x=kd_x,
