@@ -29,7 +29,15 @@ def calculate_capture_area(crop_size):
         'height': crop_size
     }
 
-
+def get_latest_frame(queue):
+    """获取队列中最新的帧，丢弃旧帧"""
+    frame = None
+    while True:
+        try:
+            frame = queue.get_nowait()
+        except:
+            break
+    return frame
 def calculate_distance(x1, y1, x2, y2):
     """计算两点距离"""
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)

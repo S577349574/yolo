@@ -1,4 +1,4 @@
-"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配双模式鼠标控制）"""
+"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配智能压枪系统）"""
 
 import json
 import os
@@ -104,10 +104,10 @@ class ConfigManager:
             "PRECISION_DEAD_ZONE": 2,
             "DEFAULT_DELAY_MS_PER_STEP": 1,
 
-            # ========== 鼠标控制模式 ========== ⭐ 新增
-            "USE_DRIVER_MODE": True,              # True=驱动模式, False=WinAPI模式
-            "MOUSE_MODE_AUTO_FALLBACK": True,     # 驱动失败时自动降级到WinAPI
-            "MAX_MICKEY": 500,                    # 单次移动最大值（防止异常）
+            # ========== 鼠标控制模式 ==========
+            "USE_DRIVER_MODE": True,
+            "MOUSE_MODE_AUTO_FALLBACK": True,
+            "MAX_MICKEY": 500,
 
             # ========== 驱动配置 ==========
             "DRIVER_PATH": r"\\.\infestation",
@@ -130,28 +130,41 @@ class ConfigManager:
             # ========== 系统配置 ==========
             "ENABLE_LOGGING": True,
             "LOG_LEVEL": "INFO",
-            "DEBUG_MODE": False,                  # ⭐ 新增：调试模式
+            "DEBUG_MODE": False,
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 300,
             "INFERENCE_FPS": 300,
 
             # ========== 自动开火配置 ==========
             "ENABLE_AUTO_FIRE": False,
-            "ENABLE_MANUAL_RECOIL": True,
-            "MANUAL_RECOIL_TRIGGER_MODE": "both_buttons",
             "AUTO_FIRE_ACCURACY_THRESHOLD": 0.5,
             "AUTO_FIRE_DISTANCE_THRESHOLD": 15.0,
             "AUTO_FIRE_MIN_LOCK_FRAMES": 3,
             "AUTO_FIRE_DEBUG_MODE": False,
 
-            # ========== 压枪配置 ==========
+            # ========== 压枪模式配置 ==========
+            "ENABLE_MANUAL_RECOIL": True,
             "ENABLE_RECOIL_CONTROL": True,
-            "RECOIL_PATTERN": "linear",
-            "RECOIL_VERTICAL_SPEED": 110.0,
-            "RECOIL_INCREMENT_Y": 0.5,
-            "RECOIL_HORIZONTAL_VARIANCE": 1.5,
-            "RECOIL_MAX_SINGLE_MOVE": 110.0,
-            "RECOIL_CUSTOM_PATTERN": [],
+            "MANUAL_RECOIL_TRIGGER_MODE": "both_buttons",  # "left_only" 或 "both_buttons"
+
+            # ⭐ 压枪触发条件（智能压枪）
+            "RECOIL_REQUIRE_TARGET": True,      # 是否需要检测到目标才压枪
+            "RECOIL_REQUIRE_LOCK": False,       # 是否需要锁定目标才压枪（更严格）
+            "RECOIL_TARGET_TIMEOUT": 0.5,       # 目标丢失后多久停止压枪（秒）
+            "RECOIL_MIN_LOCK_FRAMES": 0,        # 需要锁定多少帧才压枪
+
+            # ⭐ 压枪速度配置（XY双轴）
+            "RECOIL_PATTERN": "linear",         # "linear", "exponential", "custom"
+            "RECOIL_VERTICAL_SPEED": 110.0,     # Y轴压枪速度（像素/秒）
+            "RECOIL_HORIZONTAL_SPEED": 0.0,     # X轴压枪速度（像素/秒，正=右，负=左）
+            "RECOIL_INCREMENT_Y": 0.5,          # 指数模式：速度增量系数
+
+            # ⭐ 压枪限制（XY双轴独立限制）
+            "RECOIL_MAX_SINGLE_MOVE_X": 50.0,   # X轴单次最大移动（像素）
+            "RECOIL_MAX_SINGLE_MOVE_Y": 50.0,   # Y轴单次最大移动（像素）
+
+            # 自定义压枪轨迹
+            "RECOIL_CUSTOM_PATTERN": [],        # [[x1,y1], [x2,y2], ...] 或 [y1, y2, ...]
         }
 
     def _validate_and_clamp(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,14 +212,14 @@ class ConfigManager:
         clamp("PID_KP_X", 0.0, 10.0, float, 0.2)
         clamp("PID_KD_X", 0.0, 5.0, float, 0.05)
         clamp("PID_KI_X", 0.0, 1.0, float, 0.02)
-        clamp("PID_KP_Y", 0.0, 10.0, float, 0.2)
-        clamp("PID_KD_Y", 0.0, 5.0, float, 0.05)
-        clamp("PID_KI_Y", 0.0, 1.0, float, 0.02)
+        clamp("PID_KP_Y", 0.0, 10.0, float, 0.4)
+        clamp("PID_KD_Y", 0.0, 5.0, float, 0.06)
+        clamp("PID_KI_Y", 0.0, 1.0, float, 0.0)
         clamp("MAX_SINGLE_MOVE_PX", 1, 1000, int, 400)
         clamp("PRECISION_DEAD_ZONE", 0, 50, int, 2)
         clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 1)
 
-        # ⭐ 鼠标控制模式参数
+        # 鼠标控制模式参数
         clamp("MAX_MICKEY", 100, 2000, int, 500)
 
         # 系统参数
@@ -220,11 +233,18 @@ class ConfigManager:
         clamp("AUTO_FIRE_DISTANCE_THRESHOLD", 1.0, 200.0, float, 15.0)
         clamp("AUTO_FIRE_MIN_LOCK_FRAMES", 1, 100, int, 3)
 
-        # 压枪参数
-        clamp("RECOIL_VERTICAL_SPEED", 10.0, 1000.0, float, 110.0)
+        # ⭐ 压枪触发条件参数
+        clamp("RECOIL_TARGET_TIMEOUT", 0.1, 5.0, float, 0.5)
+        clamp("RECOIL_MIN_LOCK_FRAMES", 0, 100, int, 0)
+
+        # ⭐ 压枪速度参数（XY双轴）
+        clamp("RECOIL_VERTICAL_SPEED", 0.0, 1000.0, float, 110.0)
+        clamp("RECOIL_HORIZONTAL_SPEED", -500.0, 500.0, float, 0.0)  # 支持负值（向左）
         clamp("RECOIL_INCREMENT_Y", 0.0, 10.0, float, 0.5)
-        clamp("RECOIL_HORIZONTAL_VARIANCE", 0.0, 20.0, float, 1.5)
-        clamp("RECOIL_MAX_SINGLE_MOVE", 1.0, 500.0, float, 110.0)
+
+        # ⭐ 压枪限制参数（XY双轴）
+        clamp("RECOIL_MAX_SINGLE_MOVE_X", 1.0, 200.0, float, 50.0)
+        clamp("RECOIL_MAX_SINGLE_MOVE_Y", 1.0, 200.0, float, 50.0)
 
         # ========== 验证枚举值 ==========
         if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
@@ -238,24 +258,26 @@ class ConfigManager:
         if not isinstance(c.get("RECOIL_CUSTOM_PATTERN"), list):
             c["RECOIL_CUSTOM_PATTERN"] = []
 
-        # ========== 验证布尔值 ========== ⭐ 新增鼠标模式相关
+        # ========== 验证布尔值 ==========
         bool_keys = [
             "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
             "ENABLE_LOGGING", "ENABLE_AUTO_FIRE", "ENABLE_MANUAL_RECOIL",
             "AUTO_FIRE_DEBUG_MODE", "ENABLE_RECOIL_CONTROL",
-            "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "DEBUG_MODE"  # ⭐ 新增
+            "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "DEBUG_MODE",
+            "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK"  # ⭐ 新增
         ]
+        bool_defaults = {
+            "USE_DRIVER_MODE": True,
+            "MOUSE_MODE_AUTO_FALLBACK": True,
+            "DEBUG_MODE": False,
+            "RECOIL_REQUIRE_TARGET": True,   # ⭐ 默认需要目标
+            "RECOIL_REQUIRE_LOCK": False,    # ⭐ 默认不需要锁定
+            "ENABLE_MANUAL_RECOIL": True,
+            "ENABLE_RECOIL_CONTROL": True,
+        }
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
-                # 设置默认值
-                if key == "USE_DRIVER_MODE":
-                    c[key] = True
-                elif key == "MOUSE_MODE_AUTO_FALLBACK":
-                    c[key] = True
-                elif key == "DEBUG_MODE":
-                    c[key] = False
-                else:
-                    c[key] = False
+                c[key] = bool_defaults.get(key, False)
 
         # LOG_LEVEL 特殊处理
         if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
@@ -273,6 +295,11 @@ class ConfigManager:
                 self._log(f"   请确保 {p.name} 在程序目录: {self.app_dir}")
 
             c["MODEL_PATH"] = str(p)
+
+        # ========== 互斥模式验证 ==========
+        if c.get("ENABLE_AUTO_FIRE") and c.get("ENABLE_MANUAL_RECOIL"):
+            self._log("⚠ 自动开火和手动压枪不能同时启用，已禁用自动开火")
+            c["ENABLE_AUTO_FIRE"] = False
 
         return c
 
@@ -371,7 +398,7 @@ class ConfigManager:
         """🔥 格式化配置文件（添加分组注释）"""
         lines = ["{\n"]
 
-        # ⭐ 更新分组：添加鼠标控制模式
+        # ⭐ 更新分组：适配智能压枪系统
         groups = {
             "许可证配置": [
                 "LICENSE_KEY"
@@ -393,10 +420,11 @@ class ConfigManager:
                 "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"
             ],
             "PID 控制": [
-                "PID_KP_X", "PID_KD_X", "PID_KI_X","PID_KP_Y", "PID_KD_Y", "PID_KI_Y", "MAX_SINGLE_MOVE_PX",
-                "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"
+                "PID_KP_X", "PID_KD_X", "PID_KI_X",
+                "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
+                "MAX_SINGLE_MOVE_PX", "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"
             ],
-            "鼠标控制模式": [  # ⭐ 新增分组
+            "鼠标控制模式": [
                 "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "MAX_MICKEY"
             ],
             "驱动配置": [
@@ -421,11 +449,20 @@ class ConfigManager:
                 "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
                 "AUTO_FIRE_DEBUG_MODE"
             ],
-            "压枪配置": [
+            "压枪模式": [  # ⭐ 重新组织压枪配置
                 "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
-                "MANUAL_RECOIL_TRIGGER_MODE", "RECOIL_PATTERN",
-                "RECOIL_VERTICAL_SPEED", "RECOIL_INCREMENT_Y",
-                "RECOIL_HORIZONTAL_VARIANCE", "RECOIL_MAX_SINGLE_MOVE",
+                "MANUAL_RECOIL_TRIGGER_MODE"
+            ],
+            "压枪触发条件": [  # ⭐ 新增分组
+                "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
+                "RECOIL_TARGET_TIMEOUT", "RECOIL_MIN_LOCK_FRAMES"
+            ],
+            "压枪速度配置": [  # ⭐ 新增分组
+                "RECOIL_PATTERN", "RECOIL_VERTICAL_SPEED", "RECOIL_HORIZONTAL_SPEED",
+                "RECOIL_INCREMENT_Y"
+            ],
+            "压枪限制": [  # ⭐ 新增分组
+                "RECOIL_MAX_SINGLE_MOVE_X", "RECOIL_MAX_SINGLE_MOVE_Y",
                 "RECOIL_CUSTOM_PATTERN"
             ]
         }
@@ -441,6 +478,8 @@ class ConfigManager:
                     processed_keys.add(key)
 
         remaining_keys = set(config.keys()) - processed_keys
+        # 过滤掉注释键
+        remaining_keys = {k for k in remaining_keys if not k.startswith("_comment")}
         if remaining_keys:
             lines.append('    "_comment_其他": "========== 其他配置 ==========",\n')
             for key in sorted(remaining_keys):
@@ -511,12 +550,19 @@ class ConfigManager:
                     old_config = self.config.copy()
                     self.load_config()
 
-                    # ⭐ 添加鼠标模式到关键参数监控
+                    # ⭐ 更新关键参数监控列表
                     critical_keys = [
+                        # 目标检测相关
                         "CONFIDENCE_DROP_THRESHOLD", "ATTACK_PROTECTION_TRIGGER_FRAMES",
                         "LOCKED_TARGET_BONUS", "TARGET_SWITCH_THRESHOLD",
-                        "USE_DRIVER_MODE", "PID_KP_X", "PID_KD_X", "PID_KI_X"
-                        , "PID_KP_Y", "PID_KD_Y", "PID_KI_Y"   # ⭐ 新增
+                        # PID 控制
+                        "PID_KP_X", "PID_KD_X", "PID_KI_X",
+                        "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
+                        # 鼠标模式
+                        "USE_DRIVER_MODE",
+                        # ⭐ 压枪相关（新增）
+                        "RECOIL_REQUIRE_TARGET", "RECOIL_VERTICAL_SPEED",
+                        "RECOIL_HORIZONTAL_SPEED", "MANUAL_RECOIL_TRIGGER_MODE"
                     ]
                     changed = [k for k in critical_keys if old_config.get(k) != self.config.get(k)]
                     if changed:
