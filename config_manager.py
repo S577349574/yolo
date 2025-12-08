@@ -1,4 +1,4 @@
-"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配特效干扰抵抗）"""
+"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配双模式鼠标控制）"""
 
 import json
 import os
@@ -10,9 +10,9 @@ from typing import Any, Dict, Optional
 
 
 class ConfigManager:
-    _instance = None  # 🔥 单例模式：确保只有一个实例
-    _initialized = False  # 🔥 防止重复初始化
-    _lock = threading.Lock()  # 🔥 线程安全的单例锁
+    _instance = None
+    _initialized = False
+    _lock = threading.Lock()
 
     def __new__(cls):
         """单例模式：确保全局只有一个 ConfigManager 实例"""
@@ -23,64 +23,53 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        # ✅ 防止重复初始化
         if ConfigManager._initialized:
             return
 
         ConfigManager._initialized = True
 
-        # ✅ 修复：更可靠的打包环境检测
         is_frozen = (
-                getattr(sys, "frozen", False) or  # PyInstaller/cx_Freeze
-                hasattr(sys, "_MEIPASS") or  # PyInstaller
-                "__compiled__" in sys.modules or  # Nuitka
-                Path(sys.argv[0]).suffix.lower() == ".exe"  # 任何 exe
+                getattr(sys, "frozen", False) or
+                hasattr(sys, "_MEIPASS") or
+                "__compiled__" in sys.modules or
+                Path(sys.argv[0]).suffix.lower() == ".exe"
         )
 
         if is_frozen:
-            # 打包后：使用 exe 所在目录
             try:
-                # 方法1：尝试使用 Nuitka 的 __compiled__ 模块
                 import __compiled__
                 self.app_dir = Path(__compiled__.__file__).parent.resolve()
-                self._log(f"[ConfigManager] 使用__compiled__路径: {self.app_dir}")
+                self._log(f"使用__compiled__路径: {self.app_dir}")
             except (ImportError, AttributeError):
-                # 方法2：使用 sys.argv[0]（命令行第一个参数）
                 self.app_dir = Path(sys.argv[0]).parent.resolve()
-                self._log(f"[ConfigManager] 使用argv[0]路径: {self.app_dir}")
+                self._log(f"使用argv[0]路径: {self.app_dir}")
         else:
-            # 开发模式：脚本所在目录
             self.app_dir = Path(__file__).parent.resolve()
-            self._log(f"[ConfigManager] 使用开发目录: {self.app_dir}")
+            self._log(f"使用开发目录: {self.app_dir}")
 
         self.config_file = self.app_dir / "config.json"
         self.config: Dict[str, Any] = {}
         self.last_modified_time: float = 0
 
-        # 线程安全：读写锁
         self._rw_lock = threading.RLock()
-
-        # 性能优化：缓存常用配置（带过期时间）
         self._cache: Dict[str, tuple] = {}
         self._cache_ttl = 0.1
 
-        # 自动重载线程
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_monitor = False
 
-
     def _log(self, message: str):
         """安全日志输出"""
-
         print(f"[ConfigManager] {message}")
 
     def get_default_config(self) -> Dict[str, Any]:
         """默认配置（带类型注释和安全范围）"""
         return {
-            # ========== 许可证配置 (仅保留用户需要填写的项) ==========
-            "LICENSE_KEY": "",  # 用户需在此处填写自己的卡密
+            # ========== 许可证配置 ==========
+            "LICENSE_KEY": "",
+
             # ========== YOLO 检测 ==========
-            "MODEL_PATH": "320.onnx",  # ✅ 相对于 exe 运行目录
+            "MODEL_PATH": "320.onnx",
             "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.55,
             "IOU_THRESHOLD": 0.45,
@@ -98,19 +87,27 @@ class ConfigManager:
             "DISTANCE_WEIGHT": 0.8,
             "AIM_POINT_SMOOTH_ALPHA": 0.12,
 
-            # 🔥 新增：特效干扰抵抗参数
-            "CONFIDENCE_HISTORY_SIZE": 10,              # 置信度历史记录长度
-            "CONFIDENCE_DROP_THRESHOLD": 0.15,          # 置信度骤降阈值（检测攻击）
-            "ATTACK_PROTECTION_TRIGGER_FRAMES": 3,      # 激活保护所需连续低置信度帧数
-            "LOCKED_TARGET_BONUS": 0.15,                # 锁定目标评分加成（提升粘性）
+            # 🔥 特效干扰抵抗参数
+            "CONFIDENCE_HISTORY_SIZE": 10,
+            "CONFIDENCE_DROP_THRESHOLD": 0.15,
+            "ATTACK_PROTECTION_TRIGGER_FRAMES": 3,
+            "LOCKED_TARGET_BONUS": 0.15,
 
             # ========== PID 控制参数 ==========
-            "PID_KP": 0.2,
-            "PID_KD": 0.05,
-            "PID_KI": 0.02,
+            "PID_KP_X": 0.2,
+            "PID_KD_X": 0.05,
+            "PID_KI_X": 0.02,
+            "PID_KP_Y": 0.4,
+            "PID_KI_Y": 0.0,
+            "PID_KD_Y": 0.06,
             "MAX_SINGLE_MOVE_PX": 400,
             "PRECISION_DEAD_ZONE": 2,
             "DEFAULT_DELAY_MS_PER_STEP": 1,
+
+            # ========== 鼠标控制模式 ========== ⭐ 新增
+            "USE_DRIVER_MODE": True,              # True=驱动模式, False=WinAPI模式
+            "MOUSE_MODE_AUTO_FALLBACK": True,     # 驱动失败时自动降级到WinAPI
+            "MAX_MICKEY": 500,                    # 单次移动最大值（防止异常）
 
             # ========== 驱动配置 ==========
             "DRIVER_PATH": r"\\.\infestation",
@@ -133,6 +130,7 @@ class ConfigManager:
             # ========== 系统配置 ==========
             "ENABLE_LOGGING": True,
             "LOG_LEVEL": "INFO",
+            "DEBUG_MODE": False,                  # ⭐ 新增：调试模式
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 300,
             "INFERENCE_FPS": 300,
@@ -198,12 +196,18 @@ class ConfigManager:
         clamp("LOCKED_TARGET_BONUS", 0.0, 0.5, float, 0.15)
 
         # PID 参数
-        clamp("PID_KP", 0.0, 10.0, float, 0.2)
-        clamp("PID_KD", 0.0, 5.0, float, 0.05)
-        clamp("PID_KI", 0.0, 1.0, float, 0.02)
+        clamp("PID_KP_X", 0.0, 10.0, float, 0.2)
+        clamp("PID_KD_X", 0.0, 5.0, float, 0.05)
+        clamp("PID_KI_X", 0.0, 1.0, float, 0.02)
+        clamp("PID_KP_Y", 0.0, 10.0, float, 0.2)
+        clamp("PID_KD_Y", 0.0, 5.0, float, 0.05)
+        clamp("PID_KI_Y", 0.0, 1.0, float, 0.02)
         clamp("MAX_SINGLE_MOVE_PX", 1, 1000, int, 400)
         clamp("PRECISION_DEAD_ZONE", 0, 50, int, 2)
         clamp("DEFAULT_DELAY_MS_PER_STEP", 1, 100, int, 1)
+
+        # ⭐ 鼠标控制模式参数
+        clamp("MAX_MICKEY", 100, 2000, int, 500)
 
         # 系统参数
         clamp("KEY_MONITOR_INTERVAL_MS", 10, 1000, int, 50)
@@ -234,21 +238,30 @@ class ConfigManager:
         if not isinstance(c.get("RECOIL_CUSTOM_PATTERN"), list):
             c["RECOIL_CUSTOM_PATTERN"] = []
 
-        # ========== 验证布尔值 ==========
+        # ========== 验证布尔值 ========== ⭐ 新增鼠标模式相关
         bool_keys = [
             "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
             "ENABLE_LOGGING", "ENABLE_AUTO_FIRE", "ENABLE_MANUAL_RECOIL",
-            "AUTO_FIRE_DEBUG_MODE", "ENABLE_RECOIL_CONTROL"
+            "AUTO_FIRE_DEBUG_MODE", "ENABLE_RECOIL_CONTROL",
+            "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "DEBUG_MODE"  # ⭐ 新增
         ]
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
-                c[key] = False
+                # 设置默认值
+                if key == "USE_DRIVER_MODE":
+                    c[key] = True
+                elif key == "MOUSE_MODE_AUTO_FALLBACK":
+                    c[key] = True
+                elif key == "DEBUG_MODE":
+                    c[key] = False
+                else:
+                    c[key] = False
 
         # LOG_LEVEL 特殊处理
         if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
             c["LOG_LEVEL"] = "INFO"
 
-        # ========== MODEL_PATH 处理（基于 exe 运行目录）==========
+        # ========== MODEL_PATH 处理 ==========
         model_path = c.get("MODEL_PATH", "320.onnx")
         if isinstance(model_path, str) and model_path.strip():
             p = Path(model_path)
@@ -275,7 +288,6 @@ class ConfigManager:
             except OSError:
                 current_modified_time = 0
 
-            # 文件未变化且不强制重载
             if (
                     not force_reload
                     and self.config_file.exists()
@@ -284,7 +296,6 @@ class ConfigManager:
             ):
                 return self.config
 
-            # 文件不存在：导出默认配置
             if not self.config_file.exists():
                 self._log(f"⚠未找到配置文件: {self.config_file}")
                 self._log("正在创建默认配置...")
@@ -295,12 +306,10 @@ class ConfigManager:
                 self._cache.clear()
                 return self.config
 
-            # 读取配置文件
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     new_config = json.load(f)
 
-                # ✅ 合并默认值（补全缺失的新参数）
                 default_config = self.get_default_config()
                 updated = False
                 for key, value in default_config.items():
@@ -309,7 +318,6 @@ class ConfigManager:
                         updated = True
                         self._log(f"补全配置项: {key} = {value}")
 
-                # ✅ 验证和限制范围
                 new_config = self._validate_and_clamp(new_config)
 
                 self.config = new_config
@@ -327,7 +335,6 @@ class ConfigManager:
                 self._log(f"配置文件格式错误: {e}")
                 self._log("使用默认配置并备份损坏文件...")
 
-                # 备份损坏的配置文件
                 backup_path = self.config_file.with_suffix('.json.broken')
                 try:
                     import shutil
@@ -350,11 +357,9 @@ class ConfigManager:
                 return self.config
 
     def _write_config(self, config: Dict[str, Any]) -> bool:
-        """内部：写入配置文件（带格式化注释）"""
+        """内部：写入配置文件"""
         try:
-            # 🔥 分组写入配置（提升可读性）
             formatted_config = self._format_config_with_comments(config)
-
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(formatted_config)
             return True
@@ -363,13 +368,13 @@ class ConfigManager:
             return False
 
     def _format_config_with_comments(self, config: Dict[str, Any]) -> str:
-        """🔥 新增：格式化配置文件（添加分组注释）"""
+        """🔥 格式化配置文件（添加分组注释）"""
         lines = ["{\n"]
 
-        # 定义分组
+        # ⭐ 更新分组：添加鼠标控制模式
         groups = {
             "许可证配置": [
-                "LICENSE_KEY"  # 只剩下卡密
+                "LICENSE_KEY"
             ],
             "YOLO 检测": [
                 "MODEL_PATH", "CROP_SIZE", "CONF_THRESHOLD",
@@ -388,8 +393,11 @@ class ConfigManager:
                 "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"
             ],
             "PID 控制": [
-                "PID_KP", "PID_KD", "PID_KI", "MAX_SINGLE_MOVE_PX",
+                "PID_KP_X", "PID_KD_X", "PID_KI_X","PID_KP_Y", "PID_KD_Y", "PID_KI_Y", "MAX_SINGLE_MOVE_PX",
                 "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"
+            ],
+            "鼠标控制模式": [  # ⭐ 新增分组
+                "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "MAX_MICKEY"
             ],
             "驱动配置": [
                 "DRIVER_PATH", "MOUSE_REQUEST"
@@ -405,8 +413,8 @@ class ConfigManager:
                 "KEY_MONITOR_INTERVAL_MS"
             ],
             "系统配置": [
-                "ENABLE_LOGGING", "LOG_LEVEL", "CONFIG_MONITOR_INTERVAL_SEC",
-                "CAPTURE_FPS", "INFERENCE_FPS"
+                "ENABLE_LOGGING", "LOG_LEVEL", "DEBUG_MODE",
+                "CONFIG_MONITOR_INTERVAL_SEC", "CAPTURE_FPS", "INFERENCE_FPS"
             ],
             "自动开火": [
                 "ENABLE_AUTO_FIRE", "AUTO_FIRE_ACCURACY_THRESHOLD",
@@ -432,7 +440,6 @@ class ConfigManager:
                     lines.append(f'    "{key}": {value},\n')
                     processed_keys.add(key)
 
-        # 添加未分组的配置项
         remaining_keys = set(config.keys()) - processed_keys
         if remaining_keys:
             lines.append('    "_comment_其他": "========== 其他配置 ==========",\n')
@@ -440,7 +447,6 @@ class ConfigManager:
                 value = json.dumps(config[key], ensure_ascii=False)
                 lines.append(f'    "{key}": {value},\n')
 
-        # 移除最后一个逗号
         if lines[-1].endswith(',\n'):
             lines[-1] = lines[-1][:-2] + '\n'
 
@@ -464,20 +470,16 @@ class ConfigManager:
         """✅ 性能优化：带缓存的配置读取"""
         current_time = time.time()
 
-        # 检查缓存
         if key in self._cache:
             cached_value, expire_time = self._cache[key]
             if current_time < expire_time:
                 return cached_value
 
-        # 缓存未命中或过期
         with self._rw_lock:
             if not self.config:
                 self.load_config()
 
             value = self.config.get(key, default)
-
-            # 更新缓存
             self._cache[key] = (value, current_time + self._cache_ttl)
             return value
 
@@ -485,7 +487,6 @@ class ConfigManager:
         """✅ 线程安全的配置设置"""
         with self._rw_lock:
             self.config[key] = value
-            # 立即使缓存失效
             self._cache.pop(key, None)
 
     def get_all(self) -> Dict[str, Any]:
@@ -510,10 +511,12 @@ class ConfigManager:
                     old_config = self.config.copy()
                     self.load_config()
 
-                    # 检测关键参数变化并提示
+                    # ⭐ 添加鼠标模式到关键参数监控
                     critical_keys = [
                         "CONFIDENCE_DROP_THRESHOLD", "ATTACK_PROTECTION_TRIGGER_FRAMES",
-                        "LOCKED_TARGET_BONUS", "TARGET_SWITCH_THRESHOLD"
+                        "LOCKED_TARGET_BONUS", "TARGET_SWITCH_THRESHOLD",
+                        "USE_DRIVER_MODE", "PID_KP_X", "PID_KD_X", "PID_KI_X"
+                        , "PID_KP_Y", "PID_KD_Y", "PID_KI_Y"   # ⭐ 新增
                     ]
                     changed = [k for k in critical_keys if old_config.get(k) != self.config.get(k)]
                     if changed:
@@ -565,8 +568,11 @@ def stop_auto_reload() -> None:
     _config_manager.stop_auto_reload()
 
 
-# ✅ 仅在直接运行时执行测试
 if __name__ == "__main__":
     config = load_config()
     print(f"配置加载成功，共 {len(config)} 项")
     print(f"配置文件位置: {_config_manager.config_file}")
+    print(f"\n鼠标模式配置:")
+    print(f"  USE_DRIVER_MODE: {get_config('USE_DRIVER_MODE')}")
+    print(f"  MOUSE_MODE_AUTO_FALLBACK: {get_config('MOUSE_MODE_AUTO_FALLBACK')}")
+    print(f"  MAX_MICKEY: {get_config('MAX_MICKEY')}")

@@ -14,7 +14,7 @@ def run_benchmark():
 
     # 初始化
     model = YOLOv8Detector()
-    crop_size = 256
+    crop_size = 320
 
     print(f"\n测试配置:")
     print(f"   截图区域: {crop_size}x{crop_size}")

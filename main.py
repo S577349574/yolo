@@ -1,4 +1,4 @@
-# main.py (最终完整版 - 硬编码服务器信息)
+# main.py (适配新鼠标控制器架构)
 """
 主程序入口（FPS游戏专用版 + 互斥压枪模式 + 右键触发自动开火）
 集成了在线许可证验证系统，服务器信息已内部硬编码。
@@ -9,7 +9,6 @@ import time
 from multiprocessing import Process, Queue, Event
 from threading import Thread
 import traceback
-from pathlib import Path
 
 import cv2
 import win32api
@@ -20,34 +19,31 @@ import utils
 from config_manager import load_config, get_config, start_auto_reload
 from license_auth import LicenseAuthenticator
 from yolo_detector import YOLOv8Detector
-from mouse_controller import MouseController
 from screen_capture import capture_screen
 from target_selector import TargetSelector
 from auto_fire_controller import AutoFireController
 from utils import get_screen_info, calculate_capture_area
 from driver_loader import ensure_driver_loaded, unload_driver
 
+# ⭐ 使用新的工厂函数导入
+from mouse import create_mouse_controller
+
 # ⭐️ 1. 将服务器信息安全地硬编码在程序内部
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
-LICENSE_SECRET_KEY = "your_secret_key_change_this"  # 强烈建议在发布前修改此密钥
+LICENSE_SECRET_KEY = "your_secret_key_change_this"
 
 
 def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit_list):
     """
     全局按键监控（功能键模式）
-    - F12：退出
-    - 鼠标左键/右键：控制瞄准开关（根据配置）
-    - 右键状态：用于自动开火模式的触发条件
     """
     F12_PRESSED = False
 
-    # 从配置中读取鼠标监视开关
     enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', False)
     enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
     enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
     key_monitor_interval = get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
 
-    # 初始化鼠标状态
     left_mouse_pressed = False
     right_mouse_pressed = False
 
@@ -65,7 +61,6 @@ def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit
         try:
             f12_state = win32api.GetAsyncKeyState(win32con.VK_F12) & 0x8000
 
-            # F12：退出
             if f12_state and not F12_PRESSED:
                 should_exit_list[0] = True
                 utils.log("正在退出程序... [F12]")
@@ -73,7 +68,6 @@ def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit
             elif not f12_state:
                 F12_PRESSED = False
 
-            # 鼠标左键监视
             if enable_left_monitor:
                 left_state = win32api.GetKeyState(0x01) < 0
                 if left_state and not left_mouse_pressed:
@@ -85,7 +79,6 @@ def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit
                     utils.log("⏸ 已禁用瞄准 [鼠标左键释放]")
                     left_mouse_pressed = False
 
-            # 鼠标右键监视
             if enable_right_monitor:
                 right_state = win32api.GetKeyState(0x02) < 0
                 right_mouse_pressed_list[0] = right_state
@@ -109,13 +102,13 @@ def key_monitor(mouse_control_active_list, right_mouse_pressed_list, should_exit
 
 
 def heartbeat_worker(auth: LicenseAuthenticator, should_exit_list: list):
-    """后台发送心跳包，验证失败时设置退出标志"""
+    """后台发送心跳包"""
     while auth.is_valid() and not should_exit_list[0]:
         time.sleep(30)
         if should_exit_list[0]:
             break
         if not auth.send_heartbeat():
-            utils.log(f" 心跳验证失败！可能是卡密已到期、被封禁或在其他设备登录。")
+            utils.log(f" 心跳验证失败！")
             utils.log("程序将在3秒后自动退出。")
             time.sleep(3)
             should_exit_list[0] = True
@@ -130,7 +123,6 @@ def main():
     heartbeat_thread = None
 
     try:
-        # ⭐️ 2. 加载配置并只获取用户填写的卡密
         load_config(force_reload=True)
         card_key = get_config('LICENSE_KEY', "").strip()
 
@@ -143,7 +135,6 @@ def main():
             input("\n按回车键退出...")
             return
 
-        # ⭐️ 3. 使用硬编码的服务器信息进行验证
         print("\n" + "=" * 60)
         print("正在进行许可证验证...")
         auth = LicenseAuthenticator(LICENSE_SERVER_URL, LICENSE_SECRET_KEY)
@@ -163,22 +154,25 @@ def main():
         heartbeat_thread.start()
         utils.log(" 后台心跳与配置监控已启动")
 
-        utils.log("正在自动加载驱动 (需要管理员权限)...")
-        if not ensure_driver_loaded():
-            utils.log("  驱动加载失败，请检查：")
-            utils.log("   1) 当前程序是否以管理员身份运行")
-            utils.log("   3) 驱动文件是否存在 / 是否可被系统加载")
-            input("按回车键退出...")
-            return
-        utils.log(" 驱动已准备就绪")
+        # ⭐ 根据模式决定是否加载驱动
+        use_driver_mode = get_config("USE_DRIVER_MODE", True)
+
+        if use_driver_mode:
+            utils.log("正在自动加载驱动 (需要管理员权限)...")
+            if not ensure_driver_loaded():
+                utils.log("  驱动加载失败，尝试切换到 WinAPI 模式...")
+                use_driver_mode = False
+            else:
+                utils.log(" 驱动已准备就绪")
+
+        if not use_driver_mode:
+            utils.log(" 使用 WinAPI 模式（无需驱动）")
 
     except Exception as e:
         utils.log(f"初始化或验证过程中发生严重错误: {e}")
         traceback.print_exc()
         input("按回车键退出...")
         return
-
-
 
     # 模式互斥检查
     enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
@@ -193,7 +187,6 @@ def main():
     print("FPS 助手启动成功，祝您游戏愉快！")
     print("=" * 60)
 
-    # 定义需要在finally中清理的资源
     mouse_controller, capture_process, key_thread, auto_fire = None, None, None, None
 
     try:
@@ -202,7 +195,11 @@ def main():
 
         target_class_ids = [k for k, v in model.names.items() if v in get_config('TARGET_CLASS_NAMES')] if get_config(
             'TARGET_CLASS_NAMES') else []
-        mouse_controller = MouseController()
+
+        # ⭐ 使用工厂函数创建鼠标控制器
+        mouse_controller = create_mouse_controller(use_driver=use_driver_mode)
+        utils.log(f" 鼠标控制器模式: {mouse_controller.get_mode()}")
+
         auto_fire = AutoFireController(mouse_controller)
 
         if enable_manual_recoil:
@@ -242,6 +239,7 @@ def main():
 
         utils.log("\n" + "=" * 60)
         utils.log("FPS自瞄系统已启动")
+        utils.log(f"鼠标控制: {mouse_controller.get_mode()} 模式")  # ⭐ 显示当前模式
         if enable_auto_fire:
             utils.log(f"自动开火: 已启用（按住右键触发）")
             utils.log(f"准确率阈值: {get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75) * 100:.0f}%")
@@ -278,7 +276,7 @@ def main():
 
             candidate_targets = []
             for result in results:
-                if target_class_ids:  # 改为正向判断
+                if target_class_ids:
                     if result['class_id'] not in target_class_ids:
                         continue
                     target_x, target_y = target_selector.calculate_aim_point(result['box'], capture_area)
@@ -327,7 +325,7 @@ def main():
                     status_info = '⬇压枪' if auto_fire.manual_recoil_active else '待命'
 
                 efficiency = (skipped_movements / (total_movements + skipped_movements)) * 100 if (
-                                                                                                              total_movements + skipped_movements) > 0 else 0
+                                                                                                          total_movements + skipped_movements) > 0 else 0
                 stats = f"FPS: {fps:.1f} | 目标: {len(results)} | {lock_status} | {status_info} | 优化率: {efficiency:.1f}%"
 
                 if debug_distances:
@@ -370,10 +368,14 @@ def main():
 
         if mouse_controller:
             mouse_controller.close()
-        try:
-            unload_driver(delete_service=False)
-        except Exception as e:
-            utils.log(f"[Driver] 卸载驱动时出现错误: {e}")
+
+        # ⭐ 只在驱动模式下卸载驱动
+        if use_driver_mode:
+            try:
+                unload_driver(delete_service=False)
+            except Exception as e:
+                utils.log(f"[Driver] 卸载驱动时出现错误: {e}")
+
         utils.log("\n程序已安全退出")
 
 

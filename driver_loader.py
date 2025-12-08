@@ -3,7 +3,6 @@ import sys
 import time
 from pathlib import Path
 
-import win32api
 import win32service
 import win32serviceutil
 import pywintypes
