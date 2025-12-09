@@ -188,6 +188,12 @@ class TargetSelector:
                 return int(raw_x), int(raw_y)
 
             smooth_x, smooth_y = self.kalman_filter.update(raw_x, raw_y)
+
+            delta_x = abs(smooth_x - raw_x)
+            delta_y = abs(smooth_y - raw_y)
+            if delta_x > 5 or delta_y > 5:
+                utils.log(f"[Kalman] 原始({raw_x:.0f},{raw_y:.0f}) → 平滑({smooth_x:.0f},{smooth_y:.0f})")
+
             return int(smooth_x), int(smooth_y)
 
         else:
