@@ -93,6 +93,16 @@ class ConfigManager:
             "ATTACK_PROTECTION_TRIGGER_FRAMES": 3,
             "LOCKED_TARGET_BONUS": 0.15,
 
+            # ⭐ 卡尔曼滤波配置（新增）
+            "USE_KALMAN_FILTER": True,
+            "KALMAN_PROCESS_NOISE": 0.1,
+            "KALMAN_MEASUREMENT_NOISE": 5.0,
+            "KALMAN_MAX_PREDICT_FRAMES": 5,
+
+            # ⭐ 预判瞄准（新增，可选）
+            "ENABLE_LEAD_TARGET": False,
+            "LEAD_FRAMES": 2,
+
             # ========== PID 控制参数 ==========
             "PID_KP_X": 0.2,
             "PID_KD_X": 0.05,
@@ -274,6 +284,8 @@ class ConfigManager:
             "RECOIL_REQUIRE_LOCK": False,    # ⭐ 默认不需要锁定
             "ENABLE_MANUAL_RECOIL": True,
             "ENABLE_RECOIL_CONTROL": True,
+            "USE_KALMAN_FILTER": True,  # ⭐ 新增
+            "ENABLE_LEAD_TARGET": False,  # ⭐ 新增
         }
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
@@ -419,6 +431,13 @@ class ConfigManager:
                 "CONFIDENCE_HISTORY_SIZE", "CONFIDENCE_DROP_THRESHOLD",
                 "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"
             ],
+            "卡尔曼滤波": [  # ⭐ 新增分组
+                "USE_KALMAN_FILTER", "KALMAN_PROCESS_NOISE",
+                "KALMAN_MEASUREMENT_NOISE", "KALMAN_MAX_PREDICT_FRAMES"
+             ],
+             "预判瞄准": [  # ⭐ 新增分组
+                "ENABLE_LEAD_TARGET", "LEAD_FRAMES"
+             ],
             "PID 控制": [
                 "PID_KP_X", "PID_KD_X", "PID_KI_X",
                 "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",

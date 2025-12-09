@@ -1,10 +1,117 @@
-
 import math
+import numpy as np
 from collections import deque
 from typing import List, Dict, Optional, Tuple
 
 import utils
 from config_manager import get_config
+
+
+class TargetKalmanFilter:
+    """目标追踪卡尔曼滤波器"""
+
+    def __init__(self, process_noise: float = 0.1, measurement_noise: float = 5.0):
+        # 状态: [x, y, vx, vy]
+        self.state = np.zeros(4, dtype=np.float32)
+
+        # 状态转移矩阵
+        self.dt = 1 / 60
+        self.F = np.array([
+            [1, 0, self.dt, 0],
+            [0, 1, 0, self.dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ], dtype=np.float32)
+
+        # 观测矩阵
+        self.H = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0]
+        ], dtype=np.float32)
+
+        # 协方差
+        self.P = np.eye(4, dtype=np.float32) * 100
+        self.Q = np.eye(4, dtype=np.float32) * process_noise
+        self.R = np.eye(2, dtype=np.float32) * measurement_noise
+
+        self.initialized = False
+        self.frames_without_update = 0
+
+    def reset(self):
+        """重置滤波器"""
+        self.state = np.zeros(4, dtype=np.float32)
+        self.P = np.eye(4, dtype=np.float32) * 100
+        self.initialized = False
+        self.frames_without_update = 0
+
+    def init_with_position(self, x: float, y: float):
+        """用初始位置初始化"""
+        self.state = np.array([x, y, 0, 0], dtype=np.float32)
+        self.P = np.eye(4, dtype=np.float32) * 100
+        self.initialized = True
+        self.frames_without_update = 0
+
+    def update(self, measured_x: float, measured_y: float) -> Tuple[float, float]:
+        """用观测值更新状态，返回滤波后的位置"""
+
+        if not self.initialized:
+            self.init_with_position(measured_x, measured_y)
+            return measured_x, measured_y
+
+        # 预测
+        state_pred = self.F @ self.state
+        P_pred = self.F @ self.P @ self.F.T + self.Q
+
+        # 更新
+        z = np.array([measured_x, measured_y], dtype=np.float32)
+        y = z - self.H @ state_pred
+        S = self.H @ P_pred @ self.H.T + self.R
+        K = P_pred @ self.H.T @ np.linalg.inv(S)
+
+        self.state = state_pred + K @ y
+        self.P = (np.eye(4, dtype=np.float32) - K @ self.H) @ P_pred
+
+        self.frames_without_update = 0
+
+        return float(self.state[0]), float(self.state[1])
+
+    def predict_only(self, max_frames: int = 5) -> Optional[Tuple[float, float]]:
+        """仅预测（无观测时调用）"""
+
+        if not self.initialized:
+            return None
+
+        self.frames_without_update += 1
+
+        if self.frames_without_update > max_frames:
+            return None
+
+        # 只预测
+        self.state = self.F @ self.state
+        self.P = self.F @ self.P @ self.F.T + self.Q
+
+        return float(self.state[0]), float(self.state[1])
+
+    def get_velocity(self) -> Tuple[float, float]:
+        """获取当前估计速度"""
+        if self.initialized:
+            return float(self.state[2]), float(self.state[3])
+        return 0.0, 0.0
+
+    def get_predicted_position(self, frames_ahead: int = 1) -> Optional[Tuple[float, float]]:
+        """预测未来位置（不修改状态）"""
+        if not self.initialized:
+            return None
+
+        # 使用当前速度预测
+        pred_x = self.state[0] + self.state[2] * self.dt * frames_ahead
+        pred_y = self.state[1] + self.state[3] * self.dt * frames_ahead
+
+        return float(pred_x), float(pred_y)
+
+    def update_noise(self, measurement_noise: float):
+        """动态更新观测噪声"""
+        self.R = np.eye(2, dtype=np.float32) * measurement_noise
 
 
 class TargetSelector:
@@ -26,16 +133,25 @@ class TargetSelector:
 
         # 置信度历史记忆（用于抵抗特效干扰）
         self.confidence_history: deque = deque(maxlen=get_config('CONFIDENCE_HISTORY_SIZE', 10))
-        self.baseline_confidence: float = 0.0  # 未受干扰时的基准置信度
+        self.baseline_confidence: float = 0.0
 
         # 攻击状态保护
-        self.under_attack_frames: int = 0  # 连续低置信度帧数（疑似被攻击）
-        self.attack_protection_enabled: bool = False  # 攻击保护激活标志
+        self.under_attack_frames: int = 0
+        self.attack_protection_enabled: bool = False
 
         # 战斗保护模式
-        self.combat_mode_threshold = get_config('COMBAT_MODE_THRESHOLD', 10)  # 锁定10帧后进入战斗模式
+        self.combat_mode_threshold = get_config('COMBAT_MODE_THRESHOLD', 10)
         self.in_combat_mode = False
-        self.lock_initial_confidence = 0.0  # 锁定时的初始置信度快照
+        self.lock_initial_confidence = 0.0
+
+        # ⭐ 卡尔曼滤波器
+        self.kalman_filter = TargetKalmanFilter(
+            process_noise=get_config('KALMAN_PROCESS_NOISE', 0.1),
+            measurement_noise=get_config('KALMAN_MEASUREMENT_NOISE', 5.0)
+        )
+
+        # 是否启用卡尔曼滤波
+        self.use_kalman = get_config('USE_KALMAN_FILTER', True)
 
     def calculate_aim_point(
             self,
@@ -63,32 +179,43 @@ class TargetSelector:
             raw_y: float,
             is_new_target: bool = False
     ) -> Tuple[int, int]:
-        smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.25)
+        """平滑处理 - 支持 EMA 或卡尔曼"""
 
-        if is_new_target or self.smoothed_aim_x is None:
-            self.smoothed_aim_x = float(raw_x)
-            self.smoothed_aim_y = float(raw_y)
+        if self.use_kalman:
+            # ⭐ 卡尔曼滤波路径
+            if is_new_target:
+                self.kalman_filter.init_with_position(raw_x, raw_y)
+                return int(raw_x), int(raw_y)
+
+            smooth_x, smooth_y = self.kalman_filter.update(raw_x, raw_y)
+            return int(smooth_x), int(smooth_y)
+
         else:
-            self.smoothed_aim_x = (
-                    smooth_alpha * raw_x +
-                    (1 - smooth_alpha) * self.smoothed_aim_x
-            )
-            self.smoothed_aim_y = (
-                    smooth_alpha * raw_y +
-                    (1 - smooth_alpha) * self.smoothed_aim_y
-            )
+            # 原有 EMA 路径
+            smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.25)
 
-        return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
+            if is_new_target or self.smoothed_aim_x is None:
+                self.smoothed_aim_x = float(raw_x)
+                self.smoothed_aim_y = float(raw_y)
+            else:
+                self.smoothed_aim_x = (
+                        smooth_alpha * raw_x +
+                        (1 - smooth_alpha) * self.smoothed_aim_x
+                )
+                self.smoothed_aim_y = (
+                        smooth_alpha * raw_y +
+                        (1 - smooth_alpha) * self.smoothed_aim_y
+                )
+
+            return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
     def _update_confidence_tracking(self, confidence: float) -> None:
         self.confidence_history.append(confidence)
 
         if len(self.confidence_history) >= 3:
-            # 计算基准置信度（使用中位数，更抗噪声）
             sorted_conf = sorted(self.confidence_history)
             self.baseline_confidence = sorted_conf[len(sorted_conf) // 2]
 
-            # 检测置信度骤降（疑似被攻击）
             conf_drop_threshold = get_config('CONFIDENCE_DROP_THRESHOLD', 0.15)
             recent_avg = sum(list(self.confidence_history)[-3:]) / 3
 
@@ -97,9 +224,21 @@ class TargetSelector:
             else:
                 self.under_attack_frames = max(0, self.under_attack_frames - 1)
 
-            # 激活攻击保护（连续3帧置信度低）
             attack_protection_frames = get_config('ATTACK_PROTECTION_TRIGGER_FRAMES', 3)
-            self.attack_protection_enabled = (self.under_attack_frames >= attack_protection_frames)
+            self.attack_protection_enabled = (
+                    self.under_attack_frames >= attack_protection_frames
+            )
+
+            # ⭐ 被攻击时动态调整卡尔曼观测噪声
+            if self.use_kalman:
+                if self.attack_protection_enabled:
+                    # 置信度骤降，更相信预测而非观测
+                    self.kalman_filter.update_noise(15.0)
+                else:
+                    # 正常情况
+                    self.kalman_filter.update_noise(
+                        get_config('KALMAN_MEASUREMENT_NOISE', 5.0)
+                    )
 
     def _calculate_enhanced_score(
             self,
@@ -161,10 +300,32 @@ class TargetSelector:
         min_target_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 15)
         target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.1)
 
+        # ⭐ 无目标时使用卡尔曼预测
         if not candidate_targets:
             self.frames_without_target += 1
+
             if self.frames_without_target >= max_lost_frames:
                 self._reset_tracking()
+                return None, None
+
+            # ⭐ 尝试用卡尔曼预测填充
+            if self.use_kalman and self.is_locked:
+                predicted = self.kalman_filter.predict_only(
+                    max_frames=get_config('KALMAN_MAX_PREDICT_FRAMES', 5)
+                )
+
+                if predicted is not None:
+                    pred_x, pred_y = predicted
+
+                    # 边界检查
+                    pred_x = max(0, min(int(pred_x), screen_width - 1))
+                    pred_y = max(0, min(int(pred_y), screen_height - 1))
+
+                    self.last_target_x = pred_x
+                    self.last_target_y = pred_y
+
+                    return pred_x, pred_y
+
             return None, None
 
         id_grid_size = 20
@@ -205,7 +366,6 @@ class TargetSelector:
                     current_locked_target = closest_target
                     self.locked_target_id = closest_target['id']
 
-        # 计算所有目标得分
         max_distance = math.hypot(screen_width, screen_height)
         ref_x = self.last_target_x if self.last_target_x is not None else screen_width // 2
         ref_y = self.last_target_y if self.last_target_y is not None else screen_height // 2
@@ -294,14 +454,11 @@ class TargetSelector:
                 f"其他目标: {other_targets_str}"
             )
 
-        # 更新置信度追踪
         self._update_confidence_tracking(selected_target['confidence'])
 
-        # 获取原始位置
         raw_x = selected_target['x']
         raw_y = selected_target['y']
 
-        # 新目标处理
         if is_new_target:
             self.smoothed_aim_x = float(raw_x)
             self.smoothed_aim_y = float(raw_y)
@@ -313,10 +470,8 @@ class TargetSelector:
 
             return self.last_target_x, self.last_target_y
 
-        # 应用平滑
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, False)
 
-        # 边界限制
         smoothed_x = max(0, min(smoothed_x, screen_width - 1))
         smoothed_y = max(0, min(smoothed_y, screen_height - 1))
 
@@ -341,10 +496,32 @@ class TargetSelector:
         precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 2)
         return offset_distance >= precision_dead_zone
 
+    def get_lead_target(
+            self,
+            current_x: int,
+            current_y: int,
+            lead_frames: int = 2
+    ) -> Tuple[int, int]:
+        """获取预判位置（用于移动目标）"""
+
+        if not self.use_kalman or not self.kalman_filter.initialized:
+            return current_x, current_y
+
+        predicted = self.kalman_filter.get_predicted_position(lead_frames)
+
+        if predicted is None:
+            return current_x, current_y
+
+        return int(predicted[0]), int(predicted[1])
+
     def _reset_motion_params(self) -> None:
         """重置运动相关参数"""
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
+
+        # ⭐ 重置卡尔曼
+        if self.use_kalman:
+            self.kalman_filter.reset()
 
     def _reset_tracking(self) -> None:
         """重置所有跟踪状态"""
@@ -356,12 +533,14 @@ class TargetSelector:
         self.frames_without_target = 0
         self._reset_motion_params()
 
-        # 重置攻击状态追踪
         self.confidence_history.clear()
         self.baseline_confidence = 0.0
         self.under_attack_frames = 0
         self.attack_protection_enabled = False
 
-        # 重置战斗模式
         self.in_combat_mode = False
         self.lock_initial_confidence = 0.0
+
+        # ⭐ 重置卡尔曼
+        if self.use_kalman:
+            self.kalman_filter.reset()
