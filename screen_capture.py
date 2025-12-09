@@ -110,7 +110,6 @@ def capture_screen(frame_queue, capture_ready_event, crop_size, stop_event=None)
 
             # 队列满时短暂休眠
             if queue_full():
-                time.sleep(0.0005)
                 dropped_frames += 1
                 continue
 

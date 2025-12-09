@@ -379,14 +379,10 @@ def main():
             current_time = time.perf_counter()
 
             # ⭐ 更精确的帧率控制
-            time_since_last = current_time - last_inference_time
-            if time_since_last < inference_interval:
-                # 短休眠以降低 CPU 使用率
-                sleep_time = inference_interval - time_since_last - 0.001
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+            sleep_time = inference_interval - (current_time - last_inference_time)
+            if sleep_time > 0.001:  # 合并检查
+                time.sleep(sleep_time - 0.001)
                 continue
-
             # 获取帧
             try:
                 img_bgra = frame_queue.get(timeout=0.05)
