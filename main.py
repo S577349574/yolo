@@ -198,7 +198,9 @@ class CachedConfig:
         self.auto_fire_distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
         self.recoil_vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
         self.crop_size = get_config('CROP_SIZE', 640)
-        self.target_class_names = get_config('TARGET_CLASS_NAMES', [])
+
+        self.config_ids = get_config('TARGET_CLASS_IDS', [])
+        self.config_names = get_config('TARGET_CLASS_NAMES', [])
         self.enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
         self.enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
         self.manual_recoil_trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'both_buttons')
@@ -219,7 +221,6 @@ def main():
     key_thread = None
     auto_fire = None
     stop_capture_event = None
-
     # ⭐ 提前声明模式变量（解决作用域问题）
     enable_auto_fire = False
     enable_manual_recoil = False
@@ -293,12 +294,34 @@ def main():
         # ==================== 核心组件初始化 ====================
         model = YOLOv8Detector()
         cached_config = CachedConfig()
+        if cached_config.config_ids:  # ✅ 使用缓存配置
+            # 方案 1：使用数字 ID（推荐）
+            target_class_ids = [
+                int(cid) for cid in cached_config.config_ids
+                if int(cid) in model.names
+            ]
+            if target_class_ids:
+                selected_names = [model.names[cid] for cid in target_class_ids]
+                utils.log(f"✅ 已选择目标类别（ID）: {target_class_ids}")
+                utils.log(f"   对应名称: {selected_names}")
+            else:
+                utils.log(f"⚠️ 警告：无效的类别 ID {cached_config.config_ids}")
 
-        target_class_ids = [
-            k for k, v in model.names.items()
-            if v in cached_config.target_class_names
-        ] if cached_config.target_class_names else []
-
+        elif cached_config.config_names:  # ✅ 使用缓存配置
+            # 方案 2：使用类名（兼容旧版）
+            target_class_ids = [
+                class_id for class_id, class_name in model.names.items()
+                if class_name in cached_config.config_names
+            ]
+            if target_class_ids:
+                utils.log(f"✅ 已选择目标类别（名称）: {cached_config.config_names}")
+                utils.log(f"   对应 ID: {target_class_ids}")
+            else:
+                utils.log(f"⚠️ 警告：未找到类名 {cached_config.config_names}，请检查配置")
+        else:
+            # 未配置时选择全部
+            target_class_ids = list(model.names.keys())
+            utils.log(f"⚠️ 未配置目标类别，将识别所有类别: {list(model.names.values())}")
         # 创建鼠标控制器
         mouse_controller = create_mouse_controller(use_driver=use_driver_mode)
         utils.log(f" 鼠标控制器模式: {mouse_controller.get_mode()}")
@@ -404,7 +427,8 @@ def main():
                 candidate_targets.append({
                     'x': target_x,
                     'y': target_y,
-                    'confidence': result['confidence']
+                    'confidence': result['confidence'],
+                    'class_id': result['class_id']  # <---【新增】必须传递这个字段
                 })
 
             best_x, best_y = target_selector.select_best_target(

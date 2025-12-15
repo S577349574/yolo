@@ -192,7 +192,7 @@ class TargetSelector:
             delta_x = abs(smooth_x - raw_x)
             delta_y = abs(smooth_y - raw_y)
             if delta_x > 5 or delta_y > 5:
-                utils.log(f"[Kalman] 原始({raw_x:.0f},{raw_y:.0f}) → 平滑({smooth_x:.0f},{smooth_y:.0f})")
+                utils.log_debug(f"[Kalman] 原始({raw_x:.0f},{raw_y:.0f}) → 平滑({smooth_x:.0f},{smooth_y:.0f})")
 
             return int(smooth_x), int(smooth_y)
 
@@ -268,7 +268,7 @@ class TargetSelector:
             distance_score = min(1.0, distance_score * distance_boost)
 
             if conf_score > target['confidence'] and self.target_lock_frames < 30:
-                utils.log(
+                utils.log_debug(
                     f" 修正置信度 | "
                     f"{target['confidence']:.2f}→{conf_score:.2f}"
                 )
@@ -285,6 +285,14 @@ class TargetSelector:
                 (1 - distance_weight) * conf_score
         )
 
+        if get_config('ENABLE_HEAD_PRIORITY', True):
+            target_class_id = target.get('class_id', -1)
+            priority_id = get_config('HEAD_CLASS_ID', 1)
+
+            if target_class_id == priority_id:
+                # 获取加分 (默认1000分，足以无视任何距离差距)
+                bonus = get_config('HEAD_PRIORITY_BONUS', 1000.0)
+                composite_score += bonus
         if is_locked_target:
             if self.in_combat_mode:
                 lock_bonus = get_config('COMBAT_MODE_LOCK_BONUS', 0.60)
@@ -403,7 +411,7 @@ class TargetSelector:
             if self.target_lock_frames >= self.combat_mode_threshold:
                 if not self.in_combat_mode:
                     self.in_combat_mode = True
-                    utils.log(f" 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
+                    utils.log_debug(f" 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
 
             locked_score = next(
                 (st['score'] for st in scored_targets
@@ -454,7 +462,7 @@ class TargetSelector:
 
             other_targets_str = " | ".join(other_targets_info) if other_targets_info else "无"
 
-            utils.log(
+            utils.log_debug(
                 f"  锁定新目标 | "
                 f"T{best_candidate['index']}({self.lock_initial_confidence:.2f}) | "
                 f"其他目标: {other_targets_str}"

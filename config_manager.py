@@ -1,4 +1,4 @@
-"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配智能压枪系统）"""
+"""配置文件管理器（支持热重载、性能优化、安全验证 - 适配智能压枪与优先锁头系统）"""
 
 import json
 import os
@@ -73,7 +73,13 @@ class ConfigManager:
             "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.55,
             "IOU_THRESHOLD": 0.45,
+            "TARGET_CLASS_IDS": [1, 0],
             "TARGET_CLASS_NAMES": ["敌"],
+
+            # ========== ⭐ 优先锁定配置 (新增) ==========
+            "ENABLE_HEAD_PRIORITY": True,
+            "HEAD_CLASS_ID": 1,
+            "HEAD_PRIORITY_BONUS": 1000.0,
 
             # ========== 瞄准点配置 ==========
             "AIM_Y_RATIO": 0.45,
@@ -93,13 +99,13 @@ class ConfigManager:
             "ATTACK_PROTECTION_TRIGGER_FRAMES": 3,
             "LOCKED_TARGET_BONUS": 0.15,
 
-            # ⭐ 卡尔曼滤波配置（新增）
+            # ⭐ 卡尔曼滤波配置
             "USE_KALMAN_FILTER": True,
             "KALMAN_PROCESS_NOISE": 0.1,
             "KALMAN_MEASUREMENT_NOISE": 5.0,
             "KALMAN_MAX_PREDICT_FRAMES": 5,
 
-            # ⭐ 预判瞄准（新增，可选）
+            # ⭐ 预判瞄准
             "ENABLE_LEAD_TARGET": False,
             "LEAD_FRAMES": 2,
 
@@ -200,6 +206,10 @@ class ConfigManager:
         clamp("CONF_THRESHOLD", 0.1, 0.99, float, 0.55)
         clamp("IOU_THRESHOLD", 0.1, 0.99, float, 0.45)
 
+        # ⭐ 优先锁定参数验证
+        clamp("HEAD_CLASS_ID", 0, 100, int, 1)
+        clamp("HEAD_PRIORITY_BONUS", 0.0, 10000.0, float, 1000.0)
+
         # 瞄准点参数
         clamp("AIM_Y_RATIO", 0.0, 1.0, float, 0.45)
         clamp("AIM_X_OFFSET", -100, 100, float, 0.3)
@@ -217,6 +227,14 @@ class ConfigManager:
         clamp("CONFIDENCE_DROP_THRESHOLD", 0.05, 0.5, float, 0.15)
         clamp("ATTACK_PROTECTION_TRIGGER_FRAMES", 1, 20, int, 3)
         clamp("LOCKED_TARGET_BONUS", 0.0, 0.5, float, 0.15)
+
+        # ⭐ 卡尔曼滤波
+        clamp("KALMAN_PROCESS_NOISE", 0.01, 10.0, float, 0.1)
+        clamp("KALMAN_MEASUREMENT_NOISE", 0.1, 50.0, float, 5.0)
+        clamp("KALMAN_MAX_PREDICT_FRAMES", 0, 60, int, 5)
+
+        # ⭐ 预判瞄准
+        clamp("LEAD_FRAMES", 0, 30, int, 2)
 
         # PID 参数
         clamp("PID_KP_X", 0.0, 10.0, float, 0.2)
@@ -249,7 +267,7 @@ class ConfigManager:
 
         # ⭐ 压枪速度参数（XY双轴）
         clamp("RECOIL_VERTICAL_SPEED", 0.0, 1000.0, float, 110.0)
-        clamp("RECOIL_HORIZONTAL_SPEED", -500.0, 500.0, float, 0.0)  # 支持负值（向左）
+        clamp("RECOIL_HORIZONTAL_SPEED", -500.0, 500.0, float, 0.0)
         clamp("RECOIL_INCREMENT_Y", 0.0, 10.0, float, 0.5)
 
         # ⭐ 压枪限制参数（XY双轴）
@@ -264,7 +282,7 @@ class ConfigManager:
 
         # ========== 验证列表 ==========
         if not isinstance(c.get("TARGET_CLASS_NAMES"), list):
-            c["TARGET_CLASS_NAMES"] = ["敌人"]
+            c["TARGET_CLASS_NAMES"] = ["敌"]
         if not isinstance(c.get("RECOIL_CUSTOM_PATTERN"), list):
             c["RECOIL_CUSTOM_PATTERN"] = []
 
@@ -274,18 +292,21 @@ class ConfigManager:
             "ENABLE_LOGGING", "ENABLE_AUTO_FIRE", "ENABLE_MANUAL_RECOIL",
             "AUTO_FIRE_DEBUG_MODE", "ENABLE_RECOIL_CONTROL",
             "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "DEBUG_MODE",
-            "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK"  # ⭐ 新增
+            "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
+            "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET",
+            "ENABLE_HEAD_PRIORITY"  # ⭐ 新增
         ]
         bool_defaults = {
             "USE_DRIVER_MODE": True,
             "MOUSE_MODE_AUTO_FALLBACK": True,
             "DEBUG_MODE": False,
-            "RECOIL_REQUIRE_TARGET": True,   # ⭐ 默认需要目标
-            "RECOIL_REQUIRE_LOCK": False,    # ⭐ 默认不需要锁定
+            "RECOIL_REQUIRE_TARGET": True,
+            "RECOIL_REQUIRE_LOCK": False,
             "ENABLE_MANUAL_RECOIL": True,
             "ENABLE_RECOIL_CONTROL": True,
-            "USE_KALMAN_FILTER": True,  # ⭐ 新增
-            "ENABLE_LEAD_TARGET": False,  # ⭐ 新增
+            "USE_KALMAN_FILTER": True,
+            "ENABLE_LEAD_TARGET": False,
+            "ENABLE_HEAD_PRIORITY": True # ⭐ 默认开启
         }
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
@@ -312,6 +333,17 @@ class ConfigManager:
         if c.get("ENABLE_AUTO_FIRE") and c.get("ENABLE_MANUAL_RECOIL"):
             self._log("⚠ 自动开火和手动压枪不能同时启用，已禁用自动开火")
             c["ENABLE_AUTO_FIRE"] = False
+
+        # TARGET_CLASS_IDS 处理
+        if "TARGET_CLASS_IDS" in c:
+            try:
+                if isinstance(c["TARGET_CLASS_IDS"], list):
+                    c["TARGET_CLASS_IDS"] = [int(x) for x in c["TARGET_CLASS_IDS"]]
+                else:
+                    c["TARGET_CLASS_IDS"] = []
+            except (ValueError, TypeError):
+                self._log("⚠️ TARGET_CLASS_IDS 格式错误，已重置为空")
+                c["TARGET_CLASS_IDS"] = []
 
         return c
 
@@ -410,14 +442,17 @@ class ConfigManager:
         """🔥 格式化配置文件（添加分组注释）"""
         lines = ["{\n"]
 
-        # ⭐ 更新分组：适配智能压枪系统
+        # ⭐ 更新分组：适配新功能
         groups = {
             "许可证配置": [
                 "LICENSE_KEY"
             ],
             "YOLO 检测": [
                 "MODEL_PATH", "CROP_SIZE", "CONF_THRESHOLD",
-                "IOU_THRESHOLD", "TARGET_CLASS_NAMES"
+                "IOU_THRESHOLD", "TARGET_CLASS_NAMES","TARGET_CLASS_IDS"
+            ],
+            "优先锁定配置": [  # ⭐ 新增分组
+                "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_BONUS"
             ],
             "瞄准点配置": [
                 "AIM_Y_RATIO", "AIM_X_OFFSET"
@@ -431,11 +466,11 @@ class ConfigManager:
                 "CONFIDENCE_HISTORY_SIZE", "CONFIDENCE_DROP_THRESHOLD",
                 "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"
             ],
-            "卡尔曼滤波": [  # ⭐ 新增分组
+            "卡尔曼滤波": [
                 "USE_KALMAN_FILTER", "KALMAN_PROCESS_NOISE",
                 "KALMAN_MEASUREMENT_NOISE", "KALMAN_MAX_PREDICT_FRAMES"
              ],
-             "预判瞄准": [  # ⭐ 新增分组
+             "预判瞄准": [
                 "ENABLE_LEAD_TARGET", "LEAD_FRAMES"
              ],
             "PID 控制": [
@@ -468,19 +503,19 @@ class ConfigManager:
                 "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
                 "AUTO_FIRE_DEBUG_MODE"
             ],
-            "压枪模式": [  # ⭐ 重新组织压枪配置
+            "压枪模式": [
                 "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
                 "MANUAL_RECOIL_TRIGGER_MODE"
             ],
-            "压枪触发条件": [  # ⭐ 新增分组
+            "压枪触发条件": [
                 "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
                 "RECOIL_TARGET_TIMEOUT", "RECOIL_MIN_LOCK_FRAMES"
             ],
-            "压枪速度配置": [  # ⭐ 新增分组
+            "压枪速度配置": [
                 "RECOIL_PATTERN", "RECOIL_VERTICAL_SPEED", "RECOIL_HORIZONTAL_SPEED",
                 "RECOIL_INCREMENT_Y"
             ],
-            "压枪限制": [  # ⭐ 新增分组
+            "压枪限制": [
                 "RECOIL_MAX_SINGLE_MOVE_X", "RECOIL_MAX_SINGLE_MOVE_Y",
                 "RECOIL_CUSTOM_PATTERN"
             ]
@@ -572,14 +607,15 @@ class ConfigManager:
                     # ⭐ 更新关键参数监控列表
                     critical_keys = [
                         # 目标检测相关
-                        "CONFIDENCE_DROP_THRESHOLD", "ATTACK_PROTECTION_TRIGGER_FRAMES",
-                        "LOCKED_TARGET_BONUS", "TARGET_SWITCH_THRESHOLD",
+                        "CONFIDENCE_DROP_THRESHOLD", "TARGET_SWITCH_THRESHOLD",
+                        # 优先锁定相关
+                        "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_BONUS",
                         # PID 控制
                         "PID_KP_X", "PID_KD_X", "PID_KI_X",
                         "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
                         # 鼠标模式
                         "USE_DRIVER_MODE",
-                        # ⭐ 压枪相关（新增）
+                        # 压枪相关
                         "RECOIL_REQUIRE_TARGET", "RECOIL_VERTICAL_SPEED",
                         "RECOIL_HORIZONTAL_SPEED", "MANUAL_RECOIL_TRIGGER_MODE"
                     ]
@@ -637,7 +673,7 @@ if __name__ == "__main__":
     config = load_config()
     print(f"配置加载成功，共 {len(config)} 项")
     print(f"配置文件位置: {_config_manager.config_file}")
-    print(f"\n鼠标模式配置:")
-    print(f"  USE_DRIVER_MODE: {get_config('USE_DRIVER_MODE')}")
-    print(f"  MOUSE_MODE_AUTO_FALLBACK: {get_config('MOUSE_MODE_AUTO_FALLBACK')}")
-    print(f"  MAX_MICKEY: {get_config('MAX_MICKEY')}")
+    print(f"\n优先锁定配置:")
+    print(f"  启用优先锁定: {get_config('ENABLE_HEAD_PRIORITY')}")
+    print(f"  头部ID: {get_config('HEAD_CLASS_ID')}")
+    print(f"  加分权重: {get_config('HEAD_PRIORITY_BONUS')}")
