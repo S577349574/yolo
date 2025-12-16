@@ -1,31 +1,34 @@
 import time
 from collections import deque
-from config_manager import get_config
+from typing import Callable
 import utils
 
 
 class PIDController:
-    """双轴独立参数PID控制器"""
+    """双轴独立参数PID控制器（支持热重载）"""
 
     def __init__(self,
-                 kp_x=0.85, ki_x=0.0, kd_x=0.05,
-                 kp_y=0.95, ki_y=0.0, kd_y=0.06):
+                 kp_x=None, ki_x=None, kd_x=None,
+                 kp_y=None, ki_y=None, kd_y=None,
+                 auto_reload=True):
         """
         初始化双轴PID控制器
 
         Args:
-            kp_x, ki_x, kd_x: X轴PID参数（水平跟踪）
-            kp_y, ki_y, kd_y: Y轴PID参数（垂直跟踪，通常需要更激进）
+            auto_reload: 是否注册热重载回调
         """
-        # X轴参数（水平方向：纯目标跟踪）
-        self.kp_x = kp_x
-        self.ki_x = ki_x
-        self.kd_x = kd_x
+        # ⭐ 延迟导入，避免循环依赖
+        from config_manager import get_config
 
-        # Y轴参数（垂直方向：可能需要更强响应）
-        self.kp_y = kp_y
-        self.ki_y = ki_y
-        self.kd_y = kd_y
+        # X轴参数
+        self.kp_x = kp_x if kp_x is not None else get_config("PID_KP_X", 0.2)
+        self.ki_x = ki_x if ki_x is not None else get_config("PID_KI_X", 0.02)
+        self.kd_x = kd_x if kd_x is not None else get_config("PID_KD_X", 0.05)
+
+        # Y轴参数
+        self.kp_y = kp_y if kp_y is not None else get_config("PID_KP_Y", 0.4)
+        self.ki_y = ki_y if ki_y is not None else get_config("PID_KI_Y", 0.0)
+        self.kd_y = kd_y if kd_y is not None else get_config("PID_KD_Y", 0.06)
 
         # 状态变量
         self.integral_x = 0.0
@@ -42,28 +45,57 @@ class PIDController:
         self._max_derivative = 1500
         self._derivative_deadzone = 50
         self._max_output = get_config("MAX_SINGLE_MOVE_PX", 300)
-
-        # 积分限幅（防止积分饱和）
         self._max_integral = get_config("PID_MAX_INTEGRAL", 100)
 
-        # D项限幅规则表（可分轴配置）
+        # D项限幅规则表
         self._d_limit_rules_x = [
             (30, 1.5, 15.0),
             (15, 1.2, 8.0),
             (0, 0.8, 3.0)
         ]
         self._d_limit_rules_y = [
-            (30, 1.8, 18.0),  # Y轴允许更大的D项
+            (30, 1.8, 18.0),
             (15, 1.4, 10.0),
             (0, 1.0, 4.0)
         ]
 
-        # 条件编译日志
         self.frame_count = 0
+
+        # 条件编译日志
         if get_config('ENABLE_LOGGING', False):
             self._maybe_log = self._log_debug
         else:
             self._maybe_log = lambda *args: None
+
+        # ⭐ 注册热重载
+        if auto_reload:
+            self._register_hot_reload()
+
+    def _register_hot_reload(self):
+        """注册热重载回调"""
+        try:
+            from config_manager import on_config_change
+
+            # ⭐ 使用闭包捕获 self，确保回调正确更新实例属性
+            on_config_change("PID_KP_X", lambda v: self._update_param('kp_x', v))
+            on_config_change("PID_KI_X", lambda v: self._update_param('ki_x', v))
+            on_config_change("PID_KD_X", lambda v: self._update_param('kd_x', v))
+            on_config_change("PID_KP_Y", lambda v: self._update_param('kp_y', v))
+            on_config_change("PID_KI_Y", lambda v: self._update_param('ki_y', v))
+            on_config_change("PID_KD_Y", lambda v: self._update_param('kd_y', v))
+            on_config_change("MAX_SINGLE_MOVE_PX", lambda v: self._update_param('_max_output', v))
+
+            utils.log("[PID] ✅ 热重载回调已注册")
+        except Exception as e:
+            utils.log(f"[PID] ⚠ 热重载注册失败: {e}")
+
+    def _update_param(self, attr_name: str, value):
+        """更新参数并记录日志"""
+        old_value = getattr(self, attr_name, None)
+        setattr(self, attr_name, value)
+        utils.log(f"[PID] 🔄 {attr_name}: {old_value} → {value}")
+
+    # ... 其余方法保持不变 ...
 
     def reset(self):
         """重置PID状态"""
@@ -77,13 +109,7 @@ class PIDController:
         self.frame_count = 0
 
     def set_params(self, axis='both', kp=None, ki=None, kd=None):
-        """
-        动态调整PID参数
-
-        Args:
-            axis: 'x', 'y', 或 'both'
-            kp, ki, kd: 要设置的参数值（None表示不修改）
-        """
+        """动态调整PID参数"""
         if axis in ('x', 'both'):
             if kp is not None: self.kp_x = kp
             if ki is not None: self.ki_x = ki
@@ -98,7 +124,6 @@ class PIDController:
         """平滑时间差"""
         if raw_dt <= 0 or raw_dt > 0.5:
             raw_dt = 0.016
-
         self.dt_history.append(raw_dt)
         sorted_dt = sorted(self.dt_history)
         return sorted_dt[len(sorted_dt) // 2]
@@ -113,29 +138,19 @@ class PIDController:
 
     def _calculate_axis_output(self, error, error_history, integral,
                                kp, ki, kd, d_limit_rules, dt):
-        """
-        单轴PID计算
-
-        Returns:
-            (output, p_term, i_term, d_term, new_integral)
-        """
-        # P项
+        """单轴PID计算"""
         p_term = kp * error
 
-        # I项
         new_integral = integral
         if ki > 0:
             new_integral = integral + error * dt
-            # 积分限幅
             new_integral = max(-self._max_integral, min(self._max_integral, new_integral))
-            # 积分分离：误差过大时不累积
             if abs(error) > 50:
-                new_integral = integral  # 保持不变
+                new_integral = integral
             i_term = ki * new_integral
         else:
             i_term = 0.0
 
-        # D项
         if self.first_call or len(error_history) < 2:
             d_term = 0.0
         else:
@@ -171,16 +186,7 @@ class PIDController:
             )
 
     def calculate(self, error_x, error_y):
-        """
-        计算双轴PID输出
-
-        Args:
-            error_x: X轴误差（目标X - 当前X）
-            error_y: Y轴误差（目标Y - 当前Y）
-
-        Returns:
-            (output_x, output_y): 双轴控制输出
-        """
+        """计算双轴PID输出"""
         current_time = time.perf_counter()
         raw_dt = current_time - self.last_time
         dt = self._get_stable_dt(raw_dt)
@@ -188,18 +194,15 @@ class PIDController:
 
         self.frame_count += 1
 
-        # 更新误差历史
         self.error_history_x.append(error_x)
         self.error_history_y.append(error_y)
 
-        # X轴计算
         output_x, p_x, i_x, d_x, self.integral_x = self._calculate_axis_output(
             error_x, self.error_history_x, self.integral_x,
             self.kp_x, self.ki_x, self.kd_x,
             self._d_limit_rules_x, dt
         )
 
-        # Y轴计算（独立参数）
         output_y, p_y, i_y, d_y, self.integral_y = self._calculate_axis_output(
             error_y, self.error_history_y, self.integral_y,
             self.kp_y, self.ki_y, self.kd_y,
@@ -207,14 +210,12 @@ class PIDController:
         )
 
         self.first_call = False
-
-        # 日志
         self._maybe_log(error_x, error_y, p_x, p_y, i_x, i_y, d_x, d_y, output_x, output_y)
 
         return output_x, output_y
 
     def get_params(self):
-        """获取当前参数（调试用）"""
+        """获取当前参数"""
         return {
             'x': {'kp': self.kp_x, 'ki': self.ki_x, 'kd': self.kd_x},
             'y': {'kp': self.kp_y, 'ki': self.ki_y, 'kd': self.kd_y}

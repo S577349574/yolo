@@ -1,3 +1,4 @@
+watchdog
 pywin32
 onnxruntime
 mss
