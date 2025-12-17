@@ -303,6 +303,13 @@ def main():
         mouse_controller = create_mouse_controller(use_driver=use_driver_mode)
         utils.log(f"✅ 鼠标控制器模式: {mouse_controller.get_mode()}")
 
+        # 屏幕信息
+        screen_info = get_screen_info()
+        screen_center_x = screen_info['width'] // 2
+        screen_center_y = screen_info['height'] // 2
+        capture_area = calculate_capture_area(cached_config.crop_size)
+        target_selector = TargetSelector()
+
         # 自动开火控制器
         auto_fire = AutoFireController(mouse_controller)
 
@@ -317,18 +324,23 @@ def main():
             utils.log("\n" + "=" * 60)
             utils.log("🔧 正在初始化 Lua 脚本系统...")
 
+            verbose_logging = get_config("SCRIPT_VERBOSE_LOGGING", False)
             # 1. 创建事件系统
             event_system = EventSystem()
 
             def create_script_api():
                 """为每个脚本创建独立的 API 实例"""
-                return ScriptAPI(
+                api = ScriptAPI(
                     mouse_controller=mouse_controller,
                     auto_fire_controller=auto_fire,
-                    target_selector=None,
+                    target_selector=target_selector,  # ⚠️ 确保这里不是 None
                     yolo_detector=model,
-                    screen_capture=None
+                    screen_capture=None,
+                    verbose = verbose_logging  # ⭐ 传递配置
                 )
+                # ⭐ 在工厂函数中绑定 app_state（关键！）
+                api.bind_app_state(app_state)
+                return api
             # ⭐ 注意：这里需要传入你的真实对象
             script_api = ScriptAPI(
                 mouse_controller=mouse_controller,
@@ -338,6 +350,7 @@ def main():
                 screen_capture=None  # 捕获进程不在这里传递
             )
 
+            script_api.bind_app_state(app_state)
             # 4. 创建脚本管理器
             script_manager = ScriptManager(
                 script_api_factory=create_script_api,
@@ -348,19 +361,25 @@ def main():
             # 5. 加载所有脚本
             script_manager.load_all_scripts()
 
-            # 6. 启用配置中指定的脚本
             enabled_scripts = get_config("ENABLED_SCRIPTS", [])
-            for script_name in enabled_scripts:
-                script_manager.enable_script(script_name)
+            if enabled_scripts:
+                utils.log(f"\n🟢 启用 {len(enabled_scripts)} 个脚本:")
+                for script_name in enabled_scripts:
+                    script_manager.enable_script(script_name)
+            else:
+                utils.log("\nℹ️ 未配置启用的脚本")
 
-            utils.log("✅ Lua 脚本系统初始化完成")
+            # ⭐ 单条成功日志
+            utils.log("\n✅ Lua 脚本系统初始化完成")
             utils.log("=" * 60 + "\n")
 
         except Exception as e:
             utils.log(f"⚠️ 脚本系统初始化失败: {e}")
-            utils.log("程序将继续运行（不影响核心功能）")
+            if verbose_logging:
+                import traceback
+                utils.log(traceback.format_exc())
+            utils.log("程序将继续运行（不影响核心功能）\n")
             script_manager = None
-
         # ==================== 屏幕捕获进程 ====================
         frame_queue = Queue(maxsize=5)
         capture_ready_event = ProcessEvent()
@@ -379,12 +398,7 @@ def main():
             app_state.request_exit()
             return
 
-        # 屏幕信息
-        screen_info = get_screen_info()
-        screen_center_x = screen_info['width'] // 2
-        screen_center_y = screen_info['height'] // 2
-        capture_area = calculate_capture_area(cached_config.crop_size)
-        target_selector = TargetSelector()
+
 
         # ⭐ 更新 script_api 中的 target_selector
         if script_manager:
@@ -447,7 +461,6 @@ def main():
             results = model.predict(img_bgra)
             last_inference_time = time.perf_counter()
 
-            # ✅✅✅ 目标筛选（修改开始）✅✅✅
             candidate_targets = []
             for result in results:
                 if target_class_ids and result['class_id'] not in target_class_ids:
@@ -466,7 +479,10 @@ def main():
                 # 获取类别名称
                 class_id = result['class_id']
                 class_name = model.names.get(class_id, 'unknown')
-
+                distance_to_center = math.sqrt(
+                    (target_x - screen_center_x) ** 2 +
+                    (target_y - screen_center_y) ** 2
+                )
                 # 构建完整的目标数据
                 candidate_targets.append({
                     'x': target_x,
@@ -475,9 +491,9 @@ def main():
                     'height': height,
                     'confidence': result['confidence'],
                     'class_id': class_id,
-                    'class_name': class_name
+                    'class_name': class_name,
+                    'distance': distance_to_center  # ⭐ 添加这个字段
                 })
-            # ✅✅✅ 修改结束 ✅✅✅
 
             best_x, best_y = target_selector.select_best_target(
                 candidate_targets,

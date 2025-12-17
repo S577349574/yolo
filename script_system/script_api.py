@@ -21,7 +21,8 @@ class ScriptAPI:
             auto_fire_controller,
             target_selector,
             yolo_detector,
-            screen_capture
+            screen_capture,
+            verbose=False
     ):
         """
         初始化 API
@@ -33,12 +34,14 @@ class ScriptAPI:
             yolo_detector: YOLO检测器实例
             screen_capture: 屏幕捕获实例
         """
+        self.verbose = verbose
         self.mouse = mouse_controller
         self.auto_fire = auto_fire_controller
         self.target_selector = target_selector
         self.yolo = yolo_detector
         self.capture = screen_capture
 
+        self._app_state_getter = None  # 延迟绑定
         # 速率限制器
         self.rate_limiter = RateLimiter()
 
@@ -54,8 +57,15 @@ class ScriptAPI:
         # 上一帧时间（用于计算 delta_time）
         self.last_frame_time = time.time()
 
-        utils.log("[ScriptAPI] API 管理器已初始化")
 
+    def bind_app_state(self, app_state):
+        """
+        绑定 app_state（可选方法）
+
+        Args:
+            app_state: 主程序的 AppState 实例
+        """
+        self._app_state_getter = lambda: app_state
     def create_api_table(self, lua_runtime):
         """
         创建完整的 API 表
@@ -89,7 +99,6 @@ class ScriptAPI:
 
         # 或者更通用的名称
         api["len"] = get_length
-        utils.log("[ScriptAPI] ✅ API 表已创建")
         return api
 
     # ==================== 目标信息 API ====================
@@ -400,7 +409,28 @@ class ScriptAPI:
                 return True
             return False
 
+        def get_app_state():
+            if self._app_state_getter:
+                return self._app_state_getter()
+            # 如果未绑定，返回默认值（防御性编程）
+            return None
 
+        # ⭐ 新增接口
+        def is_aim_active():
+            state = get_app_state()
+            return state.is_mouse_active() if state else False
+
+        def is_left_pressed():
+            state = get_app_state()
+            return state.is_left_pressed() if state else False
+
+        def is_right_pressed():
+            state = get_app_state()
+            return state.is_right_pressed() if state else False
+
+        input_api.is_aim_active = is_aim_active
+        input_api.is_left_pressed = is_left_pressed
+        input_api.is_right_pressed = is_right_pressed
         input_api.is_mouse_down = is_mouse_down
         input_api.is_key_down = is_key_down
         input_api.key_down = key_down
@@ -490,7 +520,8 @@ class ScriptAPI:
 
     # ==================== 工具函数 API ====================
 
-    def _create_utils_api(self, lua):
+    @staticmethod
+    def _create_utils_api(lua):
         """创建 utils API"""
         utils_api = lua.table()
 

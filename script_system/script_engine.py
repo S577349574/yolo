@@ -21,8 +21,10 @@ from config_manager import get_config
 class ScriptEngine:
     """Lua 脚本引擎"""
 
-    def __init__(self):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
         """初始化脚本引擎"""
+        self.script_name = "unknown"  # ⭐ 默认名称
         if not LUPA_AVAILABLE:
             raise RuntimeError("Lupa 未安装，请运行: pip install lupa")
 
@@ -41,7 +43,8 @@ class ScriptEngine:
         self._setup_sandbox()
         self._setup_globals()
 
-        utils.log("[ScriptEngine] Lua 运行时初始化完成")
+        if self.verbose:
+            utils.log("[ScriptEngine] Lua 运行时初始化完成")
 
     def _setup_sandbox(self):
         """配置沙箱环境 - 禁用危险函数"""
@@ -106,7 +109,6 @@ class ScriptEngine:
 
         try:
             self.lua.execute(sandbox_code)
-            utils.log("[ScriptEngine] 沙箱环境已配置")
         except LuaError as e:
             utils.log(f"[ScriptEngine] ❌ 沙箱配置失败: {e}")
             raise
@@ -214,9 +216,11 @@ class ScriptEngine:
         """
         try:
             self.lua.globals()[api_name] = api_table
-            utils.log(f"[ScriptEngine] ✅ API '{api_name}' 已注册")
+            if self.verbose:
+                # ⭐ 显示脚本名而不是 API 名
+                utils.log(f"[{self.script_name}] API 已注册")
         except Exception as e:
-            utils.log(f"[ScriptEngine] ❌ 注册 API '{api_name}' 失败: {e}")
+            utils.log(f"[{self.script_name}] ❌ 注册 API 失败: {e}")
 
     def reset(self):
         """重置运行时环境"""

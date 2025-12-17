@@ -1,12 +1,12 @@
 {
     "_comment_许可证配置": "========== 许可证配置 ==========",
-    "LICENSE_KEY": "mdqR-ez1Ny32U2Sw_VjNCg",
+    "LICENSE_KEY": "MapGNvAFoB0rHXpvZJJ4Og",
     "_comment_YOLO 检测": "========== YOLO 检测 ==========",
-    "MODEL_PATH": "D:\\yolov8\\sjz320v8.onnx",
+    "MODEL_PATH": "D:\\yolov8\\320.onnx",
     "CROP_SIZE": 320,
-    "CONF_THRESHOLD": 0.60,
+    "CONF_THRESHOLD": 0.6,
     "IOU_THRESHOLD": 0.45,
-    "TARGET_CLASS_IDS": [1,0],
+    "TARGET_CLASS_IDS": [1, 0],
     "TARGET_CLASS_NAMES": ["敌"],
     "ENABLE_HEAD_PRIORITY": true,
     "HEAD_CLASS_ID": 1,
@@ -21,7 +21,6 @@
     "MAX_LOST_FRAMES": 30,
     "DISTANCE_WEIGHT": 0.8,
     "AIM_POINT_SMOOTH_ALPHA": 0.8,
-
     "_comment_特效干扰抵抗": "========== 特效干扰抵抗 ==========",
     "CONFIDENCE_HISTORY_SIZE": 10,
     "CONFIDENCE_DROP_THRESHOLD": 0.15,
@@ -95,7 +94,19 @@
     "RECOIL_MAX_SINGLE_MOVE_X": 50.0,
     "RECOIL_MAX_SINGLE_MOVE_Y": 50.0,
     "RECOIL_CUSTOM_PATTERN": [],
-    "_comment_其他": "========== 其他配置 ==========",
+    "_comment_其他": "========== 其他 ==========",
     "RECOIL_HORIZONTAL_VARIANCE": 0,
-    "RECOIL_MAX_SINGLE_MOVE": 110.0
+    "RECOIL_MAX_SINGLE_MOVE": 110.0,
+    "_comment_脚本": "========== 脚本 ==========",
+    "SCRIPT_AUTO_RELOAD": true,
+    "SCRIPT_TIMEOUT_MS": 10,
+    "SCRIPT_DEBUG_MODE": false,
+    "SCRIPT_VERBOSE_LOGGING": false,
+    "SCRIPT_SHOW_STATS_ON_EXIT": true,
+    "SCRIPT_MAX_WORKERS": 4,
+    "SCRIPT_SYNC_THRESHOLD_MS": 5.0,
+    "SCRIPT_AUTO_ASYNC": true,
+    "ENABLED_SCRIPTS": [
+        "test_aim_trigger"
+    ]
 }
