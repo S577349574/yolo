@@ -16,40 +16,53 @@ from config_manager import get_config
 
 
 def _get_best_providers():
-    """根据硬件自动选择最优 Provider"""
+    """根据硬件自动选择最优 Provider（修复版）"""
     available = ort.get_available_providers()
     priority = []
 
     use_tensorrt = get_config('USE_TENSORRT', True)
 
     if use_tensorrt and 'TensorrtExecutionProvider' in available:
-        # ⭐ 方案1：使用程序目录（推荐）
+        # ⭐ 使用固定的缓存目录
         import sys
         if getattr(sys, 'frozen', False):
-            # 打包后的 exe
             app_dir = os.path.dirname(sys.executable)
         else:
-            # 开发环境
             app_dir = os.path.dirname(os.path.abspath(__file__))
 
         trt_cache_dir = os.path.join(app_dir, 'trt_cache')
+
+        # ⭐ 确保目录存在且可写
         try:
             os.makedirs(trt_cache_dir, exist_ok=True)
-        except PermissionError:
-            # 如果程序目录没有写权限，回退到临时目录
+            # 测试写权限
+            test_file = os.path.join(trt_cache_dir, '.write_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            utils.log(f"✓ TensorRT 缓存路径可写: {trt_cache_dir}")
+        except (PermissionError, OSError) as e:
+            # 回退到临时目录
             trt_cache_dir = os.path.join(tempfile.gettempdir(), 'onnx_trt_cache')
             os.makedirs(trt_cache_dir, exist_ok=True)
-            utils.log(f"[YOLO] 警告：无法写入程序目录，使用临时目录")
+            utils.log(f"⚠️ 程序目录无写权限，使用临时目录: {trt_cache_dir}")
+
+        # ⭐ 检查缓存文件
+        cache_files = [f for f in os.listdir(trt_cache_dir) if f.endswith('.engine') or f.endswith('.cache')]
+        if cache_files:
+            utils.log(f"✓ 找到 {len(cache_files)} 个 TensorRT 缓存文件")
+        else:
+            utils.log(f"⚠️ TensorRT 缓存为空，首次运行将编译引擎（可能耗时10-30秒）")
 
         trt_options = {
             'trt_fp16_enable': True,
             'trt_engine_cache_enable': True,
             'trt_engine_cache_path': trt_cache_dir,
-            'trt_max_workspace_size': 2147483648,
-            'trt_builder_optimization_level': 3,
+            'trt_max_workspace_size': 2147483648,  # 2GB
+            'trt_builder_optimization_level': 5,  # ⭐ 提高优化等级（3→5）
+            'trt_timing_cache_enable': True,  # ⭐ 启用时序缓存
         }
         priority.append(('TensorrtExecutionProvider', trt_options))
-        utils.log(f"✓ TensorRT 缓存路径: {trt_cache_dir}")
 
     # CUDA
     if 'CUDAExecutionProvider' in available:
@@ -58,6 +71,7 @@ def _get_best_providers():
             'arena_extend_strategy': 'kSameAsRequested',
             'cudnn_conv_algo_search': 'EXHAUSTIVE',
             'do_copy_in_default_stream': True,
+            'gpu_mem_limit': 2 * 1024 * 1024 * 1024,  # ⭐ 限制显存为2GB
         }
         priority.append(('CUDAExecutionProvider', cuda_options))
 
@@ -66,10 +80,8 @@ def _get_best_providers():
 
     priority.append('CPUExecutionProvider')
 
-    utils.log(f"可用 Providers: {available}")
-    utils.log(f"选择 Providers: {[p if isinstance(p, str) else p[0] for p in priority]}")
-
     return priority
+
 
 class YOLOv8Detector:
     """YOLOv8 目标检测器（ONNX Runtime 推理）"""
@@ -146,11 +158,13 @@ class YOLOv8Detector:
         # ⭐ 优化5: 模型预热（消除首次推理延迟）
         self._warmup()
 
-    def _warmup(self, iterations=5):
+    def _warmup(self, iterations=10):  # ⭐ 增加到10次
         """预热模型，消除首次推理延迟"""
         utils.log("[YOLO] 正在预热模型...")
+
+        # ⭐ 使用更真实的数据分布（模拟正常图像）
         dummy_input = np.random.randint(
-            0, 255,
+            50, 200,  # 大部分像素在这个范围（更接近真实图像）
             (self.img_size, self.img_size, 3),
             dtype=np.uint8
         )
@@ -162,8 +176,23 @@ class YOLOv8Detector:
             elapsed = (time.perf_counter() - start) * 1000
             warmup_times.append(elapsed)
 
+            # ⭐ 显示预热进度
+            if (i + 1) % 3 == 0 or i == iterations - 1:
+                utils.log(f"   预热进度: {i + 1}/{iterations}, 当前耗时: {elapsed:.2f}ms")
+
         avg_time = sum(warmup_times) / len(warmup_times)
-        utils.log(f"✓ 模型预热完成，平均推理时间: {avg_time:.2f}ms")
+        min_time = min(warmup_times)
+        max_time = max(warmup_times)
+
+        utils.log(f"✓ 模型预热完成:")
+        utils.log(f"   平均: {avg_time:.2f}ms, 最小: {min_time:.2f}ms, 最大: {max_time:.2f}ms")
+
+        # ⭐ 警告：如果最大时间仍然很长
+        if max_time > 10.0:
+            utils.log(f"⚠️ 检测到异常长的推理时间，可能原因:")
+            utils.log(f"   1. TensorRT 正在编译引擎（首次运行正常）")
+            utils.log(f"   2. GPU被其他程序占用")
+            utils.log(f"   3. 系统后台任务干扰")
 
     def _load_names_from_metadata(self):
         """从模型元数据加载类别名称"""
@@ -352,42 +381,34 @@ class YOLOv8Detector:
         return self.session.run(self.output_names, {self.input_name: input_data})
 
     def predict(self, img_bgr, conf_threshold=None, iou_threshold=None):
-        """
-        主预测接口
-
-        Args:
-            img_bgr: BGR 格式的输入图像
-            conf_threshold: 置信度阈值（可选，默认使用配置值）
-            iou_threshold: IOU 阈值（可选，默认使用配置值）
-
-        Returns:
-            list: 检测结果列表
-        """
+        """主预测接口（添加异常检测）"""
         conf = conf_threshold if conf_threshold is not None else self._conf_threshold
         iou = iou_threshold if iou_threshold is not None else self._iou_threshold
 
-        if self._enable_timing:
-            t0 = time.perf_counter()
+        t_start = time.perf_counter()
 
         input_data = self.preprocess(img_bgr)
-
-        if self._enable_timing:
-            t1 = time.perf_counter()
+        t_preprocess = time.perf_counter()
 
         outputs = self.session.run(self.output_names, {self.input_name: input_data})
-
-        if self._enable_timing:
-            t2 = time.perf_counter()
+        t_inference = time.perf_counter()
 
         results = self.postprocess(outputs, conf, iou)
+        t_postprocess = time.perf_counter()
+
+        # ⭐ 检测异常慢的推理
+        inference_time = (t_inference - t_preprocess) * 1000
+        if inference_time > 10.0:  # 超过10ms报警
+            utils.log(f"⚠️ 异常推理时间: {inference_time:.2f}ms (正常应为2-4ms)")
+            utils.log(f"   预处理: {(t_preprocess - t_start) * 1000:.2f}ms")
+            utils.log(f"   推理: {inference_time:.2f}ms")
+            utils.log(f"   后处理: {(t_postprocess - t_inference) * 1000:.2f}ms")
 
         if self._enable_timing:
-            t3 = time.perf_counter()
-            self._timing_stats['preprocess'].append((t1 - t0) * 1000)
-            self._timing_stats['inference'].append((t2 - t1) * 1000)
-            self._timing_stats['postprocess'].append((t3 - t2) * 1000)
+            self._timing_stats['preprocess'].append((t_preprocess - t_start) * 1000)
+            self._timing_stats['inference'].append(inference_time)
+            self._timing_stats['postprocess'].append((t_postprocess - t_inference) * 1000)
 
-            # 每100帧输出一次统计
             if len(self._timing_stats['inference']) >= 100:
                 self._print_timing_stats()
                 self._clear_timing_stats()

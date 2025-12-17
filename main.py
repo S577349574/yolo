@@ -1,30 +1,24 @@
-# main.py (适配 Lua 脚本系统 - 正确版本)
+# main.py (修复版 - 解决FPS下降和GPU利用率低的问题)
 
 import math
-import queue as thread_queue
 import time
-from multiprocessing import Process, Queue, Event as ProcessEvent
 from threading import Thread, Event as ThreadEvent
-import traceback
 
-import cv2
 import win32api
 import win32con
 
 # 导入您的模块
 import utils
-from config_manager import load_config, get_config, start_auto_reload
-from license_auth import LicenseAuthenticator
-from yolo_detector import YOLOv8Detector
-from screen_capture import capture_screen
-from target_selector import TargetSelector
 from auto_fire_controller import AutoFireController
-from utils import get_screen_info, calculate_capture_area
+from config_manager import load_config, get_config, start_auto_reload
 from driver_loader import ensure_driver_loaded, unload_driver
+from license_auth import LicenseAuthenticator
 from mouse import create_mouse_controller
-
-# ⭐ 导入脚本系统
-from script_system import ScriptEngine, ScriptAPI, ScriptManager, EventSystem
+from script_system import ScriptAPI, ScriptManager, EventSystem
+from shared_capture import start_capture_process
+from target_selector import TargetSelector
+from utils import get_screen_info, calculate_capture_area
+from yolo_detector import YOLOv8Detector
 
 # 服务器信息
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
@@ -41,44 +35,36 @@ class AppState:
         self.left_mouse_pressed = ThreadEvent()
 
     def request_exit(self):
-        """请求退出"""
         self.should_exit.set()
 
     def is_exiting(self):
-        """是否正在退出"""
         return self.should_exit.is_set()
 
     def set_mouse_active(self, active: bool):
-        """设置鼠标控制状态"""
         if active:
             self.mouse_control_active.set()
         else:
             self.mouse_control_active.clear()
 
     def is_mouse_active(self):
-        """检查鼠标控制是否激活"""
         return self.mouse_control_active.is_set()
 
     def set_right_pressed(self, pressed: bool):
-        """设置右键状态"""
         if pressed:
             self.right_mouse_pressed.set()
         else:
             self.right_mouse_pressed.clear()
 
     def is_right_pressed(self):
-        """检查右键是否按下"""
         return self.right_mouse_pressed.is_set()
 
     def set_left_pressed(self, pressed: bool):
-        """设置左键状态"""
         if pressed:
             self.left_mouse_pressed.set()
         else:
             self.left_mouse_pressed.clear()
 
     def is_left_pressed(self):
-        """检查左键是否按下"""
         return self.left_mouse_pressed.is_set()
 
 
@@ -115,24 +101,20 @@ def key_monitor(app_state: AppState):
 
             if enable_left_monitor:
                 app_state.set_left_pressed(left_down)
-
                 if left_down and not left_was_pressed:
                     app_state.set_mouse_active(True)
                 elif not left_down and left_was_pressed:
                     if not (enable_right_monitor and right_down):
                         app_state.set_mouse_active(False)
-
                 left_was_pressed = left_down
 
             if enable_right_monitor:
                 app_state.set_right_pressed(right_down)
-
                 if right_down and not right_was_pressed:
                     app_state.set_mouse_active(True)
                 elif not right_down and right_was_pressed:
                     if not (enable_left_monitor and left_down):
                         app_state.set_mouse_active(False)
-
                 right_was_pressed = right_down
 
             time.sleep(key_monitor_interval)
@@ -149,10 +131,8 @@ def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState):
     while auth.is_valid() and not app_state.is_exiting():
         if app_state.should_exit.wait(timeout=heartbeat_interval):
             break
-
         if app_state.is_exiting():
             break
-
         if not auth.send_heartbeat():
             utils.log(f"❌ 心跳验证失败！")
             utils.log("程序将在3秒后自动退出。")
@@ -168,13 +148,11 @@ class CachedConfig:
         self.refresh()
 
     def refresh(self):
-        """刷新所有缓存配置"""
-        self.inference_fps = get_config("INFERENCE_FPS", 60)
+        self.inference_fps = get_config("INFERENCE_FPS", 240)  # ⭐ 默认240
         self.auto_fire_accuracy_threshold = get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75)
         self.auto_fire_distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
         self.recoil_vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
         self.crop_size = get_config('CROP_SIZE', 640)
-
         self.config_ids = get_config('TARGET_CLASS_IDS', [])
         self.config_names = get_config('TARGET_CLASS_NAMES', [])
         self.enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
@@ -184,6 +162,7 @@ class CachedConfig:
 
 
 def main():
+    global frame_buffer
     print("\n" + "=" * 60)
     print("正在初始化...")
 
@@ -199,8 +178,6 @@ def main():
     stop_capture_event = None
     enable_auto_fire = False
     enable_manual_recoil = False
-
-    # ⭐ 脚本系统变量
     script_manager = None
 
     try:
@@ -284,7 +261,6 @@ def main():
                 utils.log(f"   对应名称: {selected_names}")
             else:
                 utils.log(f"⚠️ 警告：无效的类别 ID {cached_config.config_ids}")
-
         elif cached_config.config_names:
             target_class_ids = [
                 class_id for class_id, class_name in model.names.items()
@@ -319,46 +295,40 @@ def main():
         elif enable_auto_fire:
             utils.log("✅ 已启用自动开火模式（需按住右键触发）")
 
-        # ⭐ ==================== 初始化脚本系统 ====================
+        # ==================== 初始化脚本系统 ====================
         try:
             utils.log("\n" + "=" * 60)
             utils.log("🔧 正在初始化 Lua 脚本系统...")
 
             verbose_logging = get_config("SCRIPT_VERBOSE_LOGGING", False)
-            # 1. 创建事件系统
             event_system = EventSystem()
 
             def create_script_api():
-                """为每个脚本创建独立的 API 实例"""
                 api = ScriptAPI(
                     mouse_controller=mouse_controller,
                     auto_fire_controller=auto_fire,
-                    target_selector=target_selector,  # ⚠️ 确保这里不是 None
+                    target_selector=target_selector,
                     yolo_detector=model,
                     screen_capture=None,
-                    verbose = verbose_logging  # ⭐ 传递配置
+                    verbose=verbose_logging
                 )
-                # ⭐ 在工厂函数中绑定 app_state（关键！）
                 api.bind_app_state(app_state)
                 return api
-            # ⭐ 注意：这里需要传入你的真实对象
+
             script_api = ScriptAPI(
                 mouse_controller=mouse_controller,
                 auto_fire_controller=auto_fire,
-                target_selector=None,  # 稍后会创建
+                target_selector=None,
                 yolo_detector=model,
-                screen_capture=None  # 捕获进程不在这里传递
+                screen_capture=None
             )
-
             script_api.bind_app_state(app_state)
-            # 4. 创建脚本管理器
+
             script_manager = ScriptManager(
                 script_api_factory=create_script_api,
                 event_system=event_system,
                 scripts_dir="scripts"
             )
-
-            # 5. 加载所有脚本
             script_manager.load_all_scripts()
 
             enabled_scripts = get_config("ENABLED_SCRIPTS", [])
@@ -369,38 +339,20 @@ def main():
             else:
                 utils.log("\nℹ️ 未配置启用的脚本")
 
-            # ⭐ 单条成功日志
             utils.log("\n✅ Lua 脚本系统初始化完成")
             utils.log("=" * 60 + "\n")
 
         except Exception as e:
             utils.log(f"⚠️ 脚本系统初始化失败: {e}")
-            if verbose_logging:
-                import traceback
-                utils.log(traceback.format_exc())
             utils.log("程序将继续运行（不影响核心功能）\n")
             script_manager = None
+
         # ==================== 屏幕捕获进程 ====================
-        frame_queue = Queue(maxsize=5)
-        capture_ready_event = ProcessEvent()
-        stop_capture_event = ProcessEvent()
-
-        capture_process = Process(
-            target=capture_screen,
-            args=(frame_queue, capture_ready_event, cached_config.crop_size, stop_capture_event),
-            name="CaptureProcess"
+        utils.log("\n📸 正在启动共享内存捕获系统...")
+        frame_buffer, capture_process, stop_capture_event = start_capture_process(
+            crop_size=cached_config.crop_size
         )
-        capture_process.start()
 
-        capture_ready_event.wait(timeout=10)
-        if not capture_ready_event.is_set():
-            utils.log("❌ 错误：屏幕捕获进程启动超时。程序将退出。")
-            app_state.request_exit()
-            return
-
-
-
-        # ⭐ 更新 script_api 中的 target_selector
         if script_manager:
             script_api.target_selector = target_selector
 
@@ -412,11 +364,6 @@ def main():
             name="KeyMonitorThread"
         )
         key_thread.start()
-
-        # 统计变量
-        total_movements = 0
-        skipped_movements = 0
-        debug_distances = []
 
         # 启动信息
         utils.log("\n" + "=" * 60)
@@ -434,56 +381,49 @@ def main():
 
         utils.log(f"⬇️ 压枪速度: {cached_config.recoil_vertical_speed} px/s")
         utils.log(f"📍 屏幕中心: ({screen_center_x}, {screen_center_y})")
+        utils.log(f"🎮 目标帧率: {cached_config.inference_fps} FPS")
         utils.log("=" * 60 + "\n")
 
-        frame_count = 0
-        fps_start_time = time.perf_counter()
-        last_inference_time = 0.0
+        # ⭐ 帧率控制参数
+        target_fps = cached_config.inference_fps
+        min_frame_time = 1.0 / target_fps if target_fps > 0 else 0
         last_frame_time = time.perf_counter()
-        inference_interval = 1.0 / cached_config.inference_fps
 
+        # ==================== 主循环（优化版） ====================
         while not app_state.is_exiting():
-            current_time = time.perf_counter()
+            frame_start = time.perf_counter()
 
-            # 帧率控制
-            sleep_time = inference_interval - (current_time - last_inference_time)
-            if sleep_time > 0.001:
-                time.sleep(sleep_time - 0.001)
+            # ========== 1. 读取帧（非阻塞） ==========
+            img_bgra = frame_buffer.read_frame(timeout=0.001)  # ⭐ 减少超时时间
+            if img_bgra is None:
+                # 没有新帧，短暂让出CPU
+                time.sleep(0.0001)
                 continue
 
-            # 获取帧
-            try:
-                img_bgra = frame_queue.get(timeout=0.05)
-            except thread_queue.Empty:
-                continue
-
-            # 推理
+            # ========== 2. 模型推理 ==========
             results = model.predict(img_bgra)
-            last_inference_time = time.perf_counter()
 
+            # ========== 3. 目标列表构建 ==========
             candidate_targets = []
             for result in results:
                 if target_class_ids and result['class_id'] not in target_class_ids:
                     continue
 
-                # 计算瞄准点
                 target_x, target_y = target_selector.calculate_aim_point(
                     result['box'], capture_area
                 )
 
-                # 提取边界框信息
-                box = result['box']  # [x1, y1, x2, y2]
+                box = result['box']
                 width = box[2] - box[0]
                 height = box[3] - box[1]
 
-                # 获取类别名称
                 class_id = result['class_id']
                 class_name = model.names.get(class_id, 'unknown')
                 distance_to_center = math.sqrt(
                     (target_x - screen_center_x) ** 2 +
                     (target_y - screen_center_y) ** 2
                 )
-                # 构建完整的目标数据
+
                 candidate_targets.append({
                     'x': target_x,
                     'y': target_y,
@@ -492,19 +432,17 @@ def main():
                     'confidence': result['confidence'],
                     'class_id': class_id,
                     'class_name': class_name,
-                    'distance': distance_to_center  # ⭐ 添加这个字段
+                    'distance': distance_to_center
                 })
 
+            # ========== 4. 目标选择 ==========
             best_x, best_y = target_selector.select_best_target(
                 candidate_targets,
                 screen_info['width'],
                 screen_info['height']
             )
 
-            # 目标状态更新
-            current_accuracy = 0.0
-            offset_distance = float('inf')
-
+            # ========== 5. 开火控制 ==========
             if best_x is not None:
                 offset_distance = math.sqrt(
                     (best_x - screen_center_x) ** 2 +
@@ -519,7 +457,6 @@ def main():
                     distance=offset_distance
                 )
 
-                # 自动开火模式逻辑
                 if enable_auto_fire:
                     if app_state.is_right_pressed() and auto_fire.should_auto_fire(
                             target_selector.is_locked,
@@ -531,7 +468,6 @@ def main():
                             auto_fire.start_firing()
                             if script_manager:
                                 script_manager.call_event("onFireStart")
-
                         auto_fire.apply_recoil_control()
                     else:
                         if auto_fire.is_firing:
@@ -552,30 +488,38 @@ def main():
                     if script_manager:
                         script_manager.call_event("onFireStop")
 
-            # 鼠标移动控制
+            # ========== 6. 鼠标移动 ==========
             if app_state.is_mouse_active() and best_x is not None:
                 if target_selector.should_send_command(
                         best_x, best_y, screen_center_x, screen_center_y
                 ):
                     mouse_controller.move_to_target(best_x, best_y)
 
-            # ⭐ 触发脚本事件（所有调试信息由脚本处理）
+            # ========== 7. 脚本事件 ==========
             if script_manager:
+                current_time = time.perf_counter()
                 delta_time = current_time - last_frame_time
                 last_frame_time = current_time
                 script_manager.call_event("onFrame", candidate_targets, delta_time)
+
+            # ========== 8. 帧率控制（可选） ==========
+            if min_frame_time > 0:
+                frame_elapsed = time.perf_counter() - frame_start
+                sleep_time = min_frame_time - frame_elapsed
+                if sleep_time > 0.0005:  # ⭐ 只在需要时sleep
+                    time.sleep(sleep_time - 0.0003)  # 留一点余量
 
     except KeyboardInterrupt:
         utils.log("\n⚠️ 用户中断")
     except Exception as e:
         utils.log(f"\n❌ 主程序发生致命错误: {e}")
+        import traceback
         traceback.print_exc()
     finally:
         # ==================== 资源清理 ====================
         utils.log("\n🧹 正在清理资源并安全退出...")
         app_state.request_exit()
 
-        # ⭐ 停止脚本系统
         if script_manager:
             try:
                 script_manager.stop()
@@ -583,7 +527,6 @@ def main():
             except Exception as e:
                 utils.log(f"⚠️ 停止脚本系统时出错: {e}")
 
-        # 注销许可证
         if auth and auth.is_valid():
             utils.log("🔐 正在注销许可证...")
             try:
@@ -592,15 +535,12 @@ def main():
             except Exception as e:
                 utils.log(f"⚠️ 注销许可证时出错: {e}")
 
-        # 等待心跳线程
         if heartbeat_thread and heartbeat_thread.is_alive():
             heartbeat_thread.join(timeout=2.0)
 
-        # 等待按键监控线程
         if key_thread and key_thread.is_alive():
             key_thread.join(timeout=1.0)
 
-        # 停止自动开火
         if auto_fire:
             try:
                 if enable_auto_fire:
@@ -610,7 +550,6 @@ def main():
             except Exception as e:
                 utils.log(f"⚠️ 停止自动开火时出错: {e}")
 
-        # 停止捕获进程
         if stop_capture_event:
             stop_capture_event.set()
 
@@ -620,14 +559,15 @@ def main():
                 capture_process.terminate()
                 capture_process.join(timeout=1.0)
 
-        # 关闭鼠标控制器
+        if frame_buffer:
+            frame_buffer.cleanup()
+
         if mouse_controller:
             try:
                 mouse_controller.close()
             except Exception as e:
                 utils.log(f"⚠️ 关闭鼠标控制器时出错: {e}")
 
-        # 卸载驱动
         if use_driver_mode:
             try:
                 unload_driver(delete_service=False)

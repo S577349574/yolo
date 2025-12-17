@@ -1,6 +1,6 @@
 {
     "_comment_许可证配置": "========== 许可证配置 ==========",
-    "LICENSE_KEY": "MapGNvAFoB0rHXpvZJJ4Og",
+    "LICENSE_KEY": "mdqR-ez1Ny32U2Sw_VjNCg",
     "_comment_YOLO 检测": "========== YOLO 检测 ==========",
     "MODEL_PATH": "D:\\yolov8\\320.onnx",
     "CROP_SIZE": 320,
@@ -68,8 +68,8 @@
     "LOG_LEVEL": "INFO",
     "DEBUG_MODE": false,
     "CONFIG_MONITOR_INTERVAL_SEC": 5,
-    "CAPTURE_FPS": 144,
-    "INFERENCE_FPS": 300,
+    "CAPTURE_FPS": 240,
+    "INFERENCE_FPS": 240,
     "_comment_自动开火": "========== 自动开火 ==========",
     "ENABLE_AUTO_FIRE": false,
     "AUTO_FIRE_ACCURACY_THRESHOLD": 0.5,
@@ -107,6 +107,6 @@
     "SCRIPT_SYNC_THRESHOLD_MS": 5.0,
     "SCRIPT_AUTO_ASYNC": true,
     "ENABLED_SCRIPTS": [
-        "test_aim_trigger"
+        "debug_system"
     ]
 }
