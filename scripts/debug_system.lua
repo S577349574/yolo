@@ -1,6 +1,10 @@
 -- scripts/debug_system.lua
 -- 统一的调试系统 - 分级别控制调试信息输出
-
+function getScriptConfig()
+    return {
+        execution_mode = "async",  -- "sync" | "async" | "auto"
+    }
+end
 -- ==================== 调试级别配置 ====================
 local DEBUG_LEVELS = {
     STARTUP = true,        -- 启动信息（初始化、配置加载）
