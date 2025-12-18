@@ -1,19 +1,19 @@
 """
-Lua 脚本 API 实现 - 暴露给脚本的所有接口
+Lua 脚本 API 实现 - 优化版（使用共享状态）
 """
 
 import math
 import time
-
 import win32api
 
 import utils
 from config_manager import get_config, set_config, save_config
 from .rate_limiter import RateLimiter
+from .shared_game_state import get_game_state
 
 
 class ScriptAPI:
-    """脚本 API 管理器"""
+    """脚本 API 管理器（优化版）"""
 
     def __init__(
             self,
@@ -24,16 +24,6 @@ class ScriptAPI:
             screen_capture,
             verbose=False
     ):
-        """
-        初始化 API
-
-        Args:
-            mouse_controller: 鼠标控制器实例
-            auto_fire_controller: 自动开火控制器实例
-            target_selector: 目标选择器实例
-            yolo_detector: YOLO检测器实例
-            screen_capture: 屏幕捕获实例
-        """
         self.verbose = verbose
         self.mouse = mouse_controller
         self.auto_fire = auto_fire_controller
@@ -41,45 +31,27 @@ class ScriptAPI:
         self.yolo = yolo_detector
         self.capture = screen_capture
 
-        self._app_state_getter = None  # 延迟绑定
-        # 速率限制器
-        self.rate_limiter = RateLimiter()
+        # 🔥 核心优化：使用全局游戏状态
+        self.game_state = get_game_state()
 
-        # 屏幕信息缓存
-        self.screen_width = win32api.GetSystemMetrics(0)
-        self.screen_height = win32api.GetSystemMetrics(1)
-        self.center_x = self.screen_width // 2
-        self.center_y = self.screen_height // 2
+        self._app_state_getter = None
+        self.rate_limiter = RateLimiter()
 
         # 启动时间
         self.start_time = time.time()
-
-        # 上一帧时间（用于计算 delta_time）
         self.last_frame_time = time.time()
 
-
     def bind_app_state(self, app_state):
-        """
-        绑定 app_state（可选方法）
-
-        Args:
-            app_state: 主程序的 AppState 实例
-        """
+        """绑定 app_state"""
         self._app_state_getter = lambda: app_state
+
     def create_api_table(self, lua_runtime):
-        """
-        创建完整的 API 表
-
-        Args:
-            lua_runtime: Lua 运行时实例
-
-        Returns:
-            Lua table: API 表对象
-        """
+        """创建完整的 API 表"""
         api = lua_runtime.table()
 
         # 注册各个子模块
         api.target = self._create_target_api(lua_runtime)
+        api.state = self._create_state_api(lua_runtime)  # 🔥 新增：游戏状态 API
         api.config = self._create_config_api(lua_runtime)
         api.mouse = self._create_mouse_api(lua_runtime)
         api.input = self._create_input_api(lua_runtime)
@@ -88,135 +60,160 @@ class ScriptAPI:
         api.log = self._create_log_api(lua_runtime)
         api.utils = self._create_utils_api(lua_runtime)
 
-        def get_length(obj):
-            """获取 Python 对象的长度"""
-            try:
-                return len(obj)
-            except:
-                return 0
+        # 辅助函数
+        api["getLength"] = lambda obj: len(obj) if hasattr(obj, '__len__') else 0
+        api["len"] = api["getLength"]
 
-        api["getLength"] = get_length
-
-        # 或者更通用的名称
-        api["len"] = get_length
         return api
 
-    # ==================== 目标信息 API ====================
+    # ==================== 🔥 新增：游戏状态 API ====================
 
-    """
-    优化后的目标信息 API - 使用 Python 对象代理
-    """
+    def _create_state_api(self, lua):
+        """创建游戏状态 API（零拷贝访问）"""
+        state = lua.table()
+
+        # ========== 目标信息 ==========
+        def get_targets():
+            """获取所有目标（返回 Lua table 数组）"""
+            targets = []
+            for t in self.game_state.targets:
+                target = lua.table()
+                target.x = int(t.x)
+                target.y = int(t.y)
+                target.width = int(t.width)
+                target.height = int(t.height)
+                target.confidence = float(t.confidence)
+                target.class_id = int(t.class_id)
+                target.class_name = str(t.class_name)
+                target.distance = float(t.distance)
+                target.aim_x = int(t.aim_x)
+                target.aim_y = int(t.aim_y)
+                target.is_locked = bool(t.is_locked)
+                target.lock_frames = int(t.lock_frames)
+                targets.append(target)
+            return targets
+
+        def get_best_target():
+            """获取最佳目标"""
+            if self.game_state.best_target:
+                t = self.game_state.best_target
+                target = lua.table()
+                target.x = int(t.x)
+                target.y = int(t.y)
+                target.is_locked = bool(t.is_locked)
+                target.lock_frames = int(t.lock_frames)
+                return target
+            return None
+
+        def get_target_count():
+            """获取目标数量"""
+            return self.game_state.get_target_count()
+
+        # ========== 状态标志 ==========
+        def is_aiming():
+            """是否正在瞄准"""
+            return self.game_state.is_aiming
+
+        def is_firing():
+            """是否正在开火"""
+            return self.game_state.is_firing
+
+        def is_locked():
+            """是否锁定目标"""
+            return self.game_state.is_locked
+
+        def get_lock_frames():
+            """获取锁定帧数"""
+            return self.game_state.lock_frames
+
+        # ========== 性能数据 ==========
+        def get_fps():
+            """获取当前 FPS"""
+            return self.game_state.current_fps
+
+        def get_delta_time():
+            """获取帧间隔（秒）"""
+            return self.game_state.delta_time
+
+        def get_frame_count():
+            """获取总帧数"""
+            return self.game_state.frame_count
+
+        # ========== 压枪数据 ==========
+        def get_recoil_stats():
+            """获取压枪统计"""
+            stats = lua.table()
+            stats.active = self.game_state.recoil_active
+            stats.offset_x = self.game_state.total_offset_x
+            stats.offset_y = self.game_state.total_offset_y
+            stats.shot_count = self.game_state.shot_count
+            return stats
+
+        # ========== 屏幕信息 ==========
+        def get_screen_size():
+            """获取屏幕尺寸"""
+            return (self.game_state.screen_width, self.game_state.screen_height)
+
+        def get_screen_center():
+            """获取屏幕中心"""
+            return (self.game_state.center_x, self.game_state.center_y)
+
+        # ========== 完整状态快照 ==========
+        def get_full_state():
+            """获取完整游戏状态（一次性读取所有数据）"""
+            full = lua.table()
+            full.target_count = get_target_count()
+            full.fps = get_fps()
+            full.delta_time = get_delta_time()
+            full.frame_count = get_frame_count()
+            full.is_aiming = is_aiming()
+            full.is_firing = is_firing()
+            full.is_locked = is_locked()
+            full.lock_frames = get_lock_frames()
+            return full
+
+        # 注册函数
+        state.get_targets = get_targets
+        state.get_best_target = get_best_target
+        state.get_target_count = get_target_count
+        state.is_aiming = is_aiming
+        state.is_firing = is_firing
+        state.is_locked = is_locked
+        state.get_lock_frames = get_lock_frames
+        state.get_fps = get_fps
+        state.get_delta_time = get_delta_time
+        state.get_frame_count = get_frame_count
+        state.get_recoil_stats = get_recoil_stats
+        state.get_screen_size = get_screen_size
+        state.get_screen_center = get_screen_center
+        state.get_full_state = get_full_state
+
+        return state
+
+    # ==================== 目标信息 API（兼容旧版） ====================
 
     def _create_target_api(self, lua):
-        """创建 target API（优化版本）"""
+        """创建 target API（保留兼容性）"""
         target = lua.table()
 
-        # ==================== 方案 1：直接返回 Python 对象 ====================
-        def get_all():
-            """
-            返回所有目标（零拷贝）
+        # 重定向到新 API
+        target.get_all = lambda: self._create_state_api(lua).get_targets()
+        target.get_locked = lambda: self._create_state_api(lua).get_best_target()
+        target.is_locked = lambda: self.game_state.is_locked
+        target.get_lock_frames = lambda: self.game_state.lock_frames
+        target.get_count = lambda: self.game_state.get_target_count()
 
-            Returns:
-                Python list: 目标列表（Lua 可直接访问）
-            """
-            if not hasattr(self.target_selector, 'last_targets'):
-                return []
+        def get_distance():
+            if self.game_state.best_target:
+                return self.game_state.best_target.distance
+            return float('inf')
 
-            # 直接返回 Python 列表，无需转换
-            return self.target_selector.last_targets
+        target.get_distance = get_distance
 
-        def get_locked():
-            """
-            返回锁定目标（零拷贝）
+        def has_class(class_id):
+            return any(t.class_id == class_id for t in self.game_state.targets)
 
-            Returns:
-                Python object or None: 当前锁定的目标
-            """
-            if not hasattr(self.target_selector, 'current_target'):
-                return None
-
-            # 直接返回 Python 对象
-            return self.target_selector.current_target
-
-        # ==================== 辅助函数（Lua 友好） ====================
-
-        def to_lua_table(python_target):
-            """
-            将 Python 目标对象转换为 Lua table（按需转换）
-
-            Args:
-                python_target: Python 目标对象
-
-            Returns:
-                Lua table: 转换后的表
-            """
-            if python_target is None:
-                return None
-
-            lua_target = lua.table()
-            lua_target.x = int(python_target.x)
-            lua_target.y = int(python_target.y)
-            lua_target.width = int(python_target.width)
-            lua_target.height = int(python_target.height)
-            lua_target.class_id = int(python_target.class_id)
-            lua_target.class_name = str(python_target.class_name)
-            lua_target.confidence = float(python_target.confidence)
-            lua_target.locked = bool(python_target.is_locked)
-            lua_target.lock_frames = int(python_target.lock_frames)
-            lua_target.distance = float(python_target.distance_to_crosshair)
-            lua_target.aim_x = int(python_target.aim_x)
-            lua_target.aim_y = int(python_target.aim_y)
-
-            return lua_target
-
-        def to_lua_array(python_targets):
-            """
-            批量转换为 Lua table 数组（按需）
-
-            Args:
-                python_targets: Python 列表
-
-            Returns:
-                Lua table: 数组表
-            """
-            lua_array = lua.table()
-            for i, t in enumerate(python_targets, start=1):
-                lua_array[i] = to_lua_table(t)
-            return lua_array
-
-        # ==================== 注册函数 ====================
-
-        target.get_all = get_all
-        target.get_locked = get_locked
-        target.to_lua_table = to_lua_table
-        target.to_lua_array = to_lua_array
-
-        # 保留其他函数
-        target.is_locked = lambda: bool(
-            hasattr(self.target_selector, 'current_target') and
-            self.target_selector.current_target is not None
-        )
-        target.get_lock_frames = lambda: int(
-            self.target_selector.current_target.lock_frames
-            if hasattr(self.target_selector, 'current_target') and
-               self.target_selector.current_target
-            else 0
-        )
-        target.get_distance = lambda: float(
-            self.target_selector.current_target.distance_to_crosshair
-            if hasattr(self.target_selector, 'current_target') and
-               self.target_selector.current_target
-            else float('inf')
-        )
-        target.get_count = lambda: int(
-            len(self.target_selector.last_targets)
-            if hasattr(self.target_selector, 'last_targets')
-            else 0
-        )
-        target.has_class = lambda class_id: any(
-            t.class_id == class_id
-            for t in getattr(self.target_selector, 'last_targets', [])
-        )
+        target.has_class = has_class
 
         return target
 
@@ -226,15 +223,12 @@ class ScriptAPI:
         """创建 config API"""
         config_api = lua.table()
 
-        # 读取配置
         def config_get(key, default=None):
             return get_config(key, default)
 
-        # 写入配置（带速率限制）
         def config_set(key, value):
             if not self.rate_limiter.check("config_write"):
                 return False
-
             try:
                 set_config(key, value)
                 return True
@@ -242,16 +236,12 @@ class ScriptAPI:
                 utils.log(f"[ScriptAPI] 配置写入失败: {key} = {value}, 错误: {e}")
                 return False
 
-        # 批量设置
         def config_set_batch(lua_table):
             if not self.rate_limiter.check("config_batch"):
                 return False
-
-            # 转换 Lua table 为 Python dict
             config_dict = {}
             for key in lua_table:
                 config_dict[key] = lua_table[key]
-
             try:
                 for key, value in config_dict.items():
                     set_config(key, value)
@@ -274,19 +264,16 @@ class ScriptAPI:
         """创建 mouse API"""
         mouse_api = lua.table()
 
-        # 相对移动
         def move_relative(dx, dy):
             if not self.rate_limiter.check("mouse_move"):
                 return False
             return self.mouse.move_relative(int(dx), int(dy))
 
-        # 移动到目标
         def move_to(x, y, delay_ms=None):
             if not self.rate_limiter.check("mouse_move"):
                 return False
             return self.mouse.move_to_target(int(x), int(y), delay_ms)
 
-        # 瞬移
         def move_instant(x, y):
             if not self.rate_limiter.check("mouse_move"):
                 return False
@@ -294,21 +281,17 @@ class ScriptAPI:
                 return self.mouse.move_to_target_instant(int(x), int(y))
             return False
 
-        # 点击
         def click(button="left", delay_ms=50):
             if not self.rate_limiter.check("mouse_click"):
                 return False
-
             button_map = {
                 "left": self.mouse.BUTTON_LEFT_DOWN,
                 "right": self.mouse.BUTTON_RIGHT_DOWN,
                 "middle": self.mouse.BUTTON_MIDDLE_DOWN
             }
-
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_DOWN)
             return self.mouse.click(button_flag, int(delay_ms))
 
-        # 按下/释放
         def mouse_down(button="left"):
             button_map = {
                 "left": self.mouse.BUTTON_LEFT_DOWN,
@@ -344,51 +327,37 @@ class ScriptAPI:
     def _create_input_api(self, lua):
         """创建 input API"""
         input_api = lua.table()
+
         KEY_MAP = {
             "shift": 0x10, "ctrl": 0x11, "alt": 0x12,
             "space": 0x20, "enter": 0x0D, "esc": 0x1B, "tab": 0x09,
             "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44,
             "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
-            "f1": 0x70, "f2": 0x71  # 可按需扩充
+            "f1": 0x70, "f2": 0x71
         }
+
         def _get_vk(key):
-            """获取虚拟键码"""
-            if isinstance(key, int): return key
+            if isinstance(key, int):
+                return key
             return KEY_MAP.get(str(key).lower(), 0)
-        # 鼠标按钮状态
+
         def is_mouse_down(button="left"):
-            button_map = {
-                "left": 0x01,
-                "right": 0x02,
-                "middle": 0x04
-            }
+            button_map = {"left": 0x01, "right": 0x02, "middle": 0x04}
             vk_code = button_map.get(button, 0x01)
             return win32api.GetKeyState(vk_code) < 0
 
-        # 键盘按键状态
         def is_key_down(key):
-            # 支持虚拟键码或名称
             if isinstance(key, str):
-                key_map = {
-                    "ctrl": 0x11,
-                    "shift": 0x10,
-                    "alt": 0x12,
-                    "space": 0x20,
-                    "enter": 0x0D,
-                    "esc": 0x1B,
-                    "tab": 0x09
-                }
-                vk_code = key_map.get(key.lower(), 0)
+                vk_code = _get_vk(key)
                 if vk_code == 0:
                     return False
             else:
                 vk_code = int(key)
-
             return win32api.GetKeyState(vk_code) < 0
+
         def key_down(key):
             vk = _get_vk(key)
             if vk and self.rate_limiter.check("input_key"):
-                # 0 = KeyDown
                 win32api.keybd_event(vk, 0, 0, 0)
                 return True
             return False
@@ -396,14 +365,12 @@ class ScriptAPI:
         def key_up(key):
             vk = _get_vk(key)
             if vk and self.rate_limiter.check("input_key"):
-                # 2 = KeyUp (KEYEVENTF_KEYUP)
                 win32api.keybd_event(vk, 0, 2, 0)
                 return True
             return False
+
         def key_press(key, delay_ms=50):
             if key_down(key):
-                # 注意：由于这是阻塞的 sleep，建议在 Lua 协程或非阻塞逻辑中使用
-                # 这里简单实现，可能会轻微卡顿主线程
                 time.sleep(delay_ms / 1000.0)
                 key_up(key)
                 return True
@@ -412,10 +379,8 @@ class ScriptAPI:
         def get_app_state():
             if self._app_state_getter:
                 return self._app_state_getter()
-            # 如果未绑定，返回默认值（防御性编程）
             return None
 
-        # ⭐ 新增接口
         def is_aim_active():
             state = get_app_state()
             return state.is_mouse_active() if state else False
@@ -445,21 +410,8 @@ class ScriptAPI:
         """创建 recoil API"""
         recoil_api = lua.table()
 
-        recoil_api.is_active = lambda: self.auto_fire.is_recoil_active()
-
-        def get_stats():
-            stats = lua.table()
-            stats.total_offset_x = float(self.auto_fire.total_offset_x)
-            stats.total_offset_y = float(self.auto_fire.total_offset_y)
-            stats.shot_count = int(self.auto_fire.shot_count)
-            stats.fire_duration = float(
-                time.time() - self.auto_fire.fire_start_time
-                if self.auto_fire.is_firing
-                else 0
-            )
-            return stats
-
-        recoil_api.get_stats = get_stats
+        recoil_api.is_active = lambda: self.game_state.recoil_active
+        recoil_api.get_stats = lambda: self._create_state_api(lua).get_recoil_stats()
         recoil_api.reset = lambda: self.auto_fire._reset_recoil_state()
 
         return recoil_api
@@ -470,23 +422,17 @@ class ScriptAPI:
         """创建 system API"""
         system_api = lua.table()
 
-        # 时间相关
         system_api.time = lambda: time.time()
-
-        def delta_time():
-            current_time = time.time()
-            delta = current_time - self.last_frame_time
-            self.last_frame_time = current_time
-            return delta
-
-        system_api.delta_time = delta_time
+        system_api.delta_time = lambda: self.game_state.delta_time
         system_api.uptime = lambda: time.time() - self.start_time
-
-        # 屏幕信息（缓存）
-        system_api.get_screen_size = lambda: (self.screen_width, self.screen_height)
-        system_api.get_screen_center = lambda: (self.center_x, self.center_y)
-
-        # 性能统计
+        system_api.get_screen_size = lambda: (
+            self.game_state.screen_width,
+            self.game_state.screen_height
+        )
+        system_api.get_screen_center = lambda: (
+            self.game_state.center_x,
+            self.game_state.center_y
+        )
         system_api.get_capture_fps = lambda: float(
             self.capture.fps if hasattr(self.capture, 'fps') else 0
         )
@@ -508,7 +454,7 @@ class ScriptAPI:
             message = " ".join(str(arg) for arg in args)
             utils.log(f"[Script] {message}")
 
-        log_api.__call = log_output  # 支持 api.log(...) 调用
+        log_api.__call = log_output
         log_api.info = lambda *args: log_output("ℹ️", *args)
         log_api.warning = lambda *args: log_output("⚠️", *args)
         log_api.error = lambda *args: log_output("❌", *args)
@@ -525,7 +471,6 @@ class ScriptAPI:
         """创建 utils API"""
         utils_api = lua.table()
 
-        # 数学工具
         utils_api.distance = lambda x1, y1, x2, y2: math.sqrt(
             (x2 - x1) ** 2 + (y2 - y1) ** 2
         )
