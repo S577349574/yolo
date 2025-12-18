@@ -1,5 +1,6 @@
 """
-异步脚本执行器 - 支持同步/异步双模式
+异步脚本执行器 - 严格模式版
+(移除自动切换逻辑，完全尊重 Lua 开发者的配置)
 """
 
 import time
@@ -14,14 +15,12 @@ import utils
 
 class ExecutionMode(Enum):
     """执行模式"""
-    SYNC = "sync"  # 同步（主线程）
-    ASYNC = "async"  # 异步（线程池）
-    AUTO = "auto"  # 自动（根据耗时切换）
+    SYNC = "sync"    # 同步：阻塞主线程，保证时序（默认）
+    ASYNC = "async"  # 异步：丢入线程池，不阻塞，用于耗时操作
 
 
 class AsyncTask:
-    """异步任务"""
-
+    """任务封装"""
     def __init__(self, script_name: str, event_name: str, callback: Callable, args: tuple):
         self.script_name = script_name
         self.event_name = event_name
@@ -35,104 +34,70 @@ class AsyncTask:
 
     @property
     def execution_time(self) -> float:
-        """执行时间（秒）"""
         if self.end_time > 0:
             return self.end_time - self.start_time
         return 0
 
 
 class AsyncScriptExecutor:
-    """异步脚本执行器"""
+    """脚本执行器"""
 
     def __init__(self,
                  max_workers: int = 4,
-                 sync_threshold_ms: float = 5.0,
-                 auto_switch_enabled: bool = True,
-                 verbose: bool = False):  # ⭐ 新增参数
+                 verbose: bool = False):
         """
-        初始化执行器
-
         Args:
-            max_workers: 最大工作线程数
-            sync_threshold_ms: 同步执行阈值（超过此时间自动切换到异步）
-            auto_switch_enabled: 是否启用自动切换
+            max_workers: 异步线程池大小
+            verbose: 是否输出详细日志
         """
         self.max_workers = max_workers
-        self.sync_threshold_ms = sync_threshold_ms
-        self.auto_switch_enabled = auto_switch_enabled
-        self.verbose = verbose  # ⭐ 保存配置
+        self.verbose = verbose
 
         # 任务队列
         self.task_queue = Queue()
-
-        # 工作线程池
         self.workers = []
         self.running = False
 
         # 性能统计
         self.stats_lock = Lock()
-        self.execution_stats: Dict[str, Dict] = {}  # {script_name: {event_name: stats}}
+        self.execution_stats: Dict[str, Dict] = {}
 
-        # 模式配置
-        self.script_modes: Dict[str, ExecutionMode] = {}  # {script_name: mode}
+        # ⚠️ 性能警告阈值 (仅记录日志，不改变行为)
+        self.warn_threshold_ms = 10.0
 
-        # ⭐ 只在详细模式下输出初始化日志
+        # 模式配置 {script_name: ExecutionMode}
+        self.script_modes: Dict[str, ExecutionMode] = {}
+
         if self.verbose:
-            utils.log("[AsyncExecutor] 异步执行器已初始化")
-            utils.log(f"  工作线程数: {max_workers}")
-            utils.log(f"  同步阈值: {sync_threshold_ms}ms")
-            utils.log(f"  自动切换: {'启用' if auto_switch_enabled else '禁用'}")
+            utils.log("[AsyncExecutor] 执行器已初始化 (严格模式)")
 
     def start(self):
-        """启动工作线程池"""
-        if self.running:
-            return
-
+        """启动后台线程"""
+        if self.running: return
         self.running = True
-
         for i in range(self.max_workers):
-            worker = Thread(
-                target=self._worker_loop,
-                name=f"ScriptWorker-{i}",
-                daemon=True
-            )
+            worker = Thread(target=self._worker_loop, name=f"ScriptWorker-{i}", daemon=True)
             worker.start()
             self.workers.append(worker)
 
-        if self.verbose:
-            utils.log(f"[AsyncExecutor] ✅ 已启动 {self.max_workers} 个工作线程")
-
     def stop(self):
-        """停止所有工作线程"""
-        if not self.running:
-            return
-
-        if self.verbose:
-            utils.log("[AsyncExecutor] 正在停止工作线程...")
+        """停止"""
         self.running = False
-
-        # 等待所有任务完成
         self.task_queue.join()
-
-        # 停止所有工作线程
         for worker in self.workers:
             if worker.is_alive():
                 worker.join(timeout=1.0)
-
         self.workers.clear()
-        if self.verbose:
-            utils.log("[AsyncExecutor] ✅ 所有工作线程已停止")
-    def set_script_mode(self, script_name: str, mode: ExecutionMode):
-        """
-        设置脚本执行模式
 
-        Args:
-            script_name: 脚本名称
-            mode: 执行模式
-        """
+    def set_script_mode(self, script_name: str, mode: ExecutionMode):
+        """设置脚本模式 (由 Lua 配置决定)"""
+        # 如果配置为 AUTO，在这个版本中我们将其视为 SYNC（为了安全）
+        if mode == "auto":
+             mode = ExecutionMode.SYNC
+
         self.script_modes[script_name] = mode
         if self.verbose:
-            utils.log(f"[AsyncExecutor] 设置 {script_name} 执行模式: {mode.value}")
+            utils.log(f"[AsyncExecutor] 脚本 {script_name} 模式设置为: {mode.value}")
 
     def execute(self,
                 script_name: str,
@@ -141,37 +106,21 @@ class AsyncScriptExecutor:
                 args: tuple = (),
                 force_mode: Optional[ExecutionMode] = None) -> Optional[Any]:
         """
-        执行脚本事件（智能选择同步/异步）
-
-        Args:
-            script_name: 脚本名称
-            event_name: 事件名称
-            callback: 回调函数
-            args: 参数
-            force_mode: 强制执行模式
-
-        Returns:
-            同步执行时返回结果，异步执行时返回 None
+        执行脚本
+        严格遵循配置模式，不进行动态切换。
         """
-        # 确定执行模式
-        mode = force_mode or self.script_modes.get(script_name, ExecutionMode.AUTO)
+        # 1. 获取模式 (默认为 SYNC，保证安全)
+        mode = force_mode or self.script_modes.get(script_name, ExecutionMode.SYNC)
 
+        # 2. 根据模式执行
         if mode == ExecutionMode.SYNC:
             return self._execute_sync(script_name, event_name, callback, args)
-
-        elif mode == ExecutionMode.ASYNC:
+        else:
             self._execute_async(script_name, event_name, callback, args)
             return None
 
-        else:  # AUTO
-            return self._execute_auto(script_name, event_name, callback, args)
-
-    def _execute_sync(self,
-                      script_name: str,
-                      event_name: str,
-                      callback: Callable,
-                      args: tuple) -> Any:
-        """同步执行（主线程）"""
+    def _execute_sync(self, script_name: str, event_name: str, callback: Callable, args: tuple) -> Any:
+        """同步执行"""
         task = AsyncTask(script_name, event_name, callback, args)
         task.start_time = time.perf_counter()
 
@@ -179,46 +128,26 @@ class AsyncScriptExecutor:
             task.result = callback(*args)
         except Exception as e:
             task.error = e
-            utils.log(f"[AsyncExecutor] ❌ {script_name}.{event_name} 执行失败: {e}")
+            utils.log(f"[ScriptError] {script_name}.{event_name}: {e}")
+            traceback.print_exc()
         finally:
             task.end_time = time.perf_counter()
-            task.completed = True
             self._update_stats(task)
+
+            # ⚠️ 性能警告：只警告，不干预
+            exec_ms = task.execution_time * 1000
+            if exec_ms > self.warn_threshold_ms and self.verbose:
+                utils.log(f"⚠️ [性能警告] {script_name}.{event_name} 耗时 {exec_ms:.2f}ms (可能导致掉帧)")
 
         return task.result
 
-    def _execute_async(self,
-                       script_name: str,
-                       event_name: str,
-                       callback: Callable,
-                       args: tuple):
-        """异步执行（工作线程）"""
+    def _execute_async(self, script_name: str, event_name: str, callback: Callable, args: tuple):
+        """异步执行"""
         task = AsyncTask(script_name, event_name, callback, args)
         self.task_queue.put(task)
 
-    def _execute_auto(self,
-                      script_name: str,
-                      event_name: str,
-                      callback: Callable,
-                      args: tuple) -> Optional[Any]:
-        """自动选择执行模式"""
-        if not self.auto_switch_enabled:
-            return self._execute_sync(script_name, event_name, callback, args)
-
-        # 获取历史统计
-        avg_time = self._get_average_execution_time(script_name, event_name)
-
-        # 根据历史耗时选择模式
-        if avg_time > self.sync_threshold_ms / 1000.0:
-            # 超过阈值，使用异步
-            self._execute_async(script_name, event_name, callback, args)
-            return None
-        else:
-            # 未超过阈值，使用同步
-            return self._execute_sync(script_name, event_name, callback, args)
-
     def _worker_loop(self):
-        """工作线程主循环"""
+        """后台线程循环"""
         while self.running:
             try:
                 task = self.task_queue.get(timeout=0.1)
@@ -226,80 +155,36 @@ class AsyncScriptExecutor:
                 continue
 
             task.start_time = time.perf_counter()
-
             try:
-                task.result = task.callback(*task.args)
+                task.callback(*task.args)
             except Exception as e:
-                task.error = e
-                utils.log(f"[AsyncExecutor] ❌ {task.script_name}.{task.event_name} 执行失败: {e}")
+                utils.log(f"[AsyncError] {task.script_name}.{task.event_name}: {e}")
                 traceback.print_exc()
             finally:
                 task.end_time = time.perf_counter()
-                task.completed = True
                 self._update_stats(task)
                 self.task_queue.task_done()
 
     def _update_stats(self, task: AsyncTask):
-        """更新性能统计"""
+        """仅用于统计显示，不再影响逻辑"""
         with self.stats_lock:
             if task.script_name not in self.execution_stats:
                 self.execution_stats[task.script_name] = {}
-
             if task.event_name not in self.execution_stats[task.script_name]:
                 self.execution_stats[task.script_name][task.event_name] = {
-                    'total_calls': 0,
-                    'total_time': 0.0,
-                    'max_time': 0.0,
-                    'min_time': float('inf'),
-                    'errors': 0,
-                    'recent_times': []  # 保留最近 100 次
+                    'total_calls': 0, 'total_time': 0.0, 'max_time': 0.0, 'errors': 0
                 }
 
             stats = self.execution_stats[task.script_name][task.event_name]
-            exec_time = task.execution_time
-
+            time_spent = task.execution_time
             stats['total_calls'] += 1
-            stats['total_time'] += exec_time
-            stats['max_time'] = max(stats['max_time'], exec_time)
-            stats['min_time'] = min(stats['min_time'], exec_time)
-
-            if task.error:
-                stats['errors'] += 1
-
-            stats['recent_times'].append(exec_time)
-            if len(stats['recent_times']) > 100:
-                stats['recent_times'].pop(0)
-
-    def _get_average_execution_time(self, script_name: str, event_name: str) -> float:
-        """获取平均执行时间（秒）"""
-        with self.stats_lock:
-            if script_name not in self.execution_stats:
-                return 0.0
-
-            if event_name not in self.execution_stats[script_name]:
-                return 0.0
-
-            stats = self.execution_stats[script_name][event_name]
-            recent_times = stats['recent_times']
-
-            if not recent_times:
-                return 0.0
-
-            return sum(recent_times) / len(recent_times)
+            stats['total_time'] += time_spent
+            stats['max_time'] = max(stats['max_time'], time_spent)
+            if task.error: stats['errors'] += 1
 
     def get_stats(self, script_name: Optional[str] = None) -> Dict:
-        """
-        获取性能统计
-
-        Args:
-            script_name: 脚本名称（None = 所有脚本）
-        """
         with self.stats_lock:
-            if script_name:
-                return self.execution_stats.get(script_name, {})
-            else:
-                return self.execution_stats.copy()
-
+            return self.execution_stats.get(script_name, {}) if script_name else self.execution_stats.copy()
     def print_stats(self):
         """打印性能统计（优化格式）"""
         with self.stats_lock:
