@@ -14,8 +14,9 @@ from config_manager import get_config
 class AutoFireController:
     """自动开火控制器（含压枪功能 - 需要目标确认才触发）"""
 
-    def __init__(self, mouse_controller):
+    def __init__(self, mouse_controller, key_monitor=None):
         self.mouse_controller = mouse_controller
+        self.key_monitor = key_monitor  # ⭐ 保存引用
 
         # 状态锁
         self._lock = threading.Lock()
@@ -293,6 +294,13 @@ class AutoFireController:
         target_desc = " + 需要目标" if require_target else ""
         utils.log(f"🎯 手动压枪模式：{mode_desc}{target_desc}")
 
+        # ⭐ 检查是否有有效的 key_monitor
+        if not self.key_monitor:
+            utils.log("⚠️ 未提供 key_monitor，降级使用 WinAPI 监听")
+            use_key_monitor = False
+        else:
+            utils.log(f"✅ 使用 {type(self.key_monitor).__name__} 进行按键监听")
+            use_key_monitor = True
         last_trigger_state = False
         last_recoil_active = False  # 用于检测压枪状态变化
 
@@ -309,10 +317,18 @@ class AutoFireController:
 
         try:
             while not self.manual_recoil_stop_flag:
-                # 检测按键状态
-                left_pressed = win32api.GetKeyState(0x01) < 0
-                right_pressed = win32api.GetKeyState(0x02) < 0
+                # ⭐ 统一按键检测接口
+                if use_key_monitor:
+                    # 使用 key_monitor（支持硬件/软件）
+                    left_pressed = self.key_monitor.is_key_pressed('left')
+                    right_pressed = self.key_monitor.is_key_pressed('right')
+                else:
+                    # 降级使用 WinAPI（兜底）
+                    import win32api
+                    left_pressed = win32api.GetKeyState(0x01) < 0
+                    right_pressed = win32api.GetKeyState(0x02) < 0
 
+                # 判断触发条件
                 if trigger_mode == 'left_only':
                     button_condition = left_pressed
                 elif trigger_mode == 'both_buttons':
@@ -336,6 +352,8 @@ class AutoFireController:
                     manual_shot_count = 0
                     recoil_paused_logged = False
 
+                    if self.debug_mode:
+                        utils.log("🔫 开始手动压枪")
 
                 elif not should_recoil and last_recoil_active:
                     # 停止压枪
@@ -343,9 +361,6 @@ class AutoFireController:
                     fire_duration = time.time() - manual_fire_start_time
 
                     if fire_duration > 0.1:  # 只记录有效压枪
-                        actual_speed_x = manual_total_offset_x / fire_duration if fire_duration > 0 else 0
-                        actual_speed_y = manual_total_offset_y / fire_duration if fire_duration > 0 else 0
-
                         # 判断停止原因
                         if not button_condition:
                             reason = "按键释放"
@@ -353,6 +368,14 @@ class AutoFireController:
                             reason = "目标丢失"
                         else:
                             reason = "条件不满足"
+
+                        if self.debug_mode:
+                            utils.log(
+                                f"⏹ 停止压枪 ({reason}) | 持续: {fire_duration:.2f}s | "
+                                f"子弹: {manual_shot_count} | "
+                                f"累积: X={manual_total_offset_x:+.1f}px Y={manual_total_offset_y:+.1f}px"
+                            )
+
                     recoil_paused_logged = False
 
                 # ⭐ 按键按下但目标丢失的情况
@@ -402,6 +425,8 @@ class AutoFireController:
 
         except Exception as e:
             utils.log(f"❌ 手动压枪监控线程错误: {e}")
+            import traceback
+            traceback.print_exc()
 
     # ==================== 压枪计算方法（通用）====================
 

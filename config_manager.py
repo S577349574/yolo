@@ -60,10 +60,32 @@ class ConfigManager:
         return {
             # 许可证
             "LICENSE_KEY": "",
+            # ========== 图像源配置（新增）==========
+            "IMAGE_SOURCE_TYPE": "local",  # 可选: 'local' 或 'network'
+            # ========== 预览窗口配置 ==========
+            "ENABLE_PREVIEW_WINDOW": False,
+            "PREVIEW_WINDOW_WIDTH": 800,
+            "PREVIEW_WINDOW_HEIGHT": 800,
+            "PREVIEW_FRAME_SKIP":0,
 
+            # ⭐ 新增：可视化选项
+            "PREVIEW_SHOW_BOXES": True,  # 显示检测框
+            "PREVIEW_SHOW_LABELS": True,  # 显示类别标签
+            "PREVIEW_SHOW_CONFIDENCE": True,  # 显示置信度
+            "PREVIEW_SHOW_FPS": True,  # 显示FPS
+            "PREVIEW_SHOW_CROSSHAIR": True,  # 显示准心十字线
+            "PREVIEW_SHOW_AIM_POINT": True,  # 显示瞄准点
+            "PREVIEW_BOX_THICKNESS": 2,  # 检测框线宽
+            "PREVIEW_TEXT_SCALE": 0.5,  # 文字大小
+            # 网络画面接收
+            "FRAME_PORT": 27015,
+            "FRAME_WIDTH": 256,
+            "FRAME_HEIGHT": 256,
+            "FRAME_CHANNELS": 3,
+            "CROP_SIZE": 320,
+            "USE_LZ4": True,
             # YOLO 检测
             "MODEL_PATH": "320.onnx",
-            "CROP_SIZE": 320,
             "CONF_THRESHOLD": 0.60,
             "IOU_THRESHOLD": 0.45,
             "TARGET_CLASS_IDS": [1, 0],
@@ -114,6 +136,10 @@ class ConfigManager:
             "DEFAULT_DELAY_MS_PER_STEP": 1,
 
             # 鼠标控制
+            "USE_MAKCU": False,  # [新增] 是否启用 Makcu 硬件模式
+            "MAKCU_PORT": "",  # [新增] 指定COM口，留空自动搜索 (例如 "COM3")
+            "MAKCU_AUTO_RECONNECT": True,  # [新增] 是否开启断线自动重连
+
             "USE_DRIVER_MODE": False,
             "MOUSE_MODE_AUTO_FALLBACK": True,
             "MAX_MICKEY": 500,
@@ -140,6 +166,7 @@ class ConfigManager:
             "ENABLE_LOGGING": True,
             "LOG_LEVEL": "INFO",
             "DEBUG_MODE": False,
+            "MAKCU_DEBUG_MODE": False,
             "CONFIG_MONITOR_INTERVAL_SEC": 5,
             "CAPTURE_FPS": 144,
             "INFERENCE_FPS": 300,
@@ -190,6 +217,13 @@ class ConfigManager:
 
         # 数值范围验证规则（格式：key: (min, max, type, default)）
         validation_rules = {
+        # ========== 图像源参数（新增）==========
+            "PREVIEW_BOX_THICKNESS": (1, 5, int, 2),
+            "PREVIEW_TEXT_SCALE": (0.3, 1.5, float, 0.5),
+            "FRAME_PORT": (1024, 65535, int, 27015),
+            "FRAME_WIDTH": (64, 1920, int, 256),
+            "FRAME_HEIGHT": (64, 1080, int, 256),
+            "FRAME_CHANNELS": (3, 4, int, 3),
             # YOLO 检测
             "CROP_SIZE": (64, 1280, int, 320),
             "CONF_THRESHOLD": (0.1, 0.99, float, 0.60),
@@ -279,6 +313,8 @@ class ConfigManager:
             c[key] = v
 
         # 枚举值验证
+        if c.get("IMAGE_SOURCE_TYPE") not in ["local", "network"]:
+            c["IMAGE_SOURCE_TYPE"] = "local"
         if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
             c["MANUAL_RECOIL_TRIGGER_MODE"] = "both_buttons"
         if c.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
@@ -300,8 +336,18 @@ class ConfigManager:
 
         # 布尔值验证（批量处理）
         bool_keys = [
+            "ENABLE_PREVIEW_WINDOW",
+            "PREVIEW_SHOW_BOXES",
+            "PREVIEW_SHOW_LABELS",
+            "PREVIEW_SHOW_CONFIDENCE",
+            "PREVIEW_SHOW_FPS",
+            "PREVIEW_SHOW_CROSSHAIR",
+            "PREVIEW_SHOW_AIM_POINT",
+            "USE_LZ4",  # ⭐ 新增
+            "USE_MAKCU",
+            "MAKCU_AUTO_RECONNECT",
             "ENABLE_HEAD_PRIORITY", "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-            "ENABLE_LOGGING", "DEBUG_MODE", "ENABLE_AUTO_FIRE", "AUTO_FIRE_DEBUG_MODE",
+            "ENABLE_LOGGING", "DEBUG_MODE","MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE", "AUTO_FIRE_DEBUG_MODE",
             "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL", "USE_DRIVER_MODE",
             "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
             "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET", "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE"
@@ -419,8 +465,22 @@ class ConfigManager:
 
         # 配置分组（按功能划分）
         groups = {
+
             "许可证配置": ["LICENSE_KEY"],
-            "YOLO 检测": ["MODEL_PATH", "CROP_SIZE", "CONF_THRESHOLD", "IOU_THRESHOLD",
+            "图像源配置": [
+                "IMAGE_SOURCE_TYPE",
+                "CROP_SIZE",
+                "FRAME_PORT",
+                "FRAME_WIDTH",
+                "FRAME_HEIGHT",
+                "FRAME_CHANNELS",
+                "USE_LZ4",
+                "PREVIEW_FRAME_SKIP",
+                "ENABLE_PREVIEW_WINDOW",  # ⭐ 新增
+                "PREVIEW_WINDOW_WIDTH",
+                "PREVIEW_WINDOW_HEIGHT"
+            ],
+            "YOLO 检测": ["MODEL_PATH",  "CONF_THRESHOLD", "IOU_THRESHOLD",
                          "TARGET_CLASS_IDS", "TARGET_CLASS_NAMES", "ENABLE_HEAD_PRIORITY",
                          "HEAD_CLASS_ID", "HEAD_PRIORITY_BONUS"],
             "瞄准点配置": ["AIM_Y_RATIO", "AIM_X_OFFSET"],
@@ -434,15 +494,30 @@ class ConfigManager:
             "预判瞄准": ["ENABLE_LEAD_TARGET", "LEAD_FRAMES"],
             "PID 控制": ["PID_KP_X", "PID_KD_X", "PID_KI_X", "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
                         "MAX_SINGLE_MOVE_PX", "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"],
-            "鼠标控制模式": ["USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "MAX_MICKEY"],
+            "鼠标控制模式": [
+                "USE_MAKCU",              # <--- 新增
+                "MAKCU_PORT",             # <--- 新增
+                "MAKCU_AUTO_RECONNECT",   # <--- 新增
+                "USE_DRIVER_MODE",
+                "MOUSE_MODE_AUTO_FALLBACK",
+                "MAX_MICKEY"
+            ],
             "驱动配置": ["DRIVER_PATH", "MOUSE_REQUEST"],
             "按键定义": ["APP_MOUSE_NO_BUTTON", "APP_MOUSE_LEFT_DOWN", "APP_MOUSE_LEFT_UP",
                         "APP_MOUSE_RIGHT_DOWN", "APP_MOUSE_RIGHT_UP", "APP_MOUSE_MIDDLE_DOWN",
                         "APP_MOUSE_MIDDLE_UP"],
             "按键监控": ["ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
                         "KEY_MONITOR_INTERVAL_MS"],
-            "系统配置": ["ENABLE_LOGGING", "LOG_LEVEL", "DEBUG_MODE",
-                        "CONFIG_MONITOR_INTERVAL_SEC", "CAPTURE_FPS", "INFERENCE_FPS"],
+            "系统配置": [
+                "ENABLE_LOGGING",
+                "LOG_LEVEL",
+                "DEBUG_MODE",
+                "MAKCU_DEBUG_MODE",
+                "CONFIG_MONITOR_INTERVAL_SEC",
+                "CAPTURE_FPS",
+                "INFERENCE_FPS"
+            ],
+
             "自动开火": ["ENABLE_AUTO_FIRE", "AUTO_FIRE_ACCURACY_THRESHOLD",
                         "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
                         "AUTO_FIRE_DEBUG_MODE"],

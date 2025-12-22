@@ -1,3 +1,4 @@
+makcu
 watchdog
 pywin32
 onnxruntime

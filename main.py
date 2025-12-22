@@ -1,22 +1,19 @@
 # main.py (修复版 - 解决FPS下降和GPU利用率低的问题)
-
 import math
 import time
-from threading import Thread, Event as ThreadEvent
-
-import win32api
-import win32con
+from threading import Event as ThreadEvent
 
 # 导入您的模块
 import utils
 from auto_fire_controller import AutoFireController
-from config_manager import load_config, get_config, start_auto_reload
+from config_manager import get_config
 from driver_loader import ensure_driver_loaded, unload_driver
+from image.image_source import create_image_source
+from key_monitor import create_key_monitor
 from license_auth import LicenseAuthenticator
 from mouse import create_mouse_controller
 from script_system import ScriptAPI, ScriptManager, EventSystem
 from script_system.shared_game_state import get_game_state
-from shared_capture import start_capture_process
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from yolo_detector import YOLOv8Detector
@@ -25,6 +22,7 @@ from yolo_detector import YOLOv8Detector
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
 LICENSE_SECRET_KEY = "your_secret_key_change_this"
 
+_original_print = print
 
 class AppState:
     """应用程序状态管理类（线程安全）"""
@@ -68,63 +66,6 @@ class AppState:
     def is_left_pressed(self):
         return self.left_mouse_pressed.is_set()
 
-
-def key_monitor(app_state: AppState):
-    """全局按键监控（功能键模式）"""
-    enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', False)
-    enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
-    enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
-    key_monitor_interval = get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
-
-    left_was_pressed = False
-    right_was_pressed = False
-
-    utils.log("\n[按键监控] 已启动全局监听（FPS游戏模式）")
-    utils.log("  F12：退出程序")
-
-    if enable_left_monitor:
-        utils.log("  鼠标左键：按下启用瞄准，释放禁用瞄准")
-    if enable_right_monitor:
-        if enable_auto_fire:
-            utils.log("  鼠标右键：按下启用瞄准并触发自动开火，释放禁用")
-        else:
-            utils.log("  鼠标右键：按下启用瞄准，释放禁用瞄准")
-
-    while not app_state.is_exiting():
-        try:
-            f12_down = win32api.GetAsyncKeyState(win32con.VK_F12) & 0x8000
-            left_down = bool(win32api.GetAsyncKeyState(0x01) & 0x8000)
-            right_down = bool(win32api.GetAsyncKeyState(0x02) & 0x8000)
-
-            if f12_down:
-                app_state.request_exit()
-                break
-
-            if enable_left_monitor:
-                app_state.set_left_pressed(left_down)
-                if left_down and not left_was_pressed:
-                    app_state.set_mouse_active(True)
-                elif not left_down and left_was_pressed:
-                    if not (enable_right_monitor and right_down):
-                        app_state.set_mouse_active(False)
-                left_was_pressed = left_down
-
-            if enable_right_monitor:
-                app_state.set_right_pressed(right_down)
-                if right_down and not right_was_pressed:
-                    app_state.set_mouse_active(True)
-                elif not right_down and right_was_pressed:
-                    if not (enable_left_monitor and left_down):
-                        app_state.set_mouse_active(False)
-                right_was_pressed = right_down
-
-            time.sleep(key_monitor_interval)
-
-        except Exception as e:
-            utils.log(f"[按键监控] 错误: {e}")
-            break
-
-
 def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState):
     """后台发送心跳包"""
     heartbeat_interval = 30
@@ -163,7 +104,7 @@ class CachedConfig:
 
 
 def main():
-    global frame_buffer
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller
     print("\n" + "=" * 60)
     print("正在初始化...")
 
@@ -180,45 +121,102 @@ def main():
     enable_auto_fire = False
     enable_manual_recoil = False
     script_manager = None
-
+    preview_window = None
     game_state = get_game_state()
+    # ⭐ FPS 统计变量
+    fps_history = []
+    fps_max_samples = 30
+    global image_source
+    last_fps_time = time.perf_counter()
     try:
-        # ==================== 配置加载与验证 ====================
-        load_config(force_reload=True)
-        card_key = get_config('LICENSE_KEY', "").strip()
+        # # ==================== 配置加载与验证 ====================
+        # load_config(force_reload=True)
+        # card_key = get_config('LICENSE_KEY', "").strip()
+        #
+        # if not card_key:
+        #     utils.log("\n" + "=" * 60)
+        #     utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
+        #     utils.log("请打开程序目录下的 config.json 文件，")
+        #     utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
+        #     utils.log("=" * 60)
+        #     input("\n按回车键退出...")
+        #     return
+        #
+        # print("\n" + "=" * 60)
+        # print("正在进行许可证验证...")
+        # auth = LicenseAuthenticator(LICENSE_SERVER_URL, LICENSE_SECRET_KEY)
+        # success, message = auth.verify(card_key)
+        #
+        # if not success:
+        #     utils.log(f"❌ 许可证验证失败: {message}")
+        #     utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
+        #     input("按回车键退出...")
+        #     return
+        #
+        # utils.log(f"✅ 验证成功: {message}")
+        # utils.log(f"📅 过期时间: {auth.expire_date}")
+        #
+        # start_auto_reload()
+        # heartbeat_thread = Thread(
+        #     target=heartbeat_worker,
+        #     args=(auth, app_state),
+        #     daemon=True,
+        #     name="HeartbeatThread"
+        # )
+        # heartbeat_thread.start()
+        # utils.log("✅ 后台心跳与配置监控已启动")
+        use_makcu = get_config("USE_MAKCU", False)
+        enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', False)
+        enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
+        enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
+        poll_interval = get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
+        shared_makcu_controller = None
 
-        if not card_key:
-            utils.log("\n" + "=" * 60)
-            utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
-            utils.log("请打开程序目录下的 config.json 文件，")
-            utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
-            utils.log("=" * 60)
-            input("\n按回车键退出...")
-            return
+        if use_makcu:
+            try:
+                from makcu import create_controller
 
-        print("\n" + "=" * 60)
-        print("正在进行许可证验证...")
-        auth = LicenseAuthenticator(LICENSE_SERVER_URL, LICENSE_SECRET_KEY)
-        success, message = auth.verify(card_key)
+                utils.log("🔌 初始化 Makcu 硬件...")
+                shared_makcu_controller = create_controller(
+                    fallback_com_port=get_config("MAKCU_PORT", ""),
+                    debug=get_config("MAKCU_DEBUG_MODE", False),
+                    auto_reconnect=get_config("MAKCU_AUTO_RECONNECT", True)
+                )
 
-        if not success:
-            utils.log(f"❌ 许可证验证失败: {message}")
-            utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
-            input("按回车键退出...")
-            return
+                time.sleep(0.5)
 
-        utils.log(f"✅ 验证成功: {message}")
-        utils.log(f"📅 过期时间: {auth.expire_date}")
+                if shared_makcu_controller.is_connected():
+                    info = shared_makcu_controller.get_device_info()
+                    utils.log(f"✅ Makcu 设备已连接: {info.get('version', 'Unknown')}")
+                else:
+                    utils.log("⚠ Makcu 连接失败，将降级到软件模式")
+                    shared_makcu_controller = None
+                    use_makcu = False
 
-        start_auto_reload()
-        heartbeat_thread = Thread(
-            target=heartbeat_worker,
-            args=(auth, app_state),
-            daemon=True,
-            name="HeartbeatThread"
+            except Exception as e:
+                utils.log(f"❌ Makcu 初始化失败: {e}")
+                shared_makcu_controller = None
+                use_makcu = False
+
+        # ⭐ 创建监控器
+        key_monitor = create_key_monitor(
+            app_state=app_state,
+            use_makcu=use_makcu,
+            shared_controller=shared_makcu_controller,  # ⭐ 必须传递
+            enable_left=get_config('ENABLE_LEFT_MOUSE_MONITOR', False),
+            enable_right=get_config('ENABLE_RIGHT_MOUSE_MONITOR', True),
+            enable_auto_fire=get_config('ENABLE_AUTO_FIRE', False),
+            poll_interval=get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
         )
-        heartbeat_thread.start()
-        utils.log("✅ 后台心跳与配置监控已启动")
+
+        if not key_monitor:
+            utils.log("❌ 按键监控器创建失败")
+            return
+
+        # ⭐ 启动监控
+        if not key_monitor.start():
+            utils.log("❌ 按键监控器启动失败")
+            return
 
         # ==================== 驱动加载 ====================
         use_driver_mode = get_config("USE_DRIVER_MODE", True)
@@ -230,9 +228,6 @@ def main():
                 use_driver_mode = False
             else:
                 utils.log("✅ 驱动已准备就绪")
-
-        if not use_driver_mode:
-            utils.log("✅ 使用 WinAPI 模式（无需驱动）")
 
         # ==================== 模式检查 ====================
         enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
@@ -278,8 +273,11 @@ def main():
             utils.log(f"⚠️ 未配置目标类别，将识别所有类别: {list(model.names.values())}")
 
         # 鼠标控制器
-        mouse_controller = create_mouse_controller(use_driver=use_driver_mode)
-        utils.log(f"✅ 鼠标控制器模式: {mouse_controller.get_mode()}")
+        mouse_controller = create_mouse_controller(
+            use_driver=use_driver_mode,
+            use_makcu=use_makcu,
+            shared_controller=shared_makcu_controller  # ⭐ 传递共享实例
+        )
 
         # 屏幕信息
         screen_info = get_screen_info()
@@ -289,14 +287,34 @@ def main():
         target_selector = TargetSelector()
 
         # 自动开火控制器
-        auto_fire = AutoFireController(mouse_controller)
+        auto_fire = AutoFireController(
+            mouse_controller=mouse_controller,
+            key_monitor=key_monitor)
 
         if enable_manual_recoil:
             auto_fire.start_manual_recoil_monitor()
             utils.log("✅ 已启用手动压枪模式（需检测到目标 + 按键触发）")
         elif enable_auto_fire:
             utils.log("✅ 已启用自动开火模式（需按住右键触发）")
+        # ==================== 图像源初始化（新） ====================
 
+        image_source = create_image_source()
+        image_source.start()
+
+        # ⭐⭐⭐ 新增：预览窗口初始化 ⭐⭐⭐
+        enable_preview = get_config('ENABLE_PREVIEW_WINDOW', False)
+
+        if enable_preview:
+            from preview_window import PreviewWindow
+
+            preview_width = get_config('PREVIEW_WINDOW_WIDTH', 800)
+            preview_height = get_config('PREVIEW_WINDOW_HEIGHT', 800)
+
+            preview_window = PreviewWindow(
+                window_name="YOLO Detection Preview",
+                width=preview_width,
+                height=preview_height
+            )
         # ==================== 初始化脚本系统 ====================
         try:
             utils.log("\n" + "=" * 60)
@@ -349,23 +367,9 @@ def main():
             utils.log("程序将继续运行（不影响核心功能）\n")
             script_manager = None
 
-        # ==================== 屏幕捕获进程 ====================
-        utils.log("\n📸 正在启动共享内存捕获系统...")
-        frame_buffer, capture_process, stop_capture_event = start_capture_process(
-            crop_size=cached_config.crop_size
-        )
 
         if script_manager:
             script_api.target_selector = target_selector
-
-        # 按键监控线程
-        key_thread = Thread(
-            target=key_monitor,
-            args=(app_state,),
-            daemon=True,
-            name="KeyMonitorThread"
-        )
-        key_thread.start()
 
         # 启动信息
         utils.log("\n" + "=" * 60)
@@ -400,10 +404,11 @@ def main():
             frame_start = time.perf_counter()
 
             # ========== 1. 读取帧（非阻塞） ==========
-            img_bgra = frame_buffer.read_frame(timeout=0.001)
+            img_bgra = image_source.get_frame(timeout=0.001)
             if img_bgra is None:
                 time.sleep(0.0001)
                 continue
+
 
             # ========== 2. 模型推理 ==========
             results = model.predict(img_bgra)
@@ -454,16 +459,34 @@ def main():
                 screen_info['height']
             )
 
-            # ⭐⭐⭐ 新增：更新最佳目标和锁定状态 ⭐⭐⭐
-            if best_x is not None:
-                game_state.update_best_target(
-                    x=best_x,
-                    y=best_y,
-                    is_locked=target_selector.is_locked,
-                    lock_frames=target_selector.target_lock_frames
-                )
+            # ⭐⭐⭐ 计算真实FPS ⭐⭐⭐
+            current_time = time.perf_counter()
+            delta = current_time - last_fps_time
+            last_fps_time = current_time
+
+            if delta > 0:
+                current_fps = 1.0 / delta
+                fps_history.append(current_fps)
+                if len(fps_history) > fps_max_samples:
+                    fps_history.pop(0)
+
+                # 计算平均FPS
+                avg_fps = sum(fps_history) / len(fps_history)
             else:
-                game_state.update_best_target(x=None, y=None)
+                avg_fps = 0.0
+
+            # ⭐⭐⭐ 更新预览窗口（传递真实FPS）⭐⭐⭐
+            if preview_window and preview_window.enabled:
+                preview_window.update(
+                    img=img_bgra,
+                    results=results,
+                    target_class_ids=target_class_ids,
+                    best_target=(best_x, best_y) if best_x else None,
+                    is_locked=target_selector.is_locked,
+                    screen_center=(screen_center_x, screen_center_y),
+                    class_names=model.names,
+                    inference_fps=avg_fps  # ⭐ 传递真实推理FPS
+                )
 
             # ========== 5. 开火控制 ==========
             if best_x is not None:
@@ -471,7 +494,6 @@ def main():
                     (best_x - screen_center_x) ** 2 +
                     (best_y - screen_center_y) ** 2
                 )
-                # ... 其他逻辑不变
 
                 # ⭐ 可选：更新瞄准/开火状态（供脚本使用）
                 game_state.is_aiming = app_state.is_mouse_active()
@@ -489,7 +511,25 @@ def main():
                     )
                 else:
                     game_state.update_recoil_state(active=False)
+            if preview_window and preview_window.enabled:
+                continue_preview = preview_window.update(
+                    img=img_bgra,
+                    results=results,
+                    target_class_ids=target_class_ids,
+                    best_target=(best_x, best_y) if best_x else None,
+                    is_locked=target_selector.is_locked,
+                    screen_center=(screen_center_x, screen_center_y),
+                    class_names=model.names
+                )
 
+                if not continue_preview:
+                    preview_window = None  # 用户关闭窗口
+
+            if app_state.is_mouse_active() and best_x is not None:
+                if target_selector.should_send_command(
+                        best_x, best_y, screen_center_x, screen_center_y
+                ):
+                    mouse_controller.move_to_target(best_x, best_y)
             # ========== 7. 脚本事件 ==========
             if script_manager:
                 current_time = time.perf_counter()
@@ -513,14 +553,18 @@ def main():
         # ==================== 资源清理 ====================
         utils.log("\n🧹 正在清理资源并安全退出...")
         app_state.request_exit()
-
+        if key_monitor:
+            key_monitor.stop()
+        # 1. 停止脚本系统
         if script_manager:
             try:
+                utils.log("⏳ 正在停止脚本系统...")
                 script_manager.stop()
                 utils.log("✅ 脚本系统已停止")
             except Exception as e:
                 utils.log(f"⚠️ 停止脚本系统时出错: {e}")
 
+        # 2. 注销许可证
         if auth and auth.is_valid():
             utils.log("🔐 正在注销许可证...")
             try:
@@ -529,46 +573,90 @@ def main():
             except Exception as e:
                 utils.log(f"⚠️ 注销许可证时出错: {e}")
 
+        # ⭐ 3. 停止图像源（关键！）
+        if 'image_source' in locals() and image_source:
+            try:
+                utils.log("⏳ 正在停止图像源...")
+                image_source.stop()
+                # 增加强制等待
+                time.sleep(0.2)
+                utils.log("✅ 图像源已停止")
+            except Exception as e:
+                utils.log(f"⚠️ 停止图像源时出错: {e}")
+
+        # 4. 等待心跳线程（增加超时处理）
         if heartbeat_thread and heartbeat_thread.is_alive():
-            heartbeat_thread.join(timeout=2.0)
+            utils.log("⏳ 等待心跳线程退出...")
+            heartbeat_thread.join(timeout=1.0)
+            if heartbeat_thread.is_alive():
+                utils.log("⚠️ 心跳线程未在超时内退出")
 
+        # 5. 等待按键监控线程
         if key_thread and key_thread.is_alive():
+            utils.log("⏳ 等待按键监控线程退出...")
             key_thread.join(timeout=1.0)
+            if key_thread.is_alive():
+                utils.log("⚠️ 按键线程未在超时内退出")
 
+        # 6. 停止自动开火
         if auto_fire:
             try:
+                utils.log("⏳ 停止自动开火控制器...")
                 if enable_auto_fire:
                     auto_fire.stop_firing()
                 if enable_manual_recoil:
                     auto_fire.stop_manual_recoil_monitor()
+                utils.log("✅ 自动开火已停止")
             except Exception as e:
                 utils.log(f"⚠️ 停止自动开火时出错: {e}")
 
-        if stop_capture_event:
-            stop_capture_event.set()
 
         if capture_process and capture_process.is_alive():
+            utils.log("⏳ 等待捕获进程退出...")
             capture_process.join(timeout=2.0)
             if capture_process.is_alive():
+                utils.log("⚠️ 捕获进程未响应，强制终止...")
                 capture_process.terminate()
                 capture_process.join(timeout=1.0)
+                if capture_process.is_alive():
+                    utils.log("⚠️ 捕获进程仍未退出，强制杀死...")
+                    capture_process.kill()
+                    capture_process.join(timeout=0.5)
 
-        if frame_buffer:
-            frame_buffer.cleanup()
-
+        # 9. 关闭鼠标控制器
         if mouse_controller:
             try:
+                utils.log("⏳ 关闭鼠标控制器...")
                 mouse_controller.close()
+                utils.log("✅ 鼠标控制器已关闭")
             except Exception as e:
                 utils.log(f"⚠️ 关闭鼠标控制器时出错: {e}")
 
+        # 10. 卸载驱动
         if use_driver_mode:
             try:
+                utils.log("⏳ 卸载驱动...")
                 unload_driver(delete_service=False)
+                utils.log("✅ 驱动已卸载")
             except Exception as e:
-                utils.log(f"⚠️ 卸载驱动时出现错误: {e}")
+                utils.log(f"⚠️ 卸载驱动时出错: {e}")
+        if preview_window:
+            preview_window.close()
+        # ⭐ 11. 检查残留线程
+        import threading
+        active_threads = threading.enumerate()
+        if len(active_threads) > 1:  # 主线程+残留线程
+            utils.log(f"\n⚠️ 检测到 {len(active_threads) - 1} 个残留线程:")
+            for t in active_threads:
+                if t != threading.current_thread():
+                    utils.log(f"   - {t.name} (daemon={t.daemon}, alive={t.is_alive()})")
 
         utils.log("\n✅ 程序已安全退出")
+
+        # ⭐ 12. 强制退出（最后手段）
+        time.sleep(0.5)  # 给日志输出时间
+        import os
+        os._exit(0)  # 强制退出所有线程
 
 
 if __name__ == "__main__":

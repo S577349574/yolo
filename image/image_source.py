@@ -1,0 +1,241 @@
+# image_source.py
+"""
+统一图像源接口 - 支持多种图像获取方式
+"""
+from abc import ABC, abstractmethod
+from typing import Optional
+
+import numpy as np
+
+import utils
+from image.frame_receiver import FrameReceiver
+
+
+class ImageSource(ABC):
+    """图像源抽象基类"""
+
+    @abstractmethod
+    def start(self):
+        """启动图像源"""
+        pass
+
+    @abstractmethod
+    def stop(self):
+        """停止图像源"""
+        pass
+
+    @abstractmethod
+    def get_frame(self, timeout: float = 0.016) -> Optional[np.ndarray]:
+        """
+        获取最新帧
+
+        Args:
+            timeout: 超时时间（秒）
+
+        Returns:
+            np.ndarray (H, W, C) BGR/BGRA 格式，或 None
+        """
+        pass
+
+    @abstractmethod
+    def get_stats(self) -> dict:
+        """获取统计信息"""
+        pass
+
+    @abstractmethod
+    def is_running(self) -> bool:
+        """检查是否正在运行"""
+        pass
+
+
+# ============================================================
+# 实现1: 本地屏幕捕获
+# ============================================================
+
+class LocalScreenSource(ImageSource):
+    """本地屏幕捕获源（基于 shared_capture）"""
+
+    def __init__(self, crop_size: int = 640):
+
+        self.crop_size = crop_size
+        self.frame_buffer = None
+        self.capture_process = None
+        self.stop_event = None
+        self._running = False
+
+    def start(self):
+        if self._running:
+            return
+
+        utils.log("\n📸 启动本地屏幕捕获...")
+        from shared_capture import start_capture_process
+
+        self.frame_buffer, self.capture_process, self.stop_event = \
+            start_capture_process(crop_size=self.crop_size)
+
+        self._running = True
+        utils.log(f"✅ 本地捕获已就绪 | 尺寸: {self.crop_size}x{self.crop_size}")
+
+    def stop(self):
+        if not self._running:
+            return
+
+        utils.log("🛑 停止本地屏幕捕获...")
+
+        if self.stop_event:
+            self.stop_event.set()
+
+        if self.capture_process and self.capture_process.is_alive():
+            self.capture_process.join(timeout=2.0)
+            if self.capture_process.is_alive():
+                self.capture_process.terminate()
+                self.capture_process.join(timeout=1.0)
+
+        if self.frame_buffer:
+            self.frame_buffer.cleanup()
+
+        self._running = False
+        utils.log("✅ 本地捕获已停止")
+
+    def get_frame(self, timeout: float = 0.016) -> Optional[np.ndarray]:
+        if not self._running or not self.frame_buffer:
+            return None
+
+        # 返回 BGRA 格式 (640, 640, 4)
+        return self.frame_buffer.read_frame(timeout=timeout)
+
+    def get_stats(self) -> dict:
+        if self.frame_buffer:
+            return self.frame_buffer.get_stats()
+        return {'frames': 0, 'fps': 0, 'memory_mb': 0}
+
+    def is_running(self) -> bool:
+        return self._running
+
+
+# ============================================================
+# 实现2: UDP网络接收
+# ============================================================
+
+class NetworkSource(ImageSource):
+    """网络画面接收源（基于 frame_receiver）"""
+
+    def __init__(
+            self,
+            listen_port: int = 27015,
+            use_lz4: bool = True,
+            frame_width: int = 256,
+            frame_height: int = 256,
+            frame_channels: int = 3
+    ):
+
+        self.receiver = FrameReceiver(
+            listen_port=listen_port,
+            use_lz4=use_lz4,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            frame_channels=frame_channels
+        )
+        self._running = False
+
+    def start(self):
+        if self._running:
+            return
+
+        utils.log("\n🌐 启动UDP网络画面接收...")
+        self.receiver.start()
+        self._running = True
+        utils.log(f"✅ 网络接收已启动 | 端口: {self.receiver.port}")
+
+    def stop(self):
+        if not self._running:
+            return
+
+        utils.log("🛑 停止网络画面接收...")
+        self.receiver.stop()
+        self._running = False
+        utils.log("✅ 网络接收已停止")
+
+    def get_frame(self, timeout: float = 0.016) -> Optional[np.ndarray]:
+        if not self._running:
+            return None
+
+        # 获取最新帧（BGR 格式）
+        frame = self.receiver.get_latest_frame()
+
+        if frame is None:
+            return None
+
+        # ⚠️ 转换为 BGRA 格式以匹配 YOLOv8 输入
+        # 如果原始是 BGR (H, W, 3)，添加 Alpha 通道
+        if frame.shape[2] == 3:
+            import cv2
+            frame_bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
+            return frame_bgra
+
+        return frame
+
+    def get_stats(self) -> dict:
+        if not self._running:
+            return {'frames': 0, 'fps': 0, 'latency_avg': 0}
+
+        # 从 FrameReceiver 获取统计信息
+        return {
+            'frames': self.receiver._frame_count,
+            'fps': 0,  # 可以根据需要添加 FPS 计算
+            'latency_avg': (
+                self.receiver.latency_sum / self.receiver.latency_count
+                if self.receiver.latency_count > 0 else 0
+            ),
+            'latency_min': self.receiver.latency_min,
+            'latency_max': self.receiver.latency_max
+        }
+
+    def is_running(self) -> bool:
+        return self._running
+
+
+# ============================================================
+# 工厂函数
+# ============================================================
+
+# image_source.py (完整版 - 适配你的配置系统)
+
+def create_image_source() -> ImageSource:
+    """
+    从配置文件创建图像源（自动读取配置）
+
+    Returns:
+        ImageSource 实例
+    """
+    from config_manager import get_config
+
+    source_type = get_config('IMAGE_SOURCE_TYPE', 'local')
+
+    if source_type == 'local':
+        crop_size = get_config('CROP_SIZE', 640)
+        utils.log(f"🖼️ 图像源: 本地屏幕捕获 ({crop_size}x{crop_size})")
+        return LocalScreenSource(crop_size=crop_size)
+
+    elif source_type == 'network':
+        frame_port = get_config('FRAME_PORT', 27015)
+        frame_width = get_config('FRAME_WIDTH', 256)
+        frame_height = get_config('FRAME_HEIGHT', 256)
+        frame_channels = get_config('FRAME_CHANNELS', 3)
+        use_lz4 = get_config('USE_LZ4', True)
+
+        utils.log(f"🖼️ 图像源: UDP网络接收")
+        utils.log(f"   监听端口: {frame_port}")
+        utils.log(f"   帧尺寸: {frame_width}x{frame_height}x{frame_channels}")
+        utils.log(f"   LZ4压缩: {'启用' if use_lz4 else '禁用'}")
+
+        return NetworkSource(
+            listen_port=frame_port,
+            use_lz4=use_lz4,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            frame_channels=frame_channels
+        )
+
+    else:
+        raise ValueError(f"不支持的图像源类型: {source_type}，请在 config.json 中设置为 'local' 或 'network'")
