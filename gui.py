@@ -6,9 +6,52 @@ import glob
 # 1. 加载配置
 cfg.load_config()
 
-# 脚本文件夹路径 (假设在当前目录下)
+# 脚本文件夹路径
 SCRIPTS_DIR = "scripts"
 
+
+# ================= 控件联动管理 =================
+
+def update_dependent_controls(master_key, dependent_tags, is_enabled):
+    """
+    通用函数：根据主开关状态启用/禁用子控件
+
+    Args:
+        master_key: 主开关的配置键名
+        dependent_tags: 依赖的子控件tag列表
+        is_enabled: 主开关是否启用
+    """
+    for tag in dependent_tags:
+        try:
+            dpg.configure_item(tag, enabled=is_enabled)
+        except Exception as e:
+            print(f"[GUI] 无法更新控件 {tag}: {e}")
+
+
+def create_master_switch_callback(config_key, dependent_tags):
+    """
+    创建带联动的主开关回调函数
+
+    Args:
+        config_key: 配置键名
+        dependent_tags: 子控件tag列表
+
+    Returns:
+        回调函数
+    """
+
+    def callback(sender, app_data, user_data):
+        # 更新配置
+        cfg.set_config(config_key, app_data)
+        dpg.configure_item("status_text", default_value=f"[未保存] 已修改: {config_key}", color=(255, 200, 0))
+
+        # 更新子控件状态
+        update_dependent_controls(config_key, dependent_tags, app_data)
+
+    return callback
+
+
+# ================= 原有回调函数 =================
 
 def save_callback():
     """保存配置"""
@@ -46,15 +89,10 @@ def update_class_ids_callback(sender, app_data, user_data):
 # ================= 脚本管理逻辑 =================
 
 def update_script_state_callback(sender, app_data, user_data):
-    """
-    处理脚本开关
-    user_data: 脚本文件名 (不含 .lua)
-    app_data: 是否勾选 (bool)
-    """
+    """处理脚本开关"""
     script_name = user_data
     is_enabled = app_data
 
-    # 获取当前启用的脚本列表
     enabled_scripts = cfg.get_config("ENABLED_SCRIPTS", [])
     if not isinstance(enabled_scripts, list): enabled_scripts = []
 
@@ -68,30 +106,19 @@ def update_script_state_callback(sender, app_data, user_data):
             print(f"[GUI] 禁用脚本: {script_name}")
 
     cfg.set_config("ENABLED_SCRIPTS", enabled_scripts)
-    dpg.configure_item(
-        "status_text",
-        default_value=f"[未保存] 脚本列表已更新",
-        color=(255, 200, 0)
-    )
-
-    # ⭐ 关键：立刻重建脚本 UI
+    dpg.configure_item("status_text", default_value=f"[未保存] 脚本列表已更新", color=(255, 200, 0))
     refresh_scripts_ui()
 
 
 def refresh_scripts_ui():
     """扫描文件夹并重建脚本列表 UI"""
-    # 1. 清空现有的列表容器
     dpg.delete_item("script_list_container", children_only=True)
 
-    # 2. 扫描 .lua 文件
     if not os.path.exists(SCRIPTS_DIR):
         os.makedirs(SCRIPTS_DIR)
 
-    # 获取所有 .lua 文件
     lua_files = glob.glob(os.path.join(SCRIPTS_DIR, "*.lua"))
     script_names = [os.path.splitext(os.path.basename(f))[0] for f in lua_files]
-
-    # 获取当前已启用的列表 (用于设置默认勾选状态)
     enabled_scripts = cfg.get_config("ENABLED_SCRIPTS", [])
 
     if not script_names:
@@ -99,11 +126,8 @@ def refresh_scripts_ui():
                      color=(150, 150, 150))
         return
 
-    # 3. 动态创建复选框
     for name in script_names:
         is_active = name in enabled_scripts
-
-        # 使用 group 方便排版 (这里做成两列布局)
         with dpg.group(horizontal=True, parent="script_list_container"):
             dpg.add_checkbox(
                 label=f"{name}.lua",
@@ -111,7 +135,6 @@ def refresh_scripts_ui():
                 callback=update_script_state_callback,
                 user_data=name
             )
-            # 如果脚本在 enabled 列表里但文件不存在的特殊情况处理 (可选)
             if is_active:
                 dpg.add_text("(已启用)", color=(0, 255, 0))
             else:
@@ -138,7 +161,7 @@ def create_gui():
     dpg.create_context()
     setup_chinese_font()
 
-    with dpg.window(tag="Primary Window", label="AI 全参数配置管理器"):
+    with dpg.window(tag="Primary Window", label="AI 全参数配置管理器 v5.0"):
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
@@ -160,21 +183,73 @@ def create_gui():
                 add_bool("ENABLE_LOGGING", "启用日志记录")
                 add_combo("LOG_LEVEL", "日志等级", ["DEBUG", "INFO", "WARNING", "ERROR"])
                 add_bool("DEBUG_MODE", "调试模式 (显示画框)")
+                add_bool("MAKCU_DEBUG_MODE", "Makcu调试模式")
                 add_int("CAPTURE_FPS", "截图帧率限制", 1, 500)
                 add_int("INFERENCE_FPS", "推理帧率限制", 1, 500)
                 add_int("CONFIG_MONITOR_INTERVAL_SEC", "配置热重载间隔 (秒)", 1, 60)
 
-            # ================= TAB 2: 视觉识别 =================
+            # ================= TAB 2: 图像源配置 =================
+            with dpg.tab(label="图像源"):
+                dpg.add_text("画面来源模式", color=(0, 255, 255))
+                add_combo("IMAGE_SOURCE_TYPE", "图像源类型", ["local", "network"])
+                add_int("CROP_SIZE", "推理区域大小 (Crop)", 64, 1280)
+
+                dpg.add_separator()
+                dpg.add_text("网络画面接收配置 (仅network模式生效)", color=(100, 200, 255))
+                add_int("FRAME_PORT", "接收端口", 1024, 65535)
+                add_int("FRAME_WIDTH", "画面宽度 (像素)", 64, 1920)
+                add_int("FRAME_HEIGHT", "画面高度 (像素)", 64, 1080)
+                add_int("FRAME_CHANNELS", "通道数 (RGB=3, RGBA=4)", 3, 4)
+                add_bool("USE_LZ4", "启用 LZ4 压缩传输")
+
+            # ================= TAB 3: 预览窗口 (带联动) =================
+            with dpg.tab(label="预览窗口"):
+                dpg.add_text("窗口基础设置", color=(255, 200, 0))
+
+                # ⭐ 主开关 - 使用自定义回调
+                preview_deps = [
+                    "preview_width", "preview_height", "preview_skip",
+                    "preview_show_boxes", "preview_show_labels", "preview_show_conf",
+                    "preview_show_fps", "preview_show_cross", "preview_show_aim",
+                    "preview_box_thick", "preview_text_scale"
+                ]
+                preview_enabled = cfg.get_config("ENABLE_PREVIEW_WINDOW", False)
+                dpg.add_checkbox(
+                    label="🖥 启用预览窗口",
+                    default_value=preview_enabled,
+                    callback=create_master_switch_callback("ENABLE_PREVIEW_WINDOW", preview_deps)
+                )
+
+                add_int_tagged("PREVIEW_WINDOW_WIDTH", "窗口宽度", 400, 1920, "preview_width")
+                add_int_tagged("PREVIEW_WINDOW_HEIGHT", "窗口高度", 400, 1080, "preview_height")
+                add_int_tagged("PREVIEW_FRAME_SKIP", "跳帧数 (0=不跳帧)", 0, 10, "preview_skip")
+
+                dpg.add_separator()
+                dpg.add_text("显示选项", color=(255, 200, 0))
+                add_bool_tagged("PREVIEW_SHOW_BOXES", "显示检测框", "preview_show_boxes")
+                add_bool_tagged("PREVIEW_SHOW_LABELS", "显示类别标签", "preview_show_labels")
+                add_bool_tagged("PREVIEW_SHOW_CONFIDENCE", "显示置信度", "preview_show_conf")
+                add_bool_tagged("PREVIEW_SHOW_FPS", "显示 FPS 信息", "preview_show_fps")
+                add_bool_tagged("PREVIEW_SHOW_CROSSHAIR", "显示准心十字线", "preview_show_cross")
+                add_bool_tagged("PREVIEW_SHOW_AIM_POINT", "显示瞄准点", "preview_show_aim")
+
+                dpg.add_separator()
+                dpg.add_text("视觉样式", color=(255, 200, 0))
+                add_int_tagged("PREVIEW_BOX_THICKNESS", "检测框线宽", 1, 5, "preview_box_thick")
+                add_float_tagged("PREVIEW_TEXT_SCALE", "文字大小缩放", 0.3, 1.5, "preview_text_scale")
+
+                # ⭐ 初始化子控件状态
+                update_dependent_controls("ENABLE_PREVIEW_WINDOW", preview_deps, preview_enabled)
+
+            # ================= TAB 4: 视觉识别 =================
             with dpg.tab(label="视觉识别"):
                 dpg.add_text("检测参数", color=(100, 255, 100))
                 add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
                 add_float("IOU_THRESHOLD", "重叠剔除 (IOU)", 0.1, 0.99)
-                add_int("CROP_SIZE", "推理区域大小 (Crop)", 160, 1280)
 
                 dpg.add_separator()
                 dpg.add_text("目标 ID 选择", color=(255, 255, 0))
 
-                # 动态生成 ID 0-9 的复选框
                 current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
                 for i in range(10):
                     if i % 5 == 0: group_tag = dpg.add_group(horizontal=True)
@@ -189,7 +264,7 @@ def create_gui():
                 add_int("HEAD_CLASS_ID", "头部 ID 定义", 0, 10)
                 add_float("HEAD_PRIORITY_BONUS", "头部权重加分", 0, 5000)
 
-            # ================= TAB 3: PID 瞄准 =================
+            # ================= TAB 5: PID 瞄准 =================
             with dpg.tab(label="PID 控制"):
                 dpg.add_text("瞄准偏移", color=(100, 200, 255))
                 add_float("AIM_Y_RATIO", "Y轴 瞄准高度 (0.5=中心)", 0.0, 1.0)
@@ -213,7 +288,7 @@ def create_gui():
                 add_int("PRECISION_DEAD_ZONE", "瞄准死区 (像素)", 0, 50)
                 add_int("DEFAULT_DELAY_MS_PER_STEP", "每步延迟 (ms)", 0, 50)
 
-            # ================= TAB 4: 追踪与滤波 =================
+            # ================= TAB 6: 追踪与滤波 =================
             with dpg.tab(label="追踪算法"):
                 dpg.add_text("目标跟踪", color=(255, 100, 255))
                 add_float("DISTANCE_WEIGHT", "距离权重系数", 0.0, 2.0)
@@ -224,65 +299,147 @@ def create_gui():
 
                 dpg.add_separator()
                 dpg.add_text("卡尔曼滤波 (Kalman)", color=(255, 100, 255))
-                add_bool("USE_KALMAN_FILTER", "启用卡尔曼滤波")
-                add_float("KALMAN_PROCESS_NOISE", "过程噪声", 0.01, 10.0)
-                add_float("KALMAN_MEASUREMENT_NOISE", "测量噪声", 0.1, 50.0)
-                add_int("KALMAN_MAX_PREDICT_FRAMES", "最大预测帧数", 0, 10)
+
+                # ⭐ 卡尔曼滤波联动
+                kalman_deps = ["kalman_process", "kalman_measure", "kalman_predict"]
+                kalman_enabled = cfg.get_config("USE_KALMAN_FILTER", True)
+                dpg.add_checkbox(
+                    label="启用卡尔曼滤波",
+                    default_value=kalman_enabled,
+                    callback=create_master_switch_callback("USE_KALMAN_FILTER", kalman_deps)
+                )
+
+                add_float_tagged("KALMAN_PROCESS_NOISE", "过程噪声", 0.01, 10.0, "kalman_process")
+                add_float_tagged("KALMAN_MEASUREMENT_NOISE", "测量噪声", 0.1, 50.0, "kalman_measure")
+                add_int_tagged("KALMAN_MAX_PREDICT_FRAMES", "最大预测帧数", 0, 10, "kalman_predict")
+
+                update_dependent_controls("USE_KALMAN_FILTER", kalman_deps, kalman_enabled)
 
                 dpg.add_separator()
                 dpg.add_text("抗干扰 & 预判", color=(255, 100, 255))
-                add_bool("ENABLE_LEAD_TARGET", "启用移动预判")
-                add_int("LEAD_FRAMES", "预判提前量 (帧)", 0, 10)
+
+                # ⭐ 预判联动
+                lead_deps = ["lead_frames"]
+                lead_enabled = cfg.get_config("ENABLE_LEAD_TARGET", False)
+                dpg.add_checkbox(
+                    label="启用移动预判",
+                    default_value=lead_enabled,
+                    callback=create_master_switch_callback("ENABLE_LEAD_TARGET", lead_deps)
+                )
+
+                add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 10, "lead_frames")
+                update_dependent_controls("ENABLE_LEAD_TARGET", lead_deps, lead_enabled)
+
                 add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数", 0.01, 1.0)
                 add_int("CONFIDENCE_HISTORY_SIZE", "置信度历史长度", 1, 20)
                 add_float("CONFIDENCE_DROP_THRESHOLD", "置信度骤降阈值", 0.01, 1.0)
 
-            # ================= TAB 5: 压枪系统 =================
+            # ================= TAB 7: 压枪系统 =================
             with dpg.tab(label="压枪配置"):
                 dpg.add_text("总开关", color=(255, 180, 0))
-                add_bool("ENABLE_MANUAL_RECOIL", "启用压枪系统")
-                add_bool("ENABLE_RECOIL_CONTROL", "启用后坐力控制")
-                add_combo("MANUAL_RECOIL_TRIGGER_MODE", "触发按键模式", ["left_only", "both_buttons"])
+
+                # ⭐ 压枪系统联动
+                recoil_deps = [
+                    "recoil_ctrl", "recoil_mode", "recoil_req_target", "recoil_req_lock",
+                    "recoil_timeout", "recoil_pattern", "recoil_v_speed", "recoil_h_speed",
+                    "recoil_inc_y", "recoil_h_var", "recoil_max_move", "recoil_max_x", "recoil_max_y"
+                ]
+                recoil_enabled = cfg.get_config("ENABLE_MANUAL_RECOIL", True)
+                dpg.add_checkbox(
+                    label="启用压枪系统",
+                    default_value=recoil_enabled,
+                    callback=create_master_switch_callback("ENABLE_MANUAL_RECOIL", recoil_deps)
+                )
+
+                add_bool_tagged("ENABLE_RECOIL_CONTROL", "启用后坐力控制", "recoil_ctrl")
+                add_combo_tagged("MANUAL_RECOIL_TRIGGER_MODE", "触发按键模式",
+                                 ["left_only", "both_buttons"], "recoil_mode")
 
                 dpg.add_separator()
                 dpg.add_text("触发逻辑", color=(255, 180, 0))
-                add_bool("RECOIL_REQUIRE_TARGET", "仅在有目标时压枪")
-                add_bool("RECOIL_REQUIRE_LOCK", "仅在锁定目标时压枪")
-                add_float("RECOIL_TARGET_TIMEOUT", "目标丢失超时 (秒)", 0.1, 5.0)
+                add_bool_tagged("RECOIL_REQUIRE_TARGET", "仅在有目标时压枪", "recoil_req_target")
+                add_bool_tagged("RECOIL_REQUIRE_LOCK", "仅在锁定目标时压枪", "recoil_req_lock")
+                add_float_tagged("RECOIL_TARGET_TIMEOUT", "目标丢失超时 (秒)", 0.1, 5.0, "recoil_timeout")
 
                 dpg.add_separator()
                 dpg.add_text("压枪参数", color=(255, 180, 0))
-                add_combo("RECOIL_PATTERN", "压枪模式", ["linear", "exponential", "custom"])
-                add_float("RECOIL_VERTICAL_SPEED", "垂直下压速度", 0.0, 1000.0)
-                add_float("RECOIL_HORIZONTAL_SPEED", "水平修正速度", -500.0, 500.0)
-                add_float("RECOIL_INCREMENT_Y", "纵向递增系数", 0.0, 10.0)
-                add_int("RECOIL_HORIZONTAL_VARIANCE", "水平随机抖动", 0, 50)
+                add_combo_tagged("RECOIL_PATTERN", "压枪模式",
+                                 ["linear", "exponential", "custom"], "recoil_pattern")
+                add_float_tagged("RECOIL_VERTICAL_SPEED", "垂直下压速度", 0.0, 1000.0, "recoil_v_speed")
+                add_float_tagged("RECOIL_HORIZONTAL_SPEED", "水平修正速度", -500.0, 500.0, "recoil_h_speed")
+                add_float_tagged("RECOIL_INCREMENT_Y", "纵向递增系数", 0.0, 10.0, "recoil_inc_y")
+                add_int_tagged("RECOIL_HORIZONTAL_VARIANCE", "水平随机抖动", 0, 50, "recoil_h_var")
 
                 dpg.add_separator()
                 dpg.add_text("安全限制", color=(255, 180, 0))
-                add_float("RECOIL_MAX_SINGLE_MOVE", "单次最大合力", 1.0, 500.0)
-                add_float("RECOIL_MAX_SINGLE_MOVE_X", "X轴 最大单次", 1.0, 200.0)
-                add_float("RECOIL_MAX_SINGLE_MOVE_Y", "Y轴 最大单次", 1.0, 200.0)
+                add_float_tagged("RECOIL_MAX_SINGLE_MOVE", "单次最大合力", 1.0, 500.0, "recoil_max_move")
+                add_float_tagged("RECOIL_MAX_SINGLE_MOVE_X", "X轴 最大单次", 1.0, 200.0, "recoil_max_x")
+                add_float_tagged("RECOIL_MAX_SINGLE_MOVE_Y", "Y轴 最大单次", 1.0, 200.0, "recoil_max_y")
 
-            # ================= TAB 6: 自动开火 =================
+                update_dependent_controls("ENABLE_MANUAL_RECOIL", recoil_deps, recoil_enabled)
+
+            # ================= TAB 8: 自动开火 =================
             with dpg.tab(label="自动开火"):
-                add_bool("ENABLE_AUTO_FIRE", "🔥 启用自动开火")
-                add_bool("AUTO_FIRE_DEBUG_MODE", "自动开火调试")
+                # ⭐ 自动开火联动
+                autofire_deps = ["autofire_debug", "autofire_acc", "autofire_dist", "autofire_lock"]
+                autofire_enabled = cfg.get_config("ENABLE_AUTO_FIRE", False)
+                dpg.add_checkbox(
+                    label="🔥 启用自动开火",
+                    default_value=autofire_enabled,
+                    callback=create_master_switch_callback("ENABLE_AUTO_FIRE", autofire_deps)
+                )
+
+                add_bool_tagged("AUTO_FIRE_DEBUG_MODE", "自动开火调试", "autofire_debug")
 
                 dpg.add_separator()
                 dpg.add_text("触发阈值", color=(255, 100, 100))
-                add_float("AUTO_FIRE_ACCURACY_THRESHOLD", "准星重合度 (0.1-1.0)", 0.1, 1.0)
-                add_float("AUTO_FIRE_DISTANCE_THRESHOLD", "距离像素阈值", 1.0, 200.0)
-                add_int("AUTO_FIRE_MIN_LOCK_FRAMES", "开火前需锁定帧数", 0, 20)
+                add_float_tagged("AUTO_FIRE_ACCURACY_THRESHOLD", "准星重合度 (0.1-1.0)",
+                                 0.1, 1.0, "autofire_acc")
+                add_float_tagged("AUTO_FIRE_DISTANCE_THRESHOLD", "距离像素阈值",
+                                 1.0, 200.0, "autofire_dist")
+                add_int_tagged("AUTO_FIRE_MIN_LOCK_FRAMES", "开火前需锁定帧数",
+                               0, 20, "autofire_lock")
 
-            # ================= TAB 7: 驱动与按键 =================
+                update_dependent_controls("ENABLE_AUTO_FIRE", autofire_deps, autofire_enabled)
+
+            # ================= TAB 9: 驱动与按键 =================
             with dpg.tab(label="驱动 & 按键"):
-                dpg.add_text("鼠标驱动", color=(200, 200, 200))
-                add_bool("USE_DRIVER_MODE", "使用硬件驱动 (罗技/KMBox等)")
-                add_bool("MOUSE_MODE_AUTO_FALLBACK", "驱动失败自动回退")
-                add_input_text("DRIVER_PATH", "驱动设备路径")
-                add_int("MOUSE_REQUEST", "鼠标 Request Code", 0, 9999999)
-                add_int("MAX_MICKEY", "鼠标移动量限制 (Mickey)", 100, 5000)
+                dpg.add_text("硬件模式选择", color=(255, 255, 0))
+                dpg.add_text("⚠ Makcu 和 传统驱动 只能选一个", color=(255, 100, 100))
+
+                dpg.add_separator()
+                dpg.add_text("🔧 Makcu 硬件模式", color=(100, 255, 255))
+
+                # ⭐ Makcu 联动
+                makcu_deps = ["makcu_port", "makcu_reconnect"]
+                makcu_enabled = cfg.get_config("USE_MAKCU", False)
+                dpg.add_checkbox(
+                    label="启用 Makcu 硬件",
+                    default_value=makcu_enabled,
+                    callback=create_master_switch_callback("USE_MAKCU", makcu_deps)
+                )
+
+                add_input_text_tagged("MAKCU_PORT", "Makcu COM口 (留空自动搜索)", "makcu_port")
+                add_bool_tagged("MAKCU_AUTO_RECONNECT", "Makcu 断线自动重连", "makcu_reconnect")
+                update_dependent_controls("USE_MAKCU", makcu_deps, makcu_enabled)
+
+                dpg.add_separator()
+                dpg.add_text("🖱 传统驱动模式 (罗技/KMBox等)", color=(150, 150, 150))
+
+                # ⭐ 传统驱动联动
+                driver_deps = ["driver_fallback", "driver_path", "driver_request", "driver_mickey"]
+                driver_enabled = cfg.get_config("USE_DRIVER_MODE", False)
+                dpg.add_checkbox(
+                    label="使用传统硬件驱动 (与Makcu互斥)",
+                    default_value=driver_enabled,
+                    callback=create_master_switch_callback("USE_DRIVER_MODE", driver_deps)
+                )
+
+                add_bool_tagged("MOUSE_MODE_AUTO_FALLBACK", "驱动失败自动回退", "driver_fallback")
+                add_input_text_tagged("DRIVER_PATH", "驱动设备路径", "driver_path")
+                add_int_tagged("MOUSE_REQUEST", "鼠标 Request Code", 0, 9999999, "driver_request")
+                add_int_tagged("MAX_MICKEY", "鼠标移动量限制 (Mickey)", 100, 5000, "driver_mickey")
+                update_dependent_controls("USE_DRIVER_MODE", driver_deps, driver_enabled)
 
                 dpg.add_separator()
                 dpg.add_text("按键监控", color=(200, 200, 200))
@@ -297,15 +454,12 @@ def create_gui():
                 add_int("APP_MOUSE_RIGHT_DOWN", "Right Down ID", 0, 100)
                 add_int("APP_MOUSE_RIGHT_UP", "Right Up ID", 0, 100)
 
-            # ================= TAB 8: 脚本扩展 (全新升级) =================
+            # ================= TAB 10: 脚本扩展 =================
             with dpg.tab(label="脚本扩展"):
                 dpg.add_text("脚本执行设置", color=(255, 255, 0))
                 add_bool("SCRIPT_AUTO_RELOAD", "脚本自动重载 (监听文件修改)")
                 add_bool("SCRIPT_DEBUG_MODE", "脚本调试模式 (输出详细日志)")
-                add_bool("SCRIPT_VERBOSE_LOGGING", "详细日志 (Verbose Logging)")
-                add_bool("SCRIPT_AUTO_ASYNC", "自动异步模式 (Auto Async)")
                 add_int("SCRIPT_TIMEOUT_MS", "脚本执行超时 (ms)", 1, 1000)
-                add_int("SCRIPT_MAX_WORKERS", "最大执行线程数", 1, 16)
 
                 dpg.add_separator()
 
@@ -316,11 +470,9 @@ def create_gui():
                 dpg.add_text("勾选以启用脚本 (自动保存至配置)", color=(150, 150, 150))
 
                 # === 脚本列表容器 ===
-                # 这里是一个空容器，启动时和点击刷新时会动态填充
                 dpg.add_group(tag="script_list_container")
-                # ====================
 
-    dpg.create_viewport(title='AI Config Ultimate v4.0', width=800, height=750)
+    dpg.create_viewport(title='AI Config Ultimate v5.0', width=850, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("Primary Window", True)
@@ -332,7 +484,7 @@ def create_gui():
     dpg.destroy_context()
 
 
-# ================= 通用控件封装 =================
+# ================= 通用控件封装（无tag版本） =================
 
 def add_float(key, label, min_v=0.0, max_v=1.0, speed=0.01):
     val = float(cfg.get_config(key, 0.0))
@@ -361,6 +513,80 @@ def add_combo(key, label, items):
     if val not in items: items.append(val)
     dpg.add_combo(label=label, items=items, default_value=val, callback=update_config_callback, user_data=key,
                   width=280)
+
+
+# ================= 通用控件封装（带tag版本 - 用于联动） =================
+
+def add_float_tagged(key, label, min_v=0.0, max_v=1.0, tag=None, speed=0.01):
+    """带tag的浮点数控件"""
+    val = float(cfg.get_config(key, 0.0))
+    dpg.add_drag_float(
+        label=label,
+        default_value=val,
+        min_value=min_v,
+        max_value=max_v,
+        speed=speed,
+        callback=update_config_callback,
+        user_data=key,
+        width=280,
+        tag=tag
+    )
+
+
+def add_int_tagged(key, label, min_v=0, max_v=100, tag=None):
+    """带tag的整数控件"""
+    val = int(cfg.get_config(key, 0))
+    dpg.add_drag_int(
+        label=label,
+        default_value=val,
+        min_value=min_v,
+        max_value=max_v,
+        callback=update_config_callback,
+        user_data=key,
+        width=280,
+        tag=tag
+    )
+
+
+def add_bool_tagged(key, label, tag=None):
+    """带tag的布尔控件"""
+    val = bool(cfg.get_config(key, False))
+    dpg.add_checkbox(
+        label=label,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key,
+        tag=tag
+    )
+
+
+def add_input_text_tagged(key, label, tag=None):
+    """带tag的文本输入控件"""
+    val = str(cfg.get_config(key, ""))
+    dpg.add_input_text(
+        label=label,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key,
+        width=280,
+        tag=tag
+    )
+
+
+def add_combo_tagged(key, label, items, tag=None):
+    """带tag的下拉框控件"""
+    val = str(cfg.get_config(key, items[0]))
+    if val not in items:
+        items.append(val)
+    dpg.add_combo(
+        label=label,
+        items=items,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key,
+        width=280,
+        tag=tag
+    )
 
 
 if __name__ == "__main__":
