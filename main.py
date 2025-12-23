@@ -17,7 +17,7 @@ from script_system.shared_game_state import get_game_state
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from yolo_detector import YOLOv8Detector
-
+import threading
 # 服务器信息
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
 LICENSE_SECRET_KEY = "your_secret_key_change_this"
@@ -102,7 +102,10 @@ class CachedConfig:
         self.manual_recoil_trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'both_buttons')
         self.recoil_require_target = get_config('RECOIL_REQUIRE_TARGET', True)
 
-
+def run_gui_in_background():
+    """后台运行 GUI"""
+    from gui import create_gui
+    create_gui()
 def main():
     global frame_buffer, image_source, key_monitor, shared_makcu_controller
     print("\n" + "=" * 60)
@@ -129,6 +132,10 @@ def main():
     global image_source
     last_fps_time = time.perf_counter()
     try:
+        import threading
+        # ⭐ 启动 GUI 线程（不阻塞主程序）
+        gui_thread = threading.Thread(target=run_gui_in_background, daemon=True)
+        gui_thread.start()
         # # ==================== 配置加载与验证 ====================
         # load_config(force_reload=True)
         # card_key = get_config('LICENSE_KEY', "").strip()

@@ -28,16 +28,31 @@ class ConfigManager:
 
         ConfigManager._initialized = True
 
-        # 自动检测运行环境
-        is_frozen = getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
+        # ========== 智能路径检测（兼容所有打包工具）==========
 
-        if is_frozen:
-            try:
-                import __compiled__
-                self.app_dir = Path(__compiled__.__file__).parent.resolve()
-            except (ImportError, AttributeError):
-                self.app_dir = Path(sys.argv[0]).parent.resolve()
+        # 检测是否为打包环境
+        argv0_path = Path(sys.argv[0]).resolve()
+        is_exe = argv0_path.suffix.lower() == '.exe'
+
+        try:
+            import __compiled__
+            is_nuitka = True
+        except ImportError:
+            is_nuitka = False
+
+        is_frozen = getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
+        is_packaged = is_exe or is_nuitka or is_frozen
+
+        # ========== 确定工作目录 ==========
+        if is_packaged:
+            # 打包环境：优先使用 sys.argv[0]（Nuitka 最可靠）
+            if is_exe and argv0_path.exists():
+                self.app_dir = argv0_path.parent
+            else:
+                # 备选：使用 sys.executable
+                self.app_dir = Path(sys.executable).resolve().parent
         else:
+            # 开发环境：使用脚本目录
             self.app_dir = Path(__file__).parent.resolve()
 
         self.config_file = self.app_dir / "config.json"
