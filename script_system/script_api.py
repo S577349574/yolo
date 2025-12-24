@@ -13,16 +13,15 @@ from .shared_game_state import get_game_state
 
 
 class ScriptAPI:
-    """脚本 API 管理器（优化版）"""
-
     def __init__(
-            self,
-            mouse_controller,
-            auto_fire_controller,
-            target_selector,
-            yolo_detector,
-            screen_capture,
-            verbose=False
+        self,
+        mouse_controller,
+        auto_fire_controller,
+        target_selector,
+        yolo_detector,
+        screen_capture,
+        key_monitor,  # ✅ 新增参数
+        verbose=False
     ):
         self.verbose = verbose
         self.mouse = mouse_controller
@@ -30,7 +29,7 @@ class ScriptAPI:
         self.target_selector = target_selector
         self.yolo = yolo_detector
         self.capture = screen_capture
-
+        self.key_monitor = key_monitor  # ✅ 保存引用
         # 🔥 核心优化：使用全局游戏状态
         self.game_state = get_game_state()
 
@@ -325,82 +324,51 @@ class ScriptAPI:
     # ==================== 输入监听 API ====================
 
     def _create_input_api(self, lua):
-        """创建 input API"""
+        """创建 input API（重构版 - 使用统一接口）"""
         input_api = lua.table()
 
-        KEY_MAP = {
-            "shift": 0x10, "ctrl": 0x11, "alt": 0x12,
-            "space": 0x20, "enter": 0x0D, "esc": 0x1B, "tab": 0x09,
-            "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44,
-            "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
-            "f1": 0x70, "f2": 0x71
-        }
-
-        def _get_vk(key):
-            if isinstance(key, int):
-                return key
-            return KEY_MAP.get(str(key).lower(), 0)
+        # ✅ 使用 key_monitor 的统一接口
+        def is_key_down(key):
+            """检查按键是否按下（使用统一接口）"""
+            if not self.key_monitor:
+                return False
+            return self.key_monitor.is_key_pressed(str(key))
 
         def is_mouse_down(button="left"):
-            button_map = {"left": 0x01, "right": 0x02, "middle": 0x04}
-            vk_code = button_map.get(button, 0x01)
-            return win32api.GetKeyState(vk_code) < 0
+            """检查鼠标按键是否按下（使用统一接口）"""
+            if not self.key_monitor:
+                return False
+            return self.key_monitor.is_key_pressed(button)
 
-        def is_key_down(key):
-            if isinstance(key, str):
-                vk_code = _get_vk(key)
-                if vk_code == 0:
-                    return False
-            else:
-                vk_code = int(key)
-            return win32api.GetKeyState(vk_code) < 0
+        def get_all_button_states():
+            """获取所有按键状态（使用统一接口）"""
+            if not self.key_monitor:
+                return {}
+            return self.key_monitor.get_button_states()
 
-        def key_down(key):
-            vk = _get_vk(key)
-            if vk and self.rate_limiter.check("input_key"):
-                win32api.keybd_event(vk, 0, 0, 0)
-                return True
-            return False
-
-        def key_up(key):
-            vk = _get_vk(key)
-            if vk and self.rate_limiter.check("input_key"):
-                win32api.keybd_event(vk, 0, 2, 0)
-                return True
-            return False
-
-        def key_press(key, delay_ms=50):
-            if key_down(key):
-                time.sleep(delay_ms / 1000.0)
-                key_up(key)
-                return True
-            return False
-
-        def get_app_state():
-            if self._app_state_getter:
-                return self._app_state_getter()
-            return None
-
+        # ✅ 通过 app_state 获取瞄准状态（保持兼容）
         def is_aim_active():
-            state = get_app_state()
+            state = self._app_state_getter()
             return state.is_mouse_active() if state else False
 
         def is_left_pressed():
-            state = get_app_state()
+            state = self._app_state_getter()
             return state.is_left_pressed() if state else False
 
         def is_right_pressed():
-            state = get_app_state()
+            state = self._app_state_getter()
             return state.is_right_pressed() if state else False
 
+        # 注册函数
+        input_api.is_key_down = is_key_down
+        input_api.is_mouse_down = is_mouse_down
+        input_api.get_all_states = get_all_button_states
         input_api.is_aim_active = is_aim_active
         input_api.is_left_pressed = is_left_pressed
         input_api.is_right_pressed = is_right_pressed
-        input_api.is_mouse_down = is_mouse_down
-        input_api.is_key_down = is_key_down
-        input_api.key_down = key_down
-        input_api.key_up = key_up
-        input_api.key_press = key_press
+
+        # ⚠️ 移除 key_down/key_up/key_press（安全考虑）
+        # 或者保留但使用 rate limiter 限流
 
         return input_api
 

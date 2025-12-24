@@ -205,7 +205,6 @@ def main():
                 shared_makcu_controller = None
                 use_makcu = False
 
-        # ⭐ 创建监控器
         key_monitor = create_key_monitor(
             app_state=app_state,
             use_makcu=use_makcu,
@@ -337,6 +336,7 @@ def main():
                     target_selector=target_selector,
                     yolo_detector=model,
                     screen_capture=None,
+                    key_monitor=key_monitor,  # ✅ 传入 key_monitor
                     verbose=verbose_logging
                 )
                 api.bind_app_state(app_state)
@@ -347,7 +347,9 @@ def main():
                 auto_fire_controller=auto_fire,
                 target_selector=None,
                 yolo_detector=model,
-                screen_capture=None
+                screen_capture=None,
+                key_monitor=key_monitor,  # ✅ 传入 key_monitor
+                verbose=verbose_logging  # ✅ 添加 verbose 参数
             )
             script_api.bind_app_state(app_state)
 

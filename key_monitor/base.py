@@ -53,38 +53,20 @@ class KeyMonitorBase(ABC):
 
     @abstractmethod
     def is_key_pressed(self, key: str) -> bool:
-        """检查按键是否按下（临时修复版）"""
-        key = key.lower()
+        """
+        检查按键是否按下
 
-        # F12 特殊处理
-        if key == 'f12':
-            import win32api
-            import win32con
-            return bool(win32api.GetAsyncKeyState(win32con.VK_F12) & 0x8000)
+        Args:
+            key: 按键名称（'left', 'right', 'f12' 等）
 
-        # 鼠标按键
-        if self._use_pynput:
-            with self._states_lock:
-                return self._button_states.get(key, False)
-        else:
-            try:
-                # ⭐ 增加连接检查
-                if not self.controller:
-                    return False
+        Returns:
+            bool: 是否按下
 
-                # ⭐ 检查是否已断开
-                if hasattr(self.controller, 'is_connected'):
-                    if not self.controller.is_connected():
-                        return False
-
-                states = self.controller.get_button_states()
-                if states and isinstance(states, dict):
-                    return states.get(key, False)
-                return False
-
-            except Exception as e:
-                # ⭐ 静默处理异常（避免刷屏）
-                return False
+        Note:
+            - 子类必须实现此方法
+            - 推荐支持的按键：'left', 'right', 'middle', 'mouse4', 'mouse5', 'f12'
+        """
+        pass  # ✅ 只定义接口，不提供实现
 
     @abstractmethod
     def get_button_states(self) -> Dict[str, bool]:
