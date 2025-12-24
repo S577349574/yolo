@@ -493,7 +493,16 @@ class ConfigManager:
                 "PREVIEW_FRAME_SKIP",
                 "ENABLE_PREVIEW_WINDOW",  # ⭐ 新增
                 "PREVIEW_WINDOW_WIDTH",
-                "PREVIEW_WINDOW_HEIGHT"
+                "PREVIEW_WINDOW_HEIGHT",
+                # ⭐ 新增以下 8 个参数
+                "PREVIEW_SHOW_BOXES",
+                "PREVIEW_SHOW_LABELS",
+                "PREVIEW_SHOW_CONFIDENCE",
+                "PREVIEW_SHOW_FPS",
+                "PREVIEW_SHOW_CROSSHAIR",
+                "PREVIEW_SHOW_AIM_POINT",
+                "PREVIEW_BOX_THICKNESS",
+                "PREVIEW_TEXT_SCALE"
             ],
             "YOLO 检测": ["MODEL_PATH",  "CONF_THRESHOLD", "IOU_THRESHOLD",
                          "TARGET_CLASS_IDS", "TARGET_CLASS_NAMES", "ENABLE_HEAD_PRIORITY",

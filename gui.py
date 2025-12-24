@@ -190,12 +190,12 @@ def create_gui():
 
             # ================= TAB 2: 图像源配置 =================
             with dpg.tab(label="图像源"):
-                dpg.add_text("画面来源模式", color=(0, 255, 255))
+                dpg.add_text("画面来源模式（需要重启启动）", color=(0, 255, 255))
                 add_combo("IMAGE_SOURCE_TYPE", "图像源类型", ["local", "network"])
                 add_int("CROP_SIZE", "推理区域大小 (Crop)", 64, 1280)
 
                 dpg.add_separator()
-                dpg.add_text("网络画面接收配置 (仅network模式生效)", color=(100, 200, 255))
+                dpg.add_text("网络画面接收配置（需要重启启动） (仅network模式生效)", color=(100, 200, 255))
                 add_int("FRAME_PORT", "接收端口", 1024, 65535)
                 add_int("FRAME_WIDTH", "画面宽度 (像素)", 64, 1920)
                 add_int("FRAME_HEIGHT", "画面高度 (像素)", 64, 1080)
