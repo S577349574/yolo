@@ -17,7 +17,7 @@ from script_system.shared_game_state import get_game_state
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from yolo_detector import YOLOv8Detector
-import threading
+
 # 服务器信息
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
 LICENSE_SECRET_KEY = "your_secret_key_change_this"
@@ -87,6 +87,17 @@ class CachedConfig:
     """配置缓存类"""
 
     def __init__(self):
+        self.recoil_require_target = None
+        self.manual_recoil_trigger_mode = None
+        self.enable_manual_recoil = None
+        self.enable_auto_fire = None
+        self.config_names = None
+        self.config_ids = None
+        self.crop_size = None
+        self.recoil_vertical_speed = None
+        self.auto_fire_distance_threshold = None
+        self.auto_fire_accuracy_threshold = None
+        self.inference_fps = None
         self.refresh()
 
     def refresh(self):
@@ -107,7 +118,7 @@ def run_gui_in_background():
     from gui import create_gui
     create_gui()
 def main():
-    global frame_buffer, image_source, key_monitor, shared_makcu_controller
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api
     print("\n" + "=" * 60)
     print("正在初始化...")
 

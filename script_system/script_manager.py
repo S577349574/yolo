@@ -157,7 +157,6 @@ class ScriptManager:
                         "sync": ExecutionMode.SYNC,
                         "async": ExecutionMode.ASYNC,
                         # 如果旧脚本写了 auto，强制转为 sync，保证逻辑安全
-                        "auto": ExecutionMode.SYNC
                     }
 
                     execution_mode = mode_map.get(mode_str, ExecutionMode.SYNC)

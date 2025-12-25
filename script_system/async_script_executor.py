@@ -76,7 +76,7 @@ class AsyncScriptExecutor:
         if self.running: return
         self.running = True
         for i in range(self.max_workers):
-            worker = Thread(target=self._worker_loop, name=f"ScriptWorker-{i}", daemon=True)
+            worker = Thread(target=self._worker_loop, name=f"ScriptWorker-{i}", daemon=False)
             worker.start()
             self.workers.append(worker)
 

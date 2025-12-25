@@ -184,11 +184,6 @@ class ScriptEngine:
             utils.log(f"[ScriptEngine] ❌ 调用 {func_name} 失败: {e}")
             return None
 
-        except Exception as e:
-            self.last_error = str(e)
-            utils.log(f"[ScriptEngine] ❌ 调用 {func_name} 未知错误: {e}")
-            return None
-
     def get_global(self, name: str) -> Optional[Any]:
         """获取全局变量"""
         try:

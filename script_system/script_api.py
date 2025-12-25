@@ -4,7 +4,6 @@ Lua 脚本 API 实现 - 优化版（使用共享状态）
 
 import math
 import time
-import win32api
 
 import utils
 from config_manager import get_config, set_config, save_config
@@ -49,7 +48,6 @@ class ScriptAPI:
         api = lua_runtime.table()
 
         # 注册各个子模块
-        api.target = self._create_target_api(lua_runtime)
         api.state = self._create_state_api(lua_runtime)  # 🔥 新增：游戏状态 API
         api.config = self._create_config_api(lua_runtime)
         api.mouse = self._create_mouse_api(lua_runtime)
@@ -188,33 +186,6 @@ class ScriptAPI:
         state.get_full_state = get_full_state
 
         return state
-
-    # ==================== 目标信息 API（兼容旧版） ====================
-
-    def _create_target_api(self, lua):
-        """创建 target API（保留兼容性）"""
-        target = lua.table()
-
-        # 重定向到新 API
-        target.get_all = lambda: self._create_state_api(lua).get_targets()
-        target.get_locked = lambda: self._create_state_api(lua).get_best_target()
-        target.is_locked = lambda: self.game_state.is_locked
-        target.get_lock_frames = lambda: self.game_state.lock_frames
-        target.get_count = lambda: self.game_state.get_target_count()
-
-        def get_distance():
-            if self.game_state.best_target:
-                return self.game_state.best_target.distance
-            return float('inf')
-
-        target.get_distance = get_distance
-
-        def has_class(class_id):
-            return any(t.class_id == class_id for t in self.game_state.targets)
-
-        target.has_class = has_class
-
-        return target
 
     # ==================== 配置管理 API ====================
 
