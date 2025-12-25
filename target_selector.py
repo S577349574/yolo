@@ -109,48 +109,30 @@ class TargetKalmanFilter:
 
         return float(pred_x), float(pred_y)
 
-    def update_noise(self, measurement_noise: float):
-        """动态更新观测噪声"""
-        self.R = np.eye(2, dtype=np.float32) * measurement_noise
-
 
 class TargetSelector:
+    """目标选择器：按目标个体分组，优先选择最大框目标"""
+
     def __init__(self):
+        # 基础跟踪状态
         self.last_target_x: Optional[int] = None
         self.last_target_y: Optional[int] = None
         self.frames_without_target: int = 0
         self.is_locked: bool = False
 
-        # 目标锁定稳定性
-        self.locked_target_id: Optional[str] = None
+        # 目标锁定（目标组级别）
+        self.locked_target_group_id: Optional[str] = None  # 锁定的目标组ID
         self.target_lock_frames: int = 0
 
-        # 瞄准点平滑
+        # 瞄准点平滑（EMA方式）
         self.smoothed_aim_x: Optional[float] = None
         self.smoothed_aim_y: Optional[float] = None
 
-        self.last_send_time: float = 0
-
-        # 置信度历史记忆（用于抵抗特效干扰）
-        self.confidence_history: deque = deque(maxlen=get_config('CONFIDENCE_HISTORY_SIZE', 10))
-        self.baseline_confidence: float = 0.0
-
-        # 攻击状态保护
-        self.under_attack_frames: int = 0
-        self.attack_protection_enabled: bool = False
-
-        # 战斗保护模式
-        self.combat_mode_threshold = get_config('COMBAT_MODE_THRESHOLD', 10)
-        self.in_combat_mode = False
-        self.lock_initial_confidence = 0.0
-
-        # ⭐ 卡尔曼滤波器
+        # 卡尔曼滤波器
         self.kalman_filter = TargetKalmanFilter(
             process_noise=get_config('KALMAN_PROCESS_NOISE', 0.1),
             measurement_noise=get_config('KALMAN_MEASUREMENT_NOISE', 5.0)
         )
-
-        # 是否启用卡尔曼滤波
         self.use_kalman = get_config('USE_KALMAN_FILTER', True)
 
     def calculate_aim_point(
@@ -158,12 +140,13 @@ class TargetSelector:
             box: Tuple[float, float, float, float],
             capture_area: Dict[str, int]
     ) -> Tuple[int, int]:
+        """计算瞄准点在全局屏幕坐标系中的位置"""
         x1, y1, x2, y2 = map(int, box)
         box_width = x2 - x1
         box_height = y2 - y1
 
         y_ratio = get_config('AIM_Y_RATIO', 0.5)
-        x_offset = get_config('AIM_X_OFFSET', 0)
+        x_offset = get_config('AIM_X_OFFSET', 0.5)
 
         center_x_cropped = int(x1 + box_width * x_offset)
         center_y_cropped = int(y1 + box_height * y_ratio)
@@ -172,6 +155,299 @@ class TargetSelector:
         target_y = capture_area['top'] + center_y_cropped
 
         return target_x, target_y
+
+    def _group_detections_by_target(
+            self,
+            detections: List[Dict],
+            center_x: float,
+            center_y: float
+    ) -> Dict[str, List[Dict]]:
+        """
+        将检测框按目标个体分组
+
+        逻辑：如果身体和头部距离很近，认为是同一个目标
+
+        返回: {group_id: [detection1, detection2, ...]}
+        """
+        group_distance_threshold = get_config('TARGET_GROUP_DISTANCE_THRESHOLD', 100)
+        groups: Dict[str, List[Dict]] = {}
+        next_group_id = 0
+
+        # 先按类别分类
+        bodies = [d for d in detections if d.get('class_id') == 0]
+        heads = [d for d in detections if d.get('class_id') == 1]
+
+        # 计算所有检测框的距离和面积
+        for detection in detections:
+            detection['distance_to_center'] = math.hypot(
+                detection['x'] - center_x,
+                detection['y'] - center_y
+            )
+
+            # 计算面积
+            box = detection.get('box', (0, 0, 0, 0))
+            x1, y1, x2, y2 = box
+            area = (x2 - x1) * (y2 - y1)
+            detection['box_area'] = area
+
+        # 为每个身体创建一个组
+        for body in bodies:
+            group_id = f"target_{next_group_id}"
+            next_group_id += 1
+            groups[group_id] = [body]
+
+        # 尝试将头部分配到最近的身体组
+        for head in heads:
+            # 找最近的身体
+            closest_group = None
+            min_distance = float('inf')
+
+            for group_id, group_detections in groups.items():
+                body = group_detections[0]  # 组里的身体
+                distance = math.hypot(head['x'] - body['x'], head['y'] - body['y'])
+
+                if distance < min_distance and distance < group_distance_threshold:
+                    min_distance = distance
+                    closest_group = group_id
+
+            if closest_group:
+                # 分配到身体组
+                groups[closest_group].append(head)
+            else:
+                # 独立的头部，创建新组
+                group_id = f"target_{next_group_id}"
+                next_group_id += 1
+                groups[group_id] = [head]
+
+        return groups
+
+    def select_best_target(
+            self,
+            candidate_targets: List[Dict],
+            screen_width: int,
+            screen_height: int
+    ) -> Tuple[Optional[int], Optional[int]]:
+        """
+        目标选择：先按目标个体分组，再选择类别
+
+        核心逻辑：
+        1. 将检测框按目标个体分组（身体+头部 = 1个目标）
+        2. 选择距离最近的目标组（用最大框代表） ← 第一优先级
+        3. 在选中的目标组内，优先选头部           ← 第二优先级
+        4. 保留锁定稳定性（避免频繁切换目标组）
+        """
+
+        max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
+
+        # ===== 1. 无目标处理 =====
+        if not candidate_targets:
+            self.frames_without_target += 1
+
+            if self.frames_without_target >= max_lost_frames:
+                self._reset_tracking()
+                return None, None
+
+            # 卡尔曼预测...（保持原有逻辑）
+            if self.use_kalman and self.is_locked:
+                predicted = self.kalman_filter.predict_only(
+                    max_frames=get_config('KALMAN_MAX_PREDICT_FRAMES', 5)
+                )
+
+                if predicted is not None:
+                    pred_x, pred_y = predicted
+                    pred_x = max(0, min(int(pred_x), screen_width - 1))
+                    pred_y = max(0, min(int(pred_y), screen_height - 1))
+
+                    self.last_target_x = pred_x
+                    self.last_target_y = pred_y
+
+                    if get_config('DEBUG_MODE', False):
+                        utils.log_debug(f"[卡尔曼预测] ({pred_x}, {pred_y})")
+
+                    return pred_x, pred_y
+
+            return None, None
+
+        # ===== 2-6. 目标分组与组选择 =====
+        # （保持原有逻辑，第40-147行）
+        center_x = screen_width // 2
+        center_y = screen_height // 2
+
+        target_groups = self._group_detections_by_target(
+            candidate_targets,
+            center_x,
+            center_y
+        )
+
+        # 计算每个目标组的代表距离
+        group_info = []
+        for group_id, detections in target_groups.items():
+            representative = max(detections, key=lambda d: d['box_area'])
+            group_info.append({
+                'group_id': group_id,
+                'detections': detections,
+                'distance': representative['distance_to_center'],
+                'representative': representative
+            })
+
+        group_info.sort(key=lambda g: g['distance'])
+        closest_group = group_info[0]
+        selected_group_id = closest_group['group_id']
+
+        # ===== 锁定稳定性检查（保持原有逻辑）=====
+        min_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 10)
+        target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
+        switch_distance_threshold = get_config('TARGET_SWITCH_DISTANCE_THRESHOLD', 50)
+
+        locked_group = None
+        if self.locked_target_group_id is not None and self.last_target_x is not None:
+            for group in group_info:
+                if group['group_id'] == self.locked_target_group_id:
+                    rep = group['representative']
+                    position_diff = math.hypot(
+                        rep['x'] - self.last_target_x,
+                        rep['y'] - self.last_target_y
+                    )
+                    if position_diff < target_identity_distance:
+                        locked_group = group
+                        break
+
+            if locked_group is not None:
+                distance_gain = locked_group['distance'] - closest_group['distance']
+                should_keep_lock = False
+
+                if self.target_lock_frames < min_lock_frames:
+                    should_keep_lock = True
+                    reason = f"锁定时间不足 ({self.target_lock_frames} < {min_lock_frames})"
+                elif distance_gain < switch_distance_threshold:
+                    should_keep_lock = True
+                    reason = f"距离优势不足 ({distance_gain:.0f}px < {switch_distance_threshold}px)"
+
+                if should_keep_lock:
+                    selected_group_id = locked_group['group_id']
+                    closest_group = locked_group
+
+                    if get_config('DEBUG_MODE', False):
+                        utils.log_debug(f"[保持锁定] {reason}")
+
+        # ===== 7. ⭐ 关键修改：在已选定的目标组内，选择具体部位 =====
+        selected_group_detections = closest_group['detections']
+
+        # 分类组内检测框
+        heads = []
+        bodies = []
+        head_class_id = get_config('HEAD_CLASS_ID', 1)
+
+        for detection in selected_group_detections:
+            if detection.get('class_id') == head_class_id:
+                heads.append(detection)
+            else:
+                bodies.append(detection)
+
+        # 头部过滤（小目标）
+        valid_heads = []
+        if get_config('IGNORE_SMALL_TARGET_HEAD', True):
+            small_size_threshold = get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)
+
+            for head in heads:
+                box = head.get('box', (0, 0, 0, 0))
+                x1, y1, x2, y2 = box
+                box_width = x2 - x1
+                box_height = y2 - y1
+
+                if box_width >= small_size_threshold and box_height >= small_size_threshold:
+                    valid_heads.append(head)
+                elif get_config('DEBUG_MODE', False):
+                    utils.log_debug(
+                        f"[过滤小头部] 尺寸:{box_width:.0f}x{box_height:.0f} < {small_size_threshold}px"
+                    )
+        else:
+            valid_heads = heads
+
+        # 组内部位选择策略
+        selected_detection = None
+        selected_part_type = None
+
+        if get_config('ENABLE_HEAD_PRIORITY', True) and valid_heads:
+            # 策略1: 有有效头部，优先选择距离最近的头部
+            selected_detection = min(valid_heads, key=lambda d: d['distance_to_center'])
+            selected_part_type = 'head'
+
+            if get_config('DEBUG_MODE', False):
+                utils.log_debug(
+                    f"[组内选择] 头部优先 | "
+                    f"头部数:{len(valid_heads)} | "
+                    f"距离:{selected_detection['distance_to_center']:.0f}px"
+                )
+
+        elif bodies:
+            # 策略2: 没有有效头部，选择身体
+            selected_detection = min(bodies, key=lambda d: d['distance_to_center'])
+            selected_part_type = 'body'
+
+            if get_config('DEBUG_MODE', False):
+                reason = "无有效头部" if heads else "头部被过滤"
+                utils.log_debug(
+                    f"[组内选择] 回退身体 | "
+                    f"原因:{reason} | "
+                    f"距离:{selected_detection['distance_to_center']:.0f}px"
+                )
+
+        else:
+            # 策略3: 既没有有效头部也没有身体（极端情况）
+            selected_detection = min(
+                selected_group_detections,
+                key=lambda d: d['distance_to_center']
+            )
+            selected_part_type = 'fallback'
+
+            if get_config('DEBUG_MODE', False):
+                utils.log_debug(f"[组内选择] 兜底策略")
+
+        # ===== 8. 更新锁定状态 =====
+        is_new_target = (selected_group_id != self.locked_target_group_id)
+
+        if is_new_target:
+            self.locked_target_group_id = selected_group_id
+            self.target_lock_frames = 0
+
+            # 日志输出
+            group_composition = [
+                "头" if d.get('class_id') == head_class_id else "身"
+                for d in selected_group_detections
+            ]
+
+            utils.log(
+                f"✓ 锁定目标组 | {selected_group_id} | "
+                f"组成:[{'+'.join(group_composition)}] | "
+                f"选择:{selected_part_type} | "
+                f"距离:{selected_detection['distance_to_center']:.0f}px"
+            )
+        else:
+            self.target_lock_frames += 1
+
+            # 如果是组内部位切换，也输出日志
+            if get_config('DEBUG_MODE', False):
+                utils.log_debug(
+                    f"[组内稳定] 锁定{self.target_lock_frames}帧 | "
+                    f"当前部位:{selected_part_type}"
+                )
+
+        # ===== 9. 应用平滑 =====
+        raw_x = selected_detection['x']
+        raw_y = selected_detection['y']
+
+        smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
+
+        smoothed_x = max(0, min(smoothed_x, screen_width - 1))
+        smoothed_y = max(0, min(smoothed_y, screen_height - 1))
+
+        self.last_target_x = int(smoothed_x)
+        self.last_target_y = int(smoothed_y)
+        self.frames_without_target = 0
+        self.is_locked = True
+
+        return self.last_target_x, self.last_target_y
 
     def _apply_smoothing(
             self,
@@ -182,22 +458,27 @@ class TargetSelector:
         """平滑处理 - 支持 EMA 或卡尔曼"""
 
         if self.use_kalman:
-            # ⭐ 卡尔曼滤波路径
+            # 卡尔曼滤波路径
             if is_new_target:
                 self.kalman_filter.init_with_position(raw_x, raw_y)
                 return int(raw_x), int(raw_y)
 
             smooth_x, smooth_y = self.kalman_filter.update(raw_x, raw_y)
 
-            delta_x = abs(smooth_x - raw_x)
-            delta_y = abs(smooth_y - raw_y)
-            if delta_x > 5 or delta_y > 5:
-                utils.log_debug(f"[Kalman] 原始({raw_x:.0f},{raw_y:.0f}) → 平滑({smooth_x:.0f},{smooth_y:.0f})")
+            # 调试输出
+            if get_config('DEBUG_MODE', False):
+                delta_x = abs(smooth_x - raw_x)
+                delta_y = abs(smooth_y - raw_y)
+                if delta_x > 5 or delta_y > 5:
+                    utils.log_debug(
+                        f"[卡尔曼平滑] 原始({raw_x:.0f},{raw_y:.0f}) → "
+                        f"平滑({smooth_x:.0f},{smooth_y:.0f})"
+                    )
 
             return int(smooth_x), int(smooth_y)
 
         else:
-            # 原有 EMA 路径
+            # EMA 平滑路径
             smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.25)
 
             if is_new_target or self.smoothed_aim_x is None:
@@ -215,287 +496,6 @@ class TargetSelector:
 
             return int(self.smoothed_aim_x), int(self.smoothed_aim_y)
 
-    def _update_confidence_tracking(self, confidence: float) -> None:
-        self.confidence_history.append(confidence)
-
-        if len(self.confidence_history) >= 3:
-            sorted_conf = sorted(self.confidence_history)
-            self.baseline_confidence = sorted_conf[len(sorted_conf) // 2]
-
-            conf_drop_threshold = get_config('CONFIDENCE_DROP_THRESHOLD', 0.15)
-            recent_avg = sum(list(self.confidence_history)[-3:]) / 3
-
-            if self.baseline_confidence - recent_avg > conf_drop_threshold:
-                self.under_attack_frames += 1
-            else:
-                self.under_attack_frames = max(0, self.under_attack_frames - 1)
-
-            attack_protection_frames = get_config('ATTACK_PROTECTION_TRIGGER_FRAMES', 3)
-            self.attack_protection_enabled = (
-                    self.under_attack_frames >= attack_protection_frames
-            )
-
-            # ⭐ 被攻击时动态调整卡尔曼观测噪声
-            if self.use_kalman:
-                if self.attack_protection_enabled:
-                    # 置信度骤降，更相信预测而非观测
-                    self.kalman_filter.update_noise(15.0)
-                else:
-                    # 正常情况
-                    self.kalman_filter.update_noise(
-                        get_config('KALMAN_MEASUREMENT_NOISE', 5.0)
-                    )
-
-    def _calculate_enhanced_score(
-            self,
-            target: Dict,
-            ref_x: float,
-            ref_y: float,
-            max_distance: float,
-            is_locked_target: bool
-    ) -> float:
-        distance = math.hypot(target['x'] - ref_x, target['y'] - ref_y)
-        normalized_distance = distance / max_distance
-        distance_score = 1.0 - normalized_distance
-
-        conf_score = target['confidence']
-
-        if is_locked_target and self.in_combat_mode:
-            baseline_ratio = get_config('CONFIDENCE_BASELINE_RATIO', 0.95)
-            conf_score = max(conf_score, self.lock_initial_confidence * baseline_ratio)
-
-            distance_boost = get_config('COMBAT_MODE_DISTANCE_BOOST', 7.0)
-            distance_score = min(1.0, distance_score * distance_boost)
-
-            if conf_score > target['confidence'] and self.target_lock_frames < 30:
-                utils.log_debug(
-                    f" 修正置信度 | "
-                    f"{target['confidence']:.2f}→{conf_score:.2f}"
-                )
-
-        elif is_locked_target and self.attack_protection_enabled:
-            baseline_ratio = get_config('CONFIDENCE_BASELINE_RATIO', 0.95)
-            conf_score = max(conf_score, self.baseline_confidence * baseline_ratio)
-            distance_boost = get_config('ATTACK_PROTECTION_DISTANCE_BOOST', 1.5)
-            distance_score = min(1.0, distance_score * distance_boost)
-
-        distance_weight = get_config('DISTANCE_WEIGHT', 0.8)
-        composite_score = (
-                distance_weight * distance_score +
-                (1 - distance_weight) * conf_score
-        )
-
-        if get_config('ENABLE_HEAD_PRIORITY', True):
-            target_class_id = target.get('class_id', -1)
-            priority_id = get_config('HEAD_CLASS_ID', 1)
-
-            if target_class_id == priority_id:
-                # 获取加分 (默认1000分，足以无视任何距离差距)
-                bonus = get_config('HEAD_PRIORITY_BONUS', 1000.0)
-                composite_score += bonus
-        if is_locked_target:
-            if self.in_combat_mode:
-                lock_bonus = get_config('COMBAT_MODE_LOCK_BONUS', 0.60)
-            else:
-                lock_bonus = get_config('LOCKED_TARGET_BONUS', 0.35)
-            composite_score += lock_bonus
-
-        return composite_score
-
-    def select_best_target(
-            self,
-            candidate_targets: List[Dict],
-            screen_width: int,
-            screen_height: int
-    ) -> Tuple[Optional[int], Optional[int]]:
-
-        max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
-        target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
-        min_target_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 15)
-        target_switch_threshold = get_config('TARGET_SWITCH_THRESHOLD', 0.1)
-
-        # ⭐ 无目标时使用卡尔曼预测
-        if not candidate_targets:
-            self.frames_without_target += 1
-
-            if self.frames_without_target >= max_lost_frames:
-                self._reset_tracking()
-                return None, None
-
-            # ⭐ 尝试用卡尔曼预测填充
-            if self.use_kalman and self.is_locked:
-                predicted = self.kalman_filter.predict_only(
-                    max_frames=get_config('KALMAN_MAX_PREDICT_FRAMES', 5)
-                )
-
-                if predicted is not None:
-                    pred_x, pred_y = predicted
-
-                    # 边界检查
-                    pred_x = max(0, min(int(pred_x), screen_width - 1))
-                    pred_y = max(0, min(int(pred_y), screen_height - 1))
-
-                    self.last_target_x = pred_x
-                    self.last_target_y = pred_y
-
-                    return pred_x, pred_y
-
-            return None, None
-
-        id_grid_size = 20
-        for target in candidate_targets:
-            target['id'] = (
-                f"{int(target['x'] / id_grid_size)}_"
-                f"{int(target['y'] / id_grid_size)}"
-            )
-
-        search_multiplier = 2.0 if (self.attack_protection_enabled or self.in_combat_mode) else 1.0
-        effective_identity_distance = target_identity_distance * search_multiplier
-
-        current_locked_target: Optional[Dict] = None
-        if self.locked_target_id is not None and self.last_target_x is not None:
-            for target in candidate_targets:
-                if target['id'] == self.locked_target_id:
-                    distance = math.hypot(
-                        target['x'] - self.last_target_x,
-                        target['y'] - self.last_target_y
-                    )
-                    if distance < effective_identity_distance:
-                        current_locked_target = target
-                        break
-
-            if current_locked_target is None:
-                closest_target = min(
-                    candidate_targets,
-                    key=lambda t: math.hypot(
-                        t['x'] - self.last_target_x,
-                        t['y'] - self.last_target_y
-                    )
-                )
-                distance = math.hypot(
-                    closest_target['x'] - self.last_target_x,
-                    closest_target['y'] - self.last_target_y
-                )
-                if distance < effective_identity_distance:
-                    current_locked_target = closest_target
-                    self.locked_target_id = closest_target['id']
-
-        max_distance = math.hypot(screen_width, screen_height)
-        ref_x = self.last_target_x if self.last_target_x is not None else screen_width // 2
-        ref_y = self.last_target_y if self.last_target_y is not None else screen_height // 2
-
-        scored_targets = []
-        for idx, target in enumerate(candidate_targets):
-            is_locked = (current_locked_target is not None and
-                         target['id'] == current_locked_target['id'])
-
-            score = self._calculate_enhanced_score(
-                target, ref_x, ref_y, max_distance, is_locked
-            )
-
-            distance = math.hypot(target['x'] - ref_x, target['y'] - ref_y)
-
-            scored_targets.append({
-                'target': target,
-                'score': score,
-                'distance': distance,
-                'index': idx
-            })
-
-        scored_targets.sort(key=lambda x: x['score'], reverse=True)
-        best_candidate = scored_targets[0]
-
-        is_new_target = False
-
-        if current_locked_target is not None:
-            if self.target_lock_frames >= self.combat_mode_threshold:
-                if not self.in_combat_mode:
-                    self.in_combat_mode = True
-                    utils.log_debug(f" 进入战斗模式 (已锁定{self.target_lock_frames}帧)")
-
-            locked_score = next(
-                (st['score'] for st in scored_targets
-                 if st['target']['id'] == self.locked_target_id),
-                0.0
-            )
-
-            score_diff = best_candidate['score'] - locked_score
-
-            effective_switch_threshold = target_switch_threshold
-            if self.in_combat_mode:
-                effective_switch_threshold *= 3.0
-            elif self.attack_protection_enabled:
-                effective_switch_threshold *= 2.0
-
-            if (self.target_lock_frames >= min_target_lock_frames and
-                    score_diff > effective_switch_threshold):
-                selected_target = best_candidate['target']
-                self.locked_target_id = selected_target['id']
-                self.target_lock_frames = 0
-                is_new_target = True
-                self.in_combat_mode = False
-                self._reset_motion_params()
-                utils.log(
-                    f"切换目标 | "
-                    f"得分差:{score_diff:.2f} > 阈值:{effective_switch_threshold:.2f}"
-                )
-            else:
-                selected_target = current_locked_target
-                self.target_lock_frames += 1
-        else:
-            selected_target = best_candidate['target']
-            self.locked_target_id = selected_target['id']
-            self.target_lock_frames = 0
-            is_new_target = True
-            self.in_combat_mode = False
-            self._reset_motion_params()
-
-        if is_new_target:
-            self.lock_initial_confidence = selected_target['confidence']
-
-            other_targets_info = []
-            for st in scored_targets:
-                if st['target']['id'] != self.locked_target_id:
-                    other_targets_info.append(
-                        f"T{st['index']}({st['target']['confidence']:.2f})"
-                    )
-
-            other_targets_str = " | ".join(other_targets_info) if other_targets_info else "无"
-
-            utils.log_debug(
-                f"  锁定新目标 | "
-                f"T{best_candidate['index']}({self.lock_initial_confidence:.2f}) | "
-                f"其他目标: {other_targets_str}"
-            )
-
-        self._update_confidence_tracking(selected_target['confidence'])
-
-        raw_x = selected_target['x']
-        raw_y = selected_target['y']
-
-        if is_new_target:
-            self.smoothed_aim_x = float(raw_x)
-            self.smoothed_aim_y = float(raw_y)
-
-            self.last_target_x = int(raw_x)
-            self.last_target_y = int(raw_y)
-            self.frames_without_target = 0
-            self.is_locked = True
-
-            return self.last_target_x, self.last_target_y
-
-        smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, False)
-
-        smoothed_x = max(0, min(smoothed_x, screen_width - 1))
-        smoothed_y = max(0, min(smoothed_y, screen_height - 1))
-
-        self.last_target_x = int(smoothed_x)
-        self.last_target_y = int(smoothed_y)
-        self.frames_without_target = 0
-        self.is_locked = True
-
-        return self.last_target_x, self.last_target_y
-
     def should_send_command(
             self,
             target_x: int,
@@ -503,6 +503,7 @@ class TargetSelector:
             screen_center_x: int,
             screen_center_y: int
     ) -> bool:
+        """判断是否需要发送移动命令"""
         offset_x = target_x - screen_center_x
         offset_y = target_y - screen_center_y
         offset_distance = math.hypot(offset_x, offset_y)
@@ -528,33 +529,22 @@ class TargetSelector:
 
         return int(predicted[0]), int(predicted[1])
 
-    def _reset_motion_params(self) -> None:
-        """重置运动相关参数"""
-        self.smoothed_aim_x = None
-        self.smoothed_aim_y = None
-
-        # ⭐ 重置卡尔曼
-        if self.use_kalman:
-            self.kalman_filter.reset()
-
     def _reset_tracking(self) -> None:
         """重置所有跟踪状态"""
         self.last_target_x = None
         self.last_target_y = None
         self.is_locked = False
-        self.locked_target_id = None
+        self.locked_target_group_id = None
         self.target_lock_frames = 0
         self.frames_without_target = 0
-        self._reset_motion_params()
 
-        self.confidence_history.clear()
-        self.baseline_confidence = 0.0
-        self.under_attack_frames = 0
-        self.attack_protection_enabled = False
+        # 重置平滑参数
+        self.smoothed_aim_x = None
+        self.smoothed_aim_y = None
 
-        self.in_combat_mode = False
-        self.lock_initial_confidence = 0.0
-
-        # ⭐ 重置卡尔曼
+        # 重置卡尔曼
         if self.use_kalman:
             self.kalman_filter.reset()
+
+        if get_config('DEBUG_MODE', False):
+            utils.log_debug("[重置追踪] 所有状态已清空")

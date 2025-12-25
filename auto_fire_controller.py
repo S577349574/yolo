@@ -5,8 +5,6 @@ import threading
 import time
 from typing import List, Optional, Tuple
 
-import win32api
-
 import utils
 from config_manager import get_config
 

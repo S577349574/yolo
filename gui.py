@@ -161,7 +161,7 @@ def create_gui():
     dpg.create_context()
     setup_chinese_font()
 
-    with dpg.window(tag="Primary Window", label="AI 全参数配置管理器 v5.0"):
+    with dpg.window(tag="Primary Window", label="AI 全参数配置管理器 v6.0 (最新目标分组版)"):
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
@@ -242,6 +242,7 @@ def create_gui():
                 update_dependent_controls("ENABLE_PREVIEW_WINDOW", preview_deps, preview_enabled)
 
             # ================= TAB 4: 视觉识别 =================
+            # ================= TAB 4: 视觉识别 =================
             with dpg.tab(label="视觉识别"):
                 dpg.add_text("检测参数", color=(100, 255, 100))
                 add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
@@ -259,10 +260,48 @@ def create_gui():
                     dpg.add_spacer(width=20, parent=group_tag)
 
                 dpg.add_separator()
-                dpg.add_text("优先级策略", color=(100, 255, 100))
-                add_bool("ENABLE_HEAD_PRIORITY", "优先锁头")
-                add_int("HEAD_CLASS_ID", "头部 ID 定义", 0, 10)
-                add_float("HEAD_PRIORITY_BONUS", "头部权重加分", 0, 5000)
+                dpg.add_text("头部优先策略", color=(100, 255, 100))
+
+                # ⭐ 头部优先主开关（带联动）
+                head_priority_deps = ["head_class_id", "head_priority_range", "ignore_small_head",
+                                      "small_target_threshold"]
+                head_priority_enabled = cfg.get_config("ENABLE_HEAD_PRIORITY", True)
+                dpg.add_checkbox(
+                    label="启用头部优先",
+                    default_value=head_priority_enabled,
+                    callback=create_master_switch_callback("ENABLE_HEAD_PRIORITY", head_priority_deps)
+                )
+
+                add_int_tagged("HEAD_CLASS_ID", "头部 ID 定义", 0, 10, "head_class_id")
+                add_int_tagged("HEAD_PRIORITY_RANGE", "头部优先距离范围 (像素)", 0, 500, "head_priority_range")
+
+                dpg.add_text("说明：在目标组内，头部可以比最近检测框远多少像素",
+                             color=(150, 150, 150))
+
+                dpg.add_separator()
+                dpg.add_text("小目标头部过滤 (新增)", color=(255, 200, 0))
+
+                # ⭐ 小目标头部过滤开关（二级联动）
+                small_target_deps = ["small_target_threshold"]
+                ignore_small_head_enabled = cfg.get_config("IGNORE_SMALL_TARGET_HEAD", True)
+                dpg.add_checkbox(
+                    label="🔍 忽略小目标的头部检测框",
+                    default_value=ignore_small_head_enabled,
+                    callback=create_master_switch_callback("IGNORE_SMALL_TARGET_HEAD", small_target_deps),
+                    tag="ignore_small_head"
+                )
+
+                add_int_tagged("SMALL_TARGET_SIZE_THRESHOLD", "小目标尺寸阈值 (像素)", 10, 200,
+                               "small_target_threshold")
+
+                dpg.add_text("说明：当检测框宽度或高度 < 此值时，忽略头部类别",
+                             color=(150, 150, 150))
+                dpg.add_text("适用场景：远距离目标 / 头部抖动严重时",
+                             color=(150, 150, 150))
+
+                # ⭐ 初始化控件状态
+                update_dependent_controls("ENABLE_HEAD_PRIORITY", head_priority_deps, head_priority_enabled)
+                update_dependent_controls("IGNORE_SMALL_TARGET_HEAD", small_target_deps, ignore_small_head_enabled)
 
             # ================= TAB 5: PID 瞄准 =================
             with dpg.tab(label="PID 控制"):
@@ -288,17 +327,24 @@ def create_gui():
                 add_int("PRECISION_DEAD_ZONE", "瞄准死区 (像素)", 0, 50)
                 add_int("DEFAULT_DELAY_MS_PER_STEP", "每步延迟 (ms)", 0, 50)
 
-            # ================= TAB 6: 追踪与滤波 =================
-            with dpg.tab(label="追踪算法"):
-                dpg.add_text("目标跟踪", color=(255, 100, 255))
-                add_float("DISTANCE_WEIGHT", "距离权重系数", 0.0, 2.0)
-                add_int("MIN_TARGET_LOCK_FRAMES", "锁定所需帧数", 1, 20)
-                add_int("MAX_LOST_FRAMES", "丢失目标容忍帧", 1, 100)
-                add_float("TARGET_SWITCH_THRESHOLD", "目标切换阈值", 0.01, 1.0)
-                add_int("TARGET_IDENTITY_DISTANCE", "同目标判定距离", 10, 500)
+            # ================= TAB 6: 目标追踪 (重构) =================
+            with dpg.tab(label="目标追踪"):
+                dpg.add_text("🎯 目标分组设置 (新增)", color=(255, 255, 0))
+                add_int("TARGET_GROUP_DISTANCE_THRESHOLD", "身体头部分组距离阈值", 10, 500)
+                add_int("TARGET_ID_GRID_SIZE", "目标ID网格大小 (像素)", 5, 100)
+
+                dpg.add_text("说明：身体和头部距离小于此值时认为是同一个目标",
+                             color=(150, 150, 150))
 
                 dpg.add_separator()
-                dpg.add_text("卡尔曼滤波 (Kalman)", color=(255, 100, 255))
+                dpg.add_text("🔒 目标选择与锁定", color=(255, 100, 255))
+                add_int("MIN_TARGET_LOCK_FRAMES", "最小锁定帧数", 1, 100)
+                add_int("TARGET_SWITCH_DISTANCE_THRESHOLD", "切换距离阈值 (像素)", 10, 500)
+                add_int("TARGET_IDENTITY_DISTANCE", "同目标判定距离 (像素)", 10, 500)
+                add_int("MAX_LOST_FRAMES", "丢失目标容忍帧", 1, 300)
+
+                dpg.add_separator()
+                dpg.add_text("📊 卡尔曼滤波 (Kalman)", color=(255, 100, 255))
 
                 # ⭐ 卡尔曼滤波联动
                 kalman_deps = ["kalman_process", "kalman_measure", "kalman_predict"]
@@ -311,12 +357,16 @@ def create_gui():
 
                 add_float_tagged("KALMAN_PROCESS_NOISE", "过程噪声", 0.01, 10.0, "kalman_process")
                 add_float_tagged("KALMAN_MEASUREMENT_NOISE", "测量噪声", 0.1, 50.0, "kalman_measure")
-                add_int_tagged("KALMAN_MAX_PREDICT_FRAMES", "最大预测帧数", 0, 10, "kalman_predict")
+                add_int_tagged("KALMAN_MAX_PREDICT_FRAMES", "最大预测帧数", 0, 60, "kalman_predict")
 
                 update_dependent_controls("USE_KALMAN_FILTER", kalman_deps, kalman_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("抗干扰 & 预判", color=(255, 100, 255))
+                dpg.add_text("🎯 EMA 平滑 (备用)", color=(255, 100, 255))
+                add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数 (仅在禁用卡尔曼时生效)", 0.01, 1.0)
+
+                dpg.add_separator()
+                dpg.add_text("🚀 移动预判", color=(255, 100, 255))
 
                 # ⭐ 预判联动
                 lead_deps = ["lead_frames"]
@@ -327,12 +377,8 @@ def create_gui():
                     callback=create_master_switch_callback("ENABLE_LEAD_TARGET", lead_deps)
                 )
 
-                add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 10, "lead_frames")
+                add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 30, "lead_frames")
                 update_dependent_controls("ENABLE_LEAD_TARGET", lead_deps, lead_enabled)
-
-                add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数", 0.01, 1.0)
-                add_int("CONFIDENCE_HISTORY_SIZE", "置信度历史长度", 1, 20)
-                add_float("CONFIDENCE_DROP_THRESHOLD", "置信度骤降阈值", 0.01, 1.0)
 
             # ================= TAB 7: 压枪系统 =================
             with dpg.tab(label="压枪配置"):
@@ -341,8 +387,9 @@ def create_gui():
                 # ⭐ 压枪系统联动
                 recoil_deps = [
                     "recoil_ctrl", "recoil_mode", "recoil_req_target", "recoil_req_lock",
-                    "recoil_timeout", "recoil_pattern", "recoil_v_speed", "recoil_h_speed",
-                    "recoil_inc_y", "recoil_h_var", "recoil_max_move", "recoil_max_x", "recoil_max_y"
+                    "recoil_timeout", "recoil_lock_frames", "recoil_pattern", "recoil_v_speed",
+                    "recoil_h_speed", "recoil_inc_y", "recoil_h_var", "recoil_max_move",
+                    "recoil_max_x", "recoil_max_y"
                 ]
                 recoil_enabled = cfg.get_config("ENABLE_MANUAL_RECOIL", True)
                 dpg.add_checkbox(
@@ -360,6 +407,7 @@ def create_gui():
                 add_bool_tagged("RECOIL_REQUIRE_TARGET", "仅在有目标时压枪", "recoil_req_target")
                 add_bool_tagged("RECOIL_REQUIRE_LOCK", "仅在锁定目标时压枪", "recoil_req_lock")
                 add_float_tagged("RECOIL_TARGET_TIMEOUT", "目标丢失超时 (秒)", 0.1, 5.0, "recoil_timeout")
+                add_int_tagged("RECOIL_MIN_LOCK_FRAMES", "压枪前需锁定帧数", 0, 100, "recoil_lock_frames")
 
                 dpg.add_separator()
                 dpg.add_text("压枪参数", color=(255, 180, 0))
@@ -398,7 +446,7 @@ def create_gui():
                 add_float_tagged("AUTO_FIRE_DISTANCE_THRESHOLD", "距离像素阈值",
                                  1.0, 200.0, "autofire_dist")
                 add_int_tagged("AUTO_FIRE_MIN_LOCK_FRAMES", "开火前需锁定帧数",
-                               0, 20, "autofire_lock")
+                               0, 100, "autofire_lock")
 
                 update_dependent_controls("ENABLE_AUTO_FIRE", autofire_deps, autofire_enabled)
 
@@ -472,7 +520,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title='AI Config Ultimate v5.0', width=850, height=800)
+    dpg.create_viewport(title='AI Config Ultimate v6.0 - 新目标分组版', width=900, height=820)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("Primary Window", True)
@@ -591,3 +639,4 @@ def add_combo_tagged(key, label, items, tag=None):
 
 if __name__ == "__main__":
     create_gui()
+

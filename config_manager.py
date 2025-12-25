@@ -73,73 +73,76 @@ class ConfigManager:
     def get_default_config(self) -> Dict[str, Any]:
         """最小化默认配置（只包含必要项）"""
         return {
-            # 许可证
+            # ========== 许可证 ==========
             "LICENSE_KEY": "",
-            # ========== 图像源配置（新增）==========
-            "IMAGE_SOURCE_TYPE": "local",  # 可选: 'local' 或 'network'
-            # ========== 预览窗口配置 ==========
-            "ENABLE_PREVIEW_WINDOW": False,
-            "PREVIEW_WINDOW_WIDTH": 800,
-            "PREVIEW_WINDOW_HEIGHT": 800,
-            "PREVIEW_FRAME_SKIP":0,
 
-            # ⭐ 新增：可视化选项
-            "PREVIEW_SHOW_BOXES": True,  # 显示检测框
-            "PREVIEW_SHOW_LABELS": True,  # 显示类别标签
-            "PREVIEW_SHOW_CONFIDENCE": True,  # 显示置信度
-            "PREVIEW_SHOW_FPS": True,  # 显示FPS
-            "PREVIEW_SHOW_CROSSHAIR": True,  # 显示准心十字线
-            "PREVIEW_SHOW_AIM_POINT": True,  # 显示瞄准点
-            "PREVIEW_BOX_THICKNESS": 2,  # 检测框线宽
-            "PREVIEW_TEXT_SCALE": 0.5,  # 文字大小
+            # ========== 图像源配置 ==========
+            "IMAGE_SOURCE_TYPE": "local",  # 可选: 'local' 或 'network'
+            "CROP_SIZE": 320,
+
             # 网络画面接收
             "FRAME_PORT": 27015,
             "FRAME_WIDTH": 256,
             "FRAME_HEIGHT": 256,
             "FRAME_CHANNELS": 3,
-            "CROP_SIZE": 320,
             "USE_LZ4": True,
-            # YOLO 检测
+
+            # 预览窗口
+            "ENABLE_PREVIEW_WINDOW": False,
+            "PREVIEW_WINDOW_WIDTH": 800,
+            "PREVIEW_WINDOW_HEIGHT": 800,
+            "PREVIEW_FRAME_SKIP": 0,
+            "PREVIEW_SHOW_BOXES": True,
+            "PREVIEW_SHOW_LABELS": True,
+            "PREVIEW_SHOW_CONFIDENCE": True,
+            "PREVIEW_SHOW_FPS": True,
+            "PREVIEW_SHOW_CROSSHAIR": True,
+            "PREVIEW_SHOW_AIM_POINT": True,
+            "PREVIEW_BOX_THICKNESS": 2,
+            "PREVIEW_TEXT_SCALE": 0.5,
+
+            # ========== YOLO 检测 ==========
             "MODEL_PATH": "320.onnx",
             "CONF_THRESHOLD": 0.60,
             "IOU_THRESHOLD": 0.45,
-            "TARGET_CLASS_IDS": [1, 0],
-            "TARGET_CLASS_NAMES": ["敌"],
+            "TARGET_CLASS_IDS": [0, 1],
+            "TARGET_CLASS_NAMES": ["身体", "头部"],
 
-            # 优先锁定
+            # ========== 目标分组 ==========
+            "TARGET_GROUP_DISTANCE_THRESHOLD": 100,
+
+            # ========== 目标选择 ==========
+            "MIN_TARGET_LOCK_FRAMES": 10,
+            "TARGET_SWITCH_DISTANCE_THRESHOLD": 50,
+            "TARGET_IDENTITY_DISTANCE": 100,
+            "MAX_LOST_FRAMES": 30,
+            "TARGET_ID_GRID_SIZE": 20,
+
+            # ========== 头部优先 ==========
             "ENABLE_HEAD_PRIORITY": True,
             "HEAD_CLASS_ID": 1,
-            "HEAD_PRIORITY_BONUS": 1000.0,
-
-            # 瞄准点
+            "HEAD_PRIORITY_RANGE": 80,
+            "IGNORE_SMALL_TARGET_HEAD": True,
+            # 忽略小目标的头部
+            "SMALL_TARGET_SIZE_THRESHOLD": 40,
+            # ========== 瞄准点配置 ==========
             "AIM_Y_RATIO": 0.5,
             "AIM_X_OFFSET": 0.5,
 
-            # 目标跟踪
-            "MIN_TARGET_LOCK_FRAMES": 3,
-            "TARGET_SWITCH_THRESHOLD": 0.15,
-            "TARGET_IDENTITY_DISTANCE": 100,
-            "MAX_LOST_FRAMES": 30,
-            "DISTANCE_WEIGHT": 0.8,
-            "AIM_POINT_SMOOTH_ALPHA": 0.8,
-
-            # 特效干扰抵抗
-            "CONFIDENCE_HISTORY_SIZE": 10,
-            "CONFIDENCE_DROP_THRESHOLD": 0.15,
-            "ATTACK_PROTECTION_TRIGGER_FRAMES": 3,
-            "LOCKED_TARGET_BONUS": 0.15,
-
-            # 卡尔曼滤波
+            # ========== 卡尔曼滤波 ==========
             "USE_KALMAN_FILTER": True,
-            "KALMAN_PROCESS_NOISE": 0.2,
-            "KALMAN_MEASUREMENT_NOISE": 1.0,
-            "KALMAN_MAX_PREDICT_FRAMES": 3,
+            "KALMAN_PROCESS_NOISE": 0.1,
+            "KALMAN_MEASUREMENT_NOISE": 5.0,
+            "KALMAN_MAX_PREDICT_FRAMES": 5,
 
-            # 预判瞄准
+            # ========== EMA 平滑（备用）==========
+            "AIM_POINT_SMOOTH_ALPHA": 0.25,
+
+            # ========== 预判瞄准 ==========
             "ENABLE_LEAD_TARGET": False,
             "LEAD_FRAMES": 2,
 
-            # PID 控制
+            # ========== PID 控制 ==========
             "PID_KP_X": 0.15,
             "PID_KD_X": 0.05,
             "PID_KI_X": 0.05,
@@ -150,20 +153,19 @@ class ConfigManager:
             "PRECISION_DEAD_ZONE": 5,
             "DEFAULT_DELAY_MS_PER_STEP": 1,
 
-            # 鼠标控制
-            "USE_MAKCU": False,  # [新增] 是否启用 Makcu 硬件模式
-            "MAKCU_PORT": "",  # [新增] 指定COM口，留空自动搜索 (例如 "COM3")
-            "MAKCU_AUTO_RECONNECT": True,  # [新增] 是否开启断线自动重连
-
+            # ========== 鼠标控制模式 ==========
+            "USE_MAKCU": False,
+            "MAKCU_PORT": "",
+            "MAKCU_AUTO_RECONNECT": True,
             "USE_DRIVER_MODE": False,
             "MOUSE_MODE_AUTO_FALLBACK": True,
             "MAX_MICKEY": 500,
 
-            # 驱动配置
+            # ========== 驱动配置 ==========
             "DRIVER_PATH": r"\\.\infestation",
             "MOUSE_REQUEST": 2234776,
 
-            # 按键定义
+            # ========== 按键定义 ==========
             "APP_MOUSE_NO_BUTTON": 0,
             "APP_MOUSE_LEFT_DOWN": 1,
             "APP_MOUSE_LEFT_UP": 2,
@@ -172,12 +174,12 @@ class ConfigManager:
             "APP_MOUSE_MIDDLE_DOWN": 16,
             "APP_MOUSE_MIDDLE_UP": 32,
 
-            # 按键监控
+            # ========== 按键监控 ==========
             "ENABLE_LEFT_MOUSE_MONITOR": False,
             "ENABLE_RIGHT_MOUSE_MONITOR": True,
             "KEY_MONITOR_INTERVAL_MS": 50,
 
-            # 系统配置
+            # ========== 系统配置 ==========
             "ENABLE_LOGGING": True,
             "LOG_LEVEL": "INFO",
             "DEBUG_MODE": False,
@@ -186,40 +188,38 @@ class ConfigManager:
             "CAPTURE_FPS": 144,
             "INFERENCE_FPS": 300,
 
-            # 自动开火
+            # ========== 自动开火 ==========
             "ENABLE_AUTO_FIRE": False,
             "AUTO_FIRE_ACCURACY_THRESHOLD": 0.5,
             "AUTO_FIRE_DISTANCE_THRESHOLD": 15.0,
             "AUTO_FIRE_MIN_LOCK_FRAMES": 3,
             "AUTO_FIRE_DEBUG_MODE": False,
 
-            # 压枪模式
+            # ========== 压枪模式 ==========
             "ENABLE_MANUAL_RECOIL": True,
             "ENABLE_RECOIL_CONTROL": True,
             "MANUAL_RECOIL_TRIGGER_MODE": "both_buttons",
 
-            # 压枪触发条件
+            # ========== 压枪触发条件 ==========
             "RECOIL_REQUIRE_TARGET": False,
             "RECOIL_REQUIRE_LOCK": False,
             "RECOIL_TARGET_TIMEOUT": 0.5,
             "RECOIL_MIN_LOCK_FRAMES": 0,
 
-            # 压枪速度
+            # ========== 压枪速度配置 ==========
             "RECOIL_PATTERN": "linear",
             "RECOIL_VERTICAL_SPEED": 180.0,
             "RECOIL_HORIZONTAL_SPEED": 0.0,
             "RECOIL_INCREMENT_Y": 0.5,
 
-            # 压枪限制
+            # ========== 压枪限制 ==========
             "RECOIL_MAX_SINGLE_MOVE_X": 50.0,
             "RECOIL_MAX_SINGLE_MOVE_Y": 50.0,
             "RECOIL_CUSTOM_PATTERN": [],
-
-            # 其他
             "RECOIL_HORIZONTAL_VARIANCE": 0,
             "RECOIL_MAX_SINGLE_MOVE": 110.0,
 
-            # 脚本系统
+            # ========== 脚本系统 ==========
             "SCRIPT_AUTO_RELOAD": True,
             "SCRIPT_TIMEOUT_MS": 10,
             "SCRIPT_DEBUG_MODE": False,
@@ -230,46 +230,70 @@ class ConfigManager:
         """精简版参数验证（合并重复逻辑）"""
         c = config.copy()
 
-        # 数值范围验证规则（格式：key: (min, max, type, default)）
+        # ========== 清理过期配置项 ==========
+        deprecated_keys = [
+            "HEAD_PRIORITY_BONUS",           # 已替换为 HEAD_PRIORITY_RANGE
+            "DISTANCE_WEIGHT",               # 不再使用
+            "TARGET_SWITCH_THRESHOLD",       # 已替换为 TARGET_SWITCH_DISTANCE_THRESHOLD
+            "CONFIDENCE_HISTORY_SIZE",       # 移除特效干扰系统
+            "CONFIDENCE_DROP_THRESHOLD",
+            "ATTACK_PROTECTION_TRIGGER_FRAMES",
+            "LOCKED_TARGET_BONUS",
+        ]
+
+        removed_count = 0
+        for key in deprecated_keys:
+            if key in c:
+                del c[key]
+                removed_count += 1
+
+        if removed_count > 0:
+            self._log(f"⚠️ 已清理 {removed_count} 个过期配置项")
+
+        # ========== 数值范围验证规则 ==========
         validation_rules = {
-        # ========== 图像源参数（新增）==========
+            # 预览窗口
             "PREVIEW_BOX_THICKNESS": (1, 5, int, 2),
             "PREVIEW_TEXT_SCALE": (0.3, 1.5, float, 0.5),
+            "PREVIEW_FRAME_SKIP": (0, 10, int, 0),
+
+            # 图像源
             "FRAME_PORT": (1024, 65535, int, 27015),
             "FRAME_WIDTH": (64, 1920, int, 256),
             "FRAME_HEIGHT": (64, 1080, int, 256),
             "FRAME_CHANNELS": (3, 4, int, 3),
-            # YOLO 检测
             "CROP_SIZE": (64, 1280, int, 320),
+
+            # YOLO 检测
             "CONF_THRESHOLD": (0.1, 0.99, float, 0.60),
             "IOU_THRESHOLD": (0.1, 0.99, float, 0.45),
 
-            # 优先锁定
+            # 目标分组
+            "TARGET_GROUP_DISTANCE_THRESHOLD": (10, 500, int, 100),
+
+            # 目标选择
+            "MIN_TARGET_LOCK_FRAMES": (1, 100, int, 10),
+            "TARGET_SWITCH_DISTANCE_THRESHOLD": (10, 500, int, 50),
+            "TARGET_IDENTITY_DISTANCE": (10, 500, int, 100),
+            "MAX_LOST_FRAMES": (1, 300, int, 30),
+            "TARGET_ID_GRID_SIZE": (5, 100, int, 20),
+
+            # 头部优先
             "HEAD_CLASS_ID": (0, 100, int, 1),
-            "HEAD_PRIORITY_BONUS": (0.0, 10000.0, float, 1000.0),
+            "HEAD_PRIORITY_RANGE": (0, 500, int, 80),
+            "SMALL_TARGET_SIZE_THRESHOLD": (10, 200, int, 40),  # ← 新增
 
             # 瞄准点
             "AIM_Y_RATIO": (0.0, 1.0, float, 0.5),
             "AIM_X_OFFSET": (-100, 100, float, 0.5),
 
-            # 目标跟踪
-            "MIN_TARGET_LOCK_FRAMES": (1, 100, int, 3),
-            "TARGET_SWITCH_THRESHOLD": (0.01, 1.0, float, 0.15),
-            "TARGET_IDENTITY_DISTANCE": (10, 500, int, 100),
-            "MAX_LOST_FRAMES": (1, 300, int, 30),
-            "DISTANCE_WEIGHT": (0.0, 1.0, float, 0.8),
-            "AIM_POINT_SMOOTH_ALPHA": (0.01, 1.0, float, 0.8),
-
-            # 特效干扰
-            "CONFIDENCE_HISTORY_SIZE": (3, 50, int, 10),
-            "CONFIDENCE_DROP_THRESHOLD": (0.05, 0.5, float, 0.15),
-            "ATTACK_PROTECTION_TRIGGER_FRAMES": (1, 20, int, 3),
-            "LOCKED_TARGET_BONUS": (0.0, 0.5, float, 0.15),
+            # 平滑
+            "AIM_POINT_SMOOTH_ALPHA": (0.01, 1.0, float, 0.25),
 
             # 卡尔曼滤波
-            "KALMAN_PROCESS_NOISE": (0.01, 10.0, float, 0.2),
-            "KALMAN_MEASUREMENT_NOISE": (0.1, 50.0, float, 1.0),
-            "KALMAN_MAX_PREDICT_FRAMES": (0, 60, int, 3),
+            "KALMAN_PROCESS_NOISE": (0.01, 10.0, float, 0.1),
+            "KALMAN_MEASUREMENT_NOISE": (0.1, 50.0, float, 5.0),
+            "KALMAN_MAX_PREDICT_FRAMES": (0, 60, int, 5),
 
             # 预判瞄准
             "LEAD_FRAMES": (0, 30, int, 2),
@@ -327,7 +351,7 @@ class ConfigManager:
                 v = default
             c[key] = v
 
-        # 枚举值验证
+        # ========== 枚举值验证 ==========
         if c.get("IMAGE_SOURCE_TYPE") not in ["local", "network"]:
             c["IMAGE_SOURCE_TYPE"] = "local"
         if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
@@ -337,7 +361,7 @@ class ConfigManager:
         if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
             c["LOG_LEVEL"] = "INFO"
 
-        # 列表类型验证
+        # ========== 列表类型验证 ==========
         for key in ["TARGET_CLASS_NAMES", "RECOIL_CUSTOM_PATTERN", "ENABLED_SCRIPTS"]:
             if not isinstance(c.get(key), list):
                 c[key] = self.get_default_config()[key]
@@ -347,31 +371,26 @@ class ConfigManager:
             try:
                 c["TARGET_CLASS_IDS"] = [int(x) for x in c["TARGET_CLASS_IDS"]] if isinstance(c["TARGET_CLASS_IDS"], list) else []
             except (ValueError, TypeError):
-                c["TARGET_CLASS_IDS"] = [1, 0]
+                c["TARGET_CLASS_IDS"] = [0, 1]
 
-        # 布尔值验证（批量处理）
+        # ========== 布尔值验证 ==========
         bool_keys = [
-            "ENABLE_PREVIEW_WINDOW",
-            "PREVIEW_SHOW_BOXES",
-            "PREVIEW_SHOW_LABELS",
-            "PREVIEW_SHOW_CONFIDENCE",
-            "PREVIEW_SHOW_FPS",
-            "PREVIEW_SHOW_CROSSHAIR",
-            "PREVIEW_SHOW_AIM_POINT",
-            "USE_LZ4",  # ⭐ 新增
-            "USE_MAKCU",
-            "MAKCU_AUTO_RECONNECT",
-            "ENABLE_HEAD_PRIORITY", "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-            "ENABLE_LOGGING", "DEBUG_MODE","MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE", "AUTO_FIRE_DEBUG_MODE",
-            "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL", "USE_DRIVER_MODE",
-            "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
-            "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET", "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE"
+            "ENABLE_PREVIEW_WINDOW", "PREVIEW_SHOW_BOXES", "PREVIEW_SHOW_LABELS",
+            "PREVIEW_SHOW_CONFIDENCE", "PREVIEW_SHOW_FPS", "PREVIEW_SHOW_CROSSHAIR",
+            "PREVIEW_SHOW_AIM_POINT", "USE_LZ4", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
+            "ENABLE_HEAD_PRIORITY","IGNORE_SMALL_TARGET_HEAD", "ENABLE_LEFT_MOUSE_MONITOR",
+            "ENABLE_RIGHT_MOUSE_MONITOR",
+            "ENABLE_LOGGING", "DEBUG_MODE", "MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE",
+            "AUTO_FIRE_DEBUG_MODE", "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
+            "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET",
+            "RECOIL_REQUIRE_LOCK", "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET",
+            "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE"
         ]
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
                 c[key] = self.get_default_config().get(key, False)
 
-        # MODEL_PATH 路径处理
+        # ========== MODEL_PATH 路径处理 ==========
         model_path = c.get("MODEL_PATH", "320.onnx")
         if isinstance(model_path, str) and model_path.strip():
             p = Path(model_path)
@@ -381,7 +400,7 @@ class ConfigManager:
                 self._log(f"⚠ 模型文件不存在: {p}")
             c["MODEL_PATH"] = str(p)
 
-        # 互斥模式验证
+        # ========== 互斥模式验证 ==========
         if c.get("ENABLE_AUTO_FIRE") and c.get("ENABLE_MANUAL_RECOIL"):
             self._log("⚠ 自动开火和手动压枪不能同时启用，已禁用自动开火")
             c["ENABLE_AUTO_FIRE"] = False
@@ -478,84 +497,116 @@ class ConfigManager:
         """格式化配置文件（添加分组注释）"""
         lines = ["{\n"]
 
-        # 配置分组（按功能划分）
+        # ========== 配置分组（按功能划分）==========
         groups = {
-
             "许可证配置": ["LICENSE_KEY"],
+
             "图像源配置": [
-                "IMAGE_SOURCE_TYPE",
-                "CROP_SIZE",
-                "FRAME_PORT",
-                "FRAME_WIDTH",
-                "FRAME_HEIGHT",
-                "FRAME_CHANNELS",
-                "USE_LZ4",
-                "PREVIEW_FRAME_SKIP",
-                "ENABLE_PREVIEW_WINDOW",  # ⭐ 新增
-                "PREVIEW_WINDOW_WIDTH",
-                "PREVIEW_WINDOW_HEIGHT",
-                # ⭐ 新增以下 8 个参数
-                "PREVIEW_SHOW_BOXES",
-                "PREVIEW_SHOW_LABELS",
-                "PREVIEW_SHOW_CONFIDENCE",
-                "PREVIEW_SHOW_FPS",
-                "PREVIEW_SHOW_CROSSHAIR",
-                "PREVIEW_SHOW_AIM_POINT",
-                "PREVIEW_BOX_THICKNESS",
-                "PREVIEW_TEXT_SCALE"
-            ],
-            "YOLO 检测": ["MODEL_PATH",  "CONF_THRESHOLD", "IOU_THRESHOLD",
-                         "TARGET_CLASS_IDS", "TARGET_CLASS_NAMES", "ENABLE_HEAD_PRIORITY",
-                         "HEAD_CLASS_ID", "HEAD_PRIORITY_BONUS"],
-            "瞄准点配置": ["AIM_Y_RATIO", "AIM_X_OFFSET"],
-            "目标选择与跟踪": ["MIN_TARGET_LOCK_FRAMES", "TARGET_SWITCH_THRESHOLD",
-                              "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES",
-                              "DISTANCE_WEIGHT", "AIM_POINT_SMOOTH_ALPHA"],
-            "特效干扰抵抗": ["CONFIDENCE_HISTORY_SIZE", "CONFIDENCE_DROP_THRESHOLD",
-                           "ATTACK_PROTECTION_TRIGGER_FRAMES", "LOCKED_TARGET_BONUS"],
-            "卡尔曼滤波": ["USE_KALMAN_FILTER", "KALMAN_PROCESS_NOISE",
-                          "KALMAN_MEASUREMENT_NOISE", "KALMAN_MAX_PREDICT_FRAMES"],
-            "预判瞄准": ["ENABLE_LEAD_TARGET", "LEAD_FRAMES"],
-            "PID 控制": ["PID_KP_X", "PID_KD_X", "PID_KI_X", "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
-                        "MAX_SINGLE_MOVE_PX", "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"],
-            "鼠标控制模式": [
-                "USE_MAKCU",              # <--- 新增
-                "MAKCU_PORT",             # <--- 新增
-                "MAKCU_AUTO_RECONNECT",   # <--- 新增
-                "USE_DRIVER_MODE",
-                "MOUSE_MODE_AUTO_FALLBACK",
-                "MAX_MICKEY"
-            ],
-            "驱动配置": ["DRIVER_PATH", "MOUSE_REQUEST"],
-            "按键定义": ["APP_MOUSE_NO_BUTTON", "APP_MOUSE_LEFT_DOWN", "APP_MOUSE_LEFT_UP",
-                        "APP_MOUSE_RIGHT_DOWN", "APP_MOUSE_RIGHT_UP", "APP_MOUSE_MIDDLE_DOWN",
-                        "APP_MOUSE_MIDDLE_UP"],
-            "按键监控": ["ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-                        "KEY_MONITOR_INTERVAL_MS"],
-            "系统配置": [
-                "ENABLE_LOGGING",
-                "LOG_LEVEL",
-                "DEBUG_MODE",
-                "MAKCU_DEBUG_MODE",
-                "CONFIG_MONITOR_INTERVAL_SEC",
-                "CAPTURE_FPS",
-                "INFERENCE_FPS"
+                "IMAGE_SOURCE_TYPE", "CROP_SIZE",
+                "FRAME_PORT", "FRAME_WIDTH", "FRAME_HEIGHT", "FRAME_CHANNELS", "USE_LZ4",
+                "PREVIEW_FRAME_SKIP", "ENABLE_PREVIEW_WINDOW", "PREVIEW_WINDOW_WIDTH", "PREVIEW_WINDOW_HEIGHT",
+                "PREVIEW_SHOW_BOXES", "PREVIEW_SHOW_LABELS", "PREVIEW_SHOW_CONFIDENCE",
+                "PREVIEW_SHOW_FPS", "PREVIEW_SHOW_CROSSHAIR", "PREVIEW_SHOW_AIM_POINT",
+                "PREVIEW_BOX_THICKNESS", "PREVIEW_TEXT_SCALE"
             ],
 
-            "自动开火": ["ENABLE_AUTO_FIRE", "AUTO_FIRE_ACCURACY_THRESHOLD",
-                        "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
-                        "AUTO_FIRE_DEBUG_MODE"],
-            "压枪模式": ["ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
-                        "MANUAL_RECOIL_TRIGGER_MODE"],
-            "压枪触发条件": ["RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
-                           "RECOIL_TARGET_TIMEOUT", "RECOIL_MIN_LOCK_FRAMES"],
-            "压枪速度配置": ["RECOIL_PATTERN", "RECOIL_VERTICAL_SPEED", "RECOIL_HORIZONTAL_SPEED",
-                           "RECOIL_INCREMENT_Y"],
-            "压枪限制": ["RECOIL_MAX_SINGLE_MOVE_X", "RECOIL_MAX_SINGLE_MOVE_Y",
-                        "RECOIL_CUSTOM_PATTERN"],
-            "其他": ["RECOIL_HORIZONTAL_VARIANCE", "RECOIL_MAX_SINGLE_MOVE"],
-            "脚本": ["SCRIPT_AUTO_RELOAD", "SCRIPT_TIMEOUT_MS", "SCRIPT_DEBUG_MODE",
-                    "ENABLED_SCRIPTS"]
+            "YOLO 检测": [
+                "MODEL_PATH", "CONF_THRESHOLD", "IOU_THRESHOLD",
+                "TARGET_CLASS_IDS", "TARGET_CLASS_NAMES"
+            ],
+
+            "目标分组": [
+                "TARGET_GROUP_DISTANCE_THRESHOLD"
+            ],
+
+            "目标选择": [
+                "MIN_TARGET_LOCK_FRAMES", "TARGET_SWITCH_DISTANCE_THRESHOLD",
+                "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES", "TARGET_ID_GRID_SIZE"
+            ],
+
+            "头部优先": [
+                "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE"
+            ],
+
+            "瞄准点配置": [
+                "AIM_Y_RATIO", "AIM_X_OFFSET"
+            ],
+
+            "卡尔曼滤波": [
+                "USE_KALMAN_FILTER", "KALMAN_PROCESS_NOISE",
+                "KALMAN_MEASUREMENT_NOISE", "KALMAN_MAX_PREDICT_FRAMES"
+            ],
+
+            "EMA平滑(备用)": [
+                "AIM_POINT_SMOOTH_ALPHA"
+            ],
+
+            "预判瞄准": [
+                "ENABLE_LEAD_TARGET", "LEAD_FRAMES"
+            ],
+
+            "PID 控制": [
+                "PID_KP_X", "PID_KD_X", "PID_KI_X",
+                "PID_KP_Y", "PID_KD_Y", "PID_KI_Y",
+                "MAX_SINGLE_MOVE_PX", "PRECISION_DEAD_ZONE", "DEFAULT_DELAY_MS_PER_STEP"
+            ],
+
+            "鼠标控制模式": [
+                "USE_MAKCU", "MAKCU_PORT", "MAKCU_AUTO_RECONNECT",
+                "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "MAX_MICKEY"
+            ],
+
+            "驱动配置": [
+                "DRIVER_PATH", "MOUSE_REQUEST"
+            ],
+
+            "按键定义": [
+                "APP_MOUSE_NO_BUTTON", "APP_MOUSE_LEFT_DOWN", "APP_MOUSE_LEFT_UP",
+                "APP_MOUSE_RIGHT_DOWN", "APP_MOUSE_RIGHT_UP",
+                "APP_MOUSE_MIDDLE_DOWN", "APP_MOUSE_MIDDLE_UP"
+            ],
+
+            "按键监控": [
+                "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
+                "KEY_MONITOR_INTERVAL_MS"
+            ],
+
+            "系统配置": [
+                "ENABLE_LOGGING", "LOG_LEVEL", "DEBUG_MODE", "MAKCU_DEBUG_MODE",
+                "CONFIG_MONITOR_INTERVAL_SEC", "CAPTURE_FPS", "INFERENCE_FPS"
+            ],
+
+            "自动开火": [
+                "ENABLE_AUTO_FIRE", "AUTO_FIRE_ACCURACY_THRESHOLD",
+                "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
+                "AUTO_FIRE_DEBUG_MODE"
+            ],
+
+            "压枪模式": [
+                "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
+                "MANUAL_RECOIL_TRIGGER_MODE"
+            ],
+
+            "压枪触发条件": [
+                "RECOIL_REQUIRE_TARGET", "RECOIL_REQUIRE_LOCK",
+                "RECOIL_TARGET_TIMEOUT", "RECOIL_MIN_LOCK_FRAMES"
+            ],
+
+            "压枪速度配置": [
+                "RECOIL_PATTERN", "RECOIL_VERTICAL_SPEED",
+                "RECOIL_HORIZONTAL_SPEED", "RECOIL_INCREMENT_Y"
+            ],
+
+            "压枪限制": [
+                "RECOIL_MAX_SINGLE_MOVE_X", "RECOIL_MAX_SINGLE_MOVE_Y",
+                "RECOIL_CUSTOM_PATTERN", "RECOIL_HORIZONTAL_VARIANCE",
+                "RECOIL_MAX_SINGLE_MOVE"
+            ],
+
+                        "脚本系统": [
+                "SCRIPT_AUTO_RELOAD", "SCRIPT_TIMEOUT_MS",
+                "SCRIPT_DEBUG_MODE", "ENABLED_SCRIPTS"
+            ]
         }
 
         processed_keys = set()
@@ -628,7 +679,7 @@ class ConfigManager:
             interval_sec = self.get("CONFIG_MONITOR_INTERVAL_SEC", 5)
 
         def monitor_loop():
-            self._log(f"配置自动重载已启动 (间隔: {interval_sec}秒)")
+            self._log(f"✅ 配置自动重载已启动 (间隔: {interval_sec}秒)")
             while not self._stop_monitor:
                 time.sleep(interval_sec)
                 if not self._stop_monitor:
@@ -637,10 +688,19 @@ class ConfigManager:
 
                     # 监控关键参数变化
                     critical_keys = [
-                        "CONFIDENCE_DROP_THRESHOLD", "TARGET_SWITCH_THRESHOLD",
-                        "ENABLE_HEAD_PRIORITY", "HEAD_PRIORITY_BONUS",
-                        "PID_KP_X", "PID_KP_Y", "USE_DRIVER_MODE",
-                        "RECOIL_REQUIRE_TARGET", "RECOIL_VERTICAL_SPEED"
+                        "TARGET_GROUP_DISTANCE_THRESHOLD",
+                        "MIN_TARGET_LOCK_FRAMES",
+                        "TARGET_SWITCH_DISTANCE_THRESHOLD",
+                        "ENABLE_HEAD_PRIORITY",
+                        "HEAD_PRIORITY_RANGE",
+                        "USE_KALMAN_FILTER",
+                        "KALMAN_PROCESS_NOISE",
+                        "KALMAN_MEASUREMENT_NOISE",
+                        "PID_KP_X", "PID_KP_Y",
+                        "USE_DRIVER_MODE",
+                        "USE_MAKCU",
+                        "RECOIL_VERTICAL_SPEED",
+                        "ENABLE_AUTO_FIRE"
                     ]
                     changed = [k for k in critical_keys if old_config.get(k) != self.config.get(k)]
                     if changed:
@@ -694,9 +754,31 @@ def stop_auto_reload() -> None:
 
 if __name__ == "__main__":
     config = load_config()
+    print(f"\n{'='*60}")
     print(f"✅ 配置加载成功，共 {len(config)} 项")
     print(f"📁 配置文件: {_config_manager.config_file}")
-    print(f"\n🎯 优先锁定配置:")
-    print(f"  启用: {get_config('ENABLE_HEAD_PRIORITY')}")
-    print(f"  头部ID: {get_config('HEAD_CLASS_ID')}")
-    print(f"  加分权重: {get_config('HEAD_PRIORITY_BONUS')}")
+    print(f"{'='*60}")
+
+    print(f"\n🎯 目标选择配置:")
+    print(f"  目标分组距离阈值: {get_config('TARGET_GROUP_DISTANCE_THRESHOLD')}px")
+    print(f"  最小锁定帧数: {get_config('MIN_TARGET_LOCK_FRAMES')}帧")
+    print(f"  切换距离阈值: {get_config('TARGET_SWITCH_DISTANCE_THRESHOLD')}px")
+    print(f"  目标识别距离: {get_config('TARGET_IDENTITY_DISTANCE')}px")
+
+    print(f"\n🎯 头部优先配置:")
+    print(f"  启用头部优先: {get_config('ENABLE_HEAD_PRIORITY')}")
+    print(f"  头部类别ID: {get_config('HEAD_CLASS_ID')}")
+    print(f"  头部优先范围: {get_config('HEAD_PRIORITY_RANGE')}px")
+
+    print(f"\n🎯 卡尔曼滤波配置:")
+    print(f"  启用卡尔曼滤波: {get_config('USE_KALMAN_FILTER')}")
+    print(f"  过程噪声: {get_config('KALMAN_PROCESS_NOISE')}")
+    print(f"  测量噪声: {get_config('KALMAN_MEASUREMENT_NOISE')}")
+    print(f"  最大预测帧数: {get_config('KALMAN_MAX_PREDICT_FRAMES')}帧")
+
+    print(f"\n🎯 鼠标控制模式:")
+    print(f"  Makcu硬件模式: {get_config('USE_MAKCU')}")
+    print(f"  驱动模式: {get_config('USE_DRIVER_MODE')}")
+    print(f"  自动降级: {get_config('MOUSE_MODE_AUTO_FALLBACK')}")
+
+    print(f"\n{'='*60}\n")
