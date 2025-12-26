@@ -525,7 +525,8 @@ class ConfigManager:
             ],
 
             "头部优先": [
-                "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE"
+                "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE",
+                "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_SIZE_THRESHOLD"  # ← 修复：添加这两项
             ],
 
             "瞄准点配置": [

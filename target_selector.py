@@ -176,7 +176,6 @@ class TargetSelector:
         # 先按类别分类
         bodies = [d for d in detections if d.get('class_id') == 0]
         heads = [d for d in detections if d.get('class_id') == 1]
-
         # 计算所有检测框的距离和面积
         for detection in detections:
             detection['distance_to_center'] = math.hypot(
@@ -349,6 +348,15 @@ class TargetSelector:
         if get_config('IGNORE_SMALL_TARGET_HEAD', True):
             small_size_threshold = get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)
 
+            print("\n=== 头部检测框调试信息 ===")
+            for i, head in enumerate(heads):
+                box = head.get('box', (0, 0, 0, 0))
+                x1, y1, x2, y2 = box
+                w, h = x2 - x1, y2 - y1
+                area = w * h
+                print(f"头部{i}: 宽度={w:.0f}, 高度={h:.0f}, 面积={area:.0f}, 中心=({head['x']:.0f},{head['y']:.0f})")
+            print(f"当前阈值: {get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)}")
+            print("=" * 40 + "\n")
             for head in heads:
                 box = head.get('box', (0, 0, 0, 0))
                 x1, y1, x2, y2 = box
@@ -363,10 +371,6 @@ class TargetSelector:
                     )
         else:
             valid_heads = heads
-
-        # 组内部位选择策略
-        selected_detection = None
-        selected_part_type = None
 
         if get_config('ENABLE_HEAD_PRIORITY', True) and valid_heads:
             # 策略1: 有有效头部，优先选择距离最近的头部
@@ -434,8 +438,13 @@ class TargetSelector:
                 )
 
         # ===== 9. 应用平滑 =====
-        raw_x = selected_detection['x']
-        raw_y = selected_detection['y']
+        if 'aim_x' in selected_detection and 'aim_y' in selected_detection:
+            raw_x = selected_detection['aim_x']
+            raw_y = selected_detection['aim_y']
+        else:
+            # 回退：使用几何中心
+            raw_x = selected_detection['x']
+            raw_y = selected_detection['y']
 
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
 

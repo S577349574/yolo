@@ -118,7 +118,7 @@ def run_gui_in_background():
     from gui import create_gui
     create_gui()
 def main():
-    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box
     print("\n" + "=" * 60)
     print("正在初始化...")
 
@@ -439,11 +439,16 @@ def main():
                 if target_class_ids and result['class_id'] not in target_class_ids:
                     continue
 
+                box = result['box']
+
                 target_x, target_y = target_selector.calculate_aim_point(
-                    result['box'], capture_area
+                    box, capture_area
                 )
 
-                box = result['box']
+                center_x = capture_area['left'] + (box[0] + box[2]) // 2
+                center_y = capture_area['top'] + (box[1] + box[3]) // 2
+
+
                 width = box[2] - box[0]
                 height = box[3] - box[1]
 
@@ -455,8 +460,9 @@ def main():
                 )
 
                 candidate_targets.append({
-                    'x': target_x,
-                    'y': target_y,
+                    'x': center_x,  # ⭐ 改为目标中心点（用于分组距离计算）
+                    'y': center_y,  # ⭐ 改为目标中心点
+                    'box': box,
                     'width': width,
                     'height': height,
                     'confidence': result['confidence'],
