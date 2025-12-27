@@ -3,9 +3,9 @@ import sys
 import time
 from pathlib import Path
 
+import pywintypes
 import win32service
 import win32serviceutil
-import pywintypes
 
 import utils
 from config_manager import get_config

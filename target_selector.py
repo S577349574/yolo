@@ -347,16 +347,6 @@ class TargetSelector:
         valid_heads = []
         if get_config('IGNORE_SMALL_TARGET_HEAD', True):
             small_size_threshold = get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)
-
-            print("\n=== 头部检测框调试信息 ===")
-            for i, head in enumerate(heads):
-                box = head.get('box', (0, 0, 0, 0))
-                x1, y1, x2, y2 = box
-                w, h = x2 - x1, y2 - y1
-                area = w * h
-                print(f"头部{i}: 宽度={w:.0f}, 高度={h:.0f}, 面积={area:.0f}, 中心=({head['x']:.0f},{head['y']:.0f})")
-            print(f"当前阈值: {get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)}")
-            print("=" * 40 + "\n")
             for head in heads:
                 box = head.get('box', (0, 0, 0, 0))
                 x1, y1, x2, y2 = box

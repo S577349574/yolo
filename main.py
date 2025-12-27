@@ -1,7 +1,12 @@
 # main.py (修复版 - 解决FPS下降和GPU利用率低的问题)
+
 import math
 import time
 from threading import Event as ThreadEvent
+
+
+import makcu_patch
+makcu_patch.apply()
 
 # 导入您的模块
 import utils

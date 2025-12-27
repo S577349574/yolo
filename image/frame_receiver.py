@@ -9,6 +9,8 @@ import time
 import numpy as np
 import lz4.frame
 
+import utils
+
 
 class FrameReceiver:
     """画面接收器（perf_counter 时间轴 + 在线时间映射校准）"""
@@ -169,7 +171,7 @@ class FrameReceiver:
                     self._last_stats_time = now
 
                     avg = self.latency_sum / self.latency_count
-                    print(f"[FrameReceiver] FPS: {fps:.1f} | "
+                    utils.log_debug(f"[FrameReceiver] FPS: {fps:.1f} | "
                           f"延迟: {avg:.2f}ms "
                           f"(min {self.latency_min:.2f}, "
                           f"max {self.latency_max:.2f})")
