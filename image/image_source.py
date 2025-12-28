@@ -56,7 +56,6 @@ class LocalScreenSource(ImageSource):
     """本地屏幕捕获源（基于 shared_capture）"""
 
     def __init__(self, crop_size: int = 640):
-
         self.crop_size = crop_size
         self.frame_buffer = None
         self.capture_process = None
@@ -118,23 +117,18 @@ class LocalScreenSource(ImageSource):
 # ============================================================
 
 class NetworkSource(ImageSource):
-    """网络画面接收源（基于 frame_receiver）"""
+    """网络画面接收源（基于 frame_receiver + simplejpeg）"""
 
     def __init__(
             self,
             listen_port: int = 27015,
-            use_lz4: bool = True,
-            frame_width: int = 256,
-            frame_height: int = 256,
-            frame_channels: int = 3
+            frame_width: int = 320,  # ✅ 改成320（匹配发送端）
+            frame_height: int = 320,  # ✅ 改成320
     ):
-
         self.receiver = FrameReceiver(
             listen_port=listen_port,
-            use_lz4=use_lz4,
             frame_width=frame_width,
             frame_height=frame_height,
-            frame_channels=frame_channels
         )
         self._running = False
 
@@ -160,18 +154,8 @@ class NetworkSource(ImageSource):
         if not self._running:
             return None
 
-        # 获取最新帧（BGR 格式）
+        # ✅ 获取最新帧（RGB 格式）
         frame = self.receiver.get_latest_frame()
-
-        if frame is None:
-            return None
-
-        # ⚠️ 转换为 BGRA 格式以匹配 YOLOv8 输入
-        # 如果原始是 BGR (H, W, 3)，添加 Alpha 通道
-        if frame.shape[2] == 3:
-            import cv2
-            frame_bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
-            return frame_bgra
 
         return frame
 
@@ -199,8 +183,6 @@ class NetworkSource(ImageSource):
 # 工厂函数
 # ============================================================
 
-# image_source.py (完整版 - 适配你的配置系统)
-
 def create_image_source() -> ImageSource:
     """
     从配置文件创建图像源（自动读取配置）
@@ -219,22 +201,17 @@ def create_image_source() -> ImageSource:
 
     elif source_type == 'network':
         frame_port = get_config('FRAME_PORT', 27015)
-        frame_width = get_config('FRAME_WIDTH', 256)
-        frame_height = get_config('FRAME_HEIGHT', 256)
-        frame_channels = get_config('FRAME_CHANNELS', 3)
-        use_lz4 = get_config('USE_LZ4', True)
+        frame_width = get_config('FRAME_WIDTH', 320)  # ✅ 改成320
+        frame_height = get_config('FRAME_HEIGHT', 320)  # ✅ 改成320
 
-        utils.log(f"🖼️ 图像源: UDP网络接收")
+        utils.log(f"🖼️ 图像源: UDP网络接收 (simplejpeg)")
         utils.log(f"   监听端口: {frame_port}")
-        utils.log(f"   帧尺寸: {frame_width}x{frame_height}x{frame_channels}")
-        utils.log(f"   LZ4压缩: {'启用' if use_lz4 else '禁用'}")
+        utils.log(f"   帧尺寸: {frame_width}x{frame_height}x3 (RGB)")
 
         return NetworkSource(
             listen_port=frame_port,
-            use_lz4=use_lz4,
             frame_width=frame_width,
             frame_height=frame_height,
-            frame_channels=frame_channels
         )
 
     else:
