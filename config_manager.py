@@ -9,6 +9,66 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+# ========== 配置变更回调系统 ==========
+
+class ConfigCallbackManager:
+    """配置变更回调管理器"""
+
+    def __init__(self):
+        self._callbacks: Dict[str, list] = {}  # key -> [callback1, callback2, ...]
+        self._global_callbacks: list = []  # 监听所有变更的回调
+        self._lock = threading.Lock()
+
+    def register(self, key: str, callback) -> None:
+        """注册单个配置项的变更回调"""
+        with self._lock:
+            if key not in self._callbacks:
+                self._callbacks[key] = []
+            if callback not in self._callbacks[key]:
+                self._callbacks[key].append(callback)
+
+    def register_global(self, callback) -> None:
+        """注册全局变更回调（监听所有配置变化）"""
+        with self._lock:
+            if callback not in self._global_callbacks:
+                self._global_callbacks.append(callback)
+
+    def unregister(self, key: str, callback) -> None:
+        """取消注册回调"""
+        with self._lock:
+            if key in self._callbacks and callback in self._callbacks[key]:
+                self._callbacks[key].remove(callback)
+
+    def notify(self, key: str, new_value, old_value=None) -> None:
+        """通知配置变更"""
+        with self._lock:
+            callbacks = self._callbacks.get(key, []).copy()
+            global_callbacks = self._global_callbacks.copy()
+
+        # 调用特定 key 的回调
+        for cb in callbacks:
+            try:
+                cb(new_value)
+            except Exception as e:
+                print(f"[ConfigManager] 回调执行失败 ({key}): {e}")
+
+        # 调用全局回调
+        for cb in global_callbacks:
+            try:
+                cb(key, new_value, old_value)
+            except Exception as e:
+                print(f"[ConfigManager] 全局回调执行失败: {e}")
+
+    def notify_batch(self, changes: Dict[str, tuple]) -> None:
+        """批量通知变更 - changes: {key: (old_value, new_value)}"""
+        for key, (old_val, new_val) in changes.items():
+            self.notify(key, new_val, old_val)
+
+
+# 全局回调管理器实例
+_callback_manager = ConfigCallbackManager()
+
+
 class ConfigManager:
     _instance = None
     _initialized = False
@@ -482,6 +542,7 @@ class ConfigManager:
                 self._cache.clear()
                 return self.config
 
+
     def _write_config(self, config: Dict[str, Any]) -> bool:
         """写入配置文件（带格式化注释）"""
         try:
@@ -660,15 +721,17 @@ class ConfigManager:
             return value
 
     def set(self, key: str, value: Any) -> None:
-        """设置配置值"""
+        """设置配置值（带变更通知）"""
         with self._rw_lock:
+            old_value = self.config.get(key)
             self.config[key] = value
             self._cache.pop(key, None)
 
-    def get_all(self) -> Dict[str, Any]:
-        """获取所有配置（副本）"""
-        with self._rw_lock:
-            return self.config.copy()
+        # 通知变更（在锁外执行，避免死锁）
+        if old_value != value:
+            _callback_manager.notify(key, value, old_value)
+
+
 
     def start_auto_reload(self, interval_sec: Optional[int] = None) -> None:
         """启动自动配置重载"""
@@ -783,3 +846,24 @@ if __name__ == "__main__":
     print(f"  自动降级: {get_config('MOUSE_MODE_AUTO_FALLBACK')}")
 
     print(f"\n{'='*60}\n")
+
+
+def on_config_change(key: str, callback) -> None:
+    """注册配置变更回调"""
+    _callback_manager.register(key, callback)
+
+
+def off_config_change(key: str, callback) -> None:
+    """取消配置变更回调"""
+    _callback_manager.unregister(key, callback)
+
+
+def on_any_config_change(callback) -> None:
+    """注册全局配置变更回调"""
+    _callback_manager.register_global(callback)
+
+
+def get_all(self) -> Dict[str, Any]:
+    """获取所有配置（副本）"""
+    with self._rw_lock:
+        return self.config.copy()

@@ -11,7 +11,7 @@ makcu_patch.apply()
 # 导入您的模块
 import utils
 from auto_fire_controller import AutoFireController
-from config_manager import get_config
+from config_manager import get_config, load_config, start_auto_reload, stop_auto_reload
 from driver_loader import ensure_driver_loaded, unload_driver
 from image.image_source import create_image_source
 from key_monitor import create_key_monitor
@@ -152,6 +152,10 @@ def main():
         # ⭐ 启动 GUI 线程（不阻塞主程序）
         gui_thread = threading.Thread(target=run_gui_in_background, daemon=True)
         gui_thread.start()
+
+        load_config(force_reload=True)
+        start_auto_reload(interval_sec=2)  # 每 2 秒检查一次配置变更
+        utils.log("✅ 配置热重载已启动")
         # # ==================== 配置加载与验证 ====================
         # load_config(force_reload=True)
         # card_key = get_config('LICENSE_KEY', "").strip()
@@ -584,6 +588,7 @@ def main():
         # ==================== 资源清理 ====================
         utils.log("\n🧹 正在清理资源并安全退出...")
         app_state.request_exit()
+        stop_auto_reload()
         if key_monitor:
             key_monitor.stop()
         # 1. 停止脚本系统

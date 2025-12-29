@@ -1,5 +1,5 @@
 """
-鼠标控制器基类 - 包含所有公共逻辑
+鼠标控制器基类 - 包含所有公共逻辑（支持配置热重载）
 """
 
 import math
@@ -11,7 +11,7 @@ from threading import Thread, Event as ThreadEvent
 import win32api
 
 import utils
-from config_manager import get_config
+from config_manager import get_config, on_config_change
 from pid_controller import PIDController
 
 
@@ -43,8 +43,11 @@ class MouseControllerBase(ABC):
         # 从配置加载参数
         self._load_config()
 
-        # 初始化 PID 控制器
-        self._init_pid_controller()
+        # ⭐ 注册配置热重载回调
+        self._register_config_callbacks()
+
+        # ⭐ 初始化 PID 控制器（使用无参构造，内部自动加载配置并注册回调）
+        self.pid = PIDController()
 
         # 按钮映射
         self.button_up_map = {
@@ -57,6 +60,11 @@ class MouseControllerBase(ABC):
         self.move_count = 0
         self.overshoot_count = 0
         self.total_error = 0.0
+
+        if self.debug_mode:
+            utils.log(f"[{self.get_mode()}] 屏幕: {self.screen_width}x{self.screen_height}")
+            utils.log(f"[{self.get_mode()}] 死区: {math.sqrt(self.dead_zone_sq):.1f}px")
+            utils.log(f"[{self.get_mode()}] 最大步进: {self.max_step}px")
 
     def _load_config(self):
         """加载配置参数"""
@@ -76,30 +84,43 @@ class MouseControllerBase(ABC):
         # 调试模式
         self.debug_mode = get_config("DEBUG_MODE", False)
 
-    def _init_pid_controller(self):
-        """初始化 PID 控制器"""
+    def _register_config_callbacks(self):
+        """⭐ 注册配置变更回调（实现热重载）"""
 
-        """初始化双轴PID控制器"""
-        # X轴参数
-        kp_x = get_config("PID_KP_X")
-        ki_x = get_config("PID_KI_X")
-        kd_x = get_config("PID_KD_X")
+        # 死区配置
+        def update_dead_zone(value):
+            self.dead_zone_sq = value * value
+            if self.debug_mode:
+                utils.log(f"[{self.get_mode()}] 🔄 死区更新: {value}px")
+        on_config_change("PRECISION_DEAD_ZONE", update_dead_zone)
 
-        # Y轴参数（默认比X轴更激进）
-        kp_y = get_config("PID_KP_Y")
-        ki_y = get_config("PID_KI_Y")
-        kd_y = get_config("PID_KD_Y")
+        # 最大步进
+        def update_max_step(value):
+            self.max_step = value
+            self.max_step_sq = value * value
+            if self.debug_mode:
+                utils.log(f"[{self.get_mode()}] 🔄 最大步进更新: {value}px")
+        on_config_change("MAX_SINGLE_MOVE_PX", update_max_step)
 
-        self.pid = PIDController(
-            kp_x=kp_x, ki_x=ki_x, kd_x=kd_x,
-            kp_y=kp_y, ki_y=ki_y, kd_y=kd_y
-        )
+        # Mickey 限制
+        def update_max_mickey(value):
+            self.max_mickey = value
+            if self.debug_mode:
+                utils.log(f"[{self.get_mode()}] 🔄 Mickey限制更新: {value}")
+        on_config_change("MAX_MICKEY", update_max_mickey)
 
-        if self.debug_mode:
-            utils.log(f"[{self.get_mode()}] PID X轴: KP={kp_x}, KI={ki_x}, KD={kd_x}")
-            utils.log(f"[{self.get_mode()}] PID Y轴: KP={kp_y}, KI={ki_y}, KD={kd_y}")
-            utils.log(f"[{self.get_mode()}] 屏幕: {self.screen_width}x{self.screen_height}")
-            utils.log(f"[{self.get_mode()}] 死区: {math.sqrt(self.dead_zone_sq):.1f}px")
+        # 默认延迟
+        def update_delay(value):
+            self.default_delay_sec = value * self.ms_to_sec
+            if self.debug_mode:
+                utils.log(f"[{self.get_mode()}] 🔄 默认延迟更新: {value}ms")
+        on_config_change("DEFAULT_DELAY_MS_PER_STEP", update_delay)
+
+        # 调试模式
+        def update_debug(value):
+            self.debug_mode = value
+            utils.log(f"[{self.get_mode()}] 🔄 调试模式: {'开启' if value else '关闭'}")
+        on_config_change("DEBUG_MODE", update_debug)
 
     def _start_worker_thread(self):
         """启动工作线程"""
@@ -142,8 +163,8 @@ class MouseControllerBase(ABC):
             time.sleep(sleep_time)
             return
 
-        # PID 计算
-        move_x_raw, move_y_raw = self.pid.calculate(error_x, error_y)
+        # ⭐ PID 计算（使用修复后的 compute 方法）
+        move_x_raw, move_y_raw = self.pid.compute(error_x, error_y)
 
         # 限幅
         move_x, move_y = self._clamp_movement(move_x_raw, move_y_raw)
@@ -317,9 +338,8 @@ class MouseControllerBase(ABC):
             "move_count": self.move_count,
             "overshoot_count": self.overshoot_count,
             "is_ready": self.is_ready(),
+            "pid_params": self.pid.get_params() if hasattr(self.pid, 'get_params') else {},
         }
-
-    # mouse/mouse_controller.py 中添加
 
     def move_to_target_instant(self, target_x, target_y):
         """
