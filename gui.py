@@ -1,3 +1,5 @@
+import threading
+
 import dearpygui.dearpygui as dpg
 import config_manager as cfg
 import os
@@ -5,7 +7,9 @@ import glob
 
 # 1. 加载配置
 cfg.load_config()
-
+# ========== 全局退出信号 ==========
+_gui_exit_event = threading.Event()
+_gui_running = False
 # 脚本文件夹路径
 SCRIPTS_DIR = "scripts"
 
@@ -528,8 +532,24 @@ def create_gui():
     # 启动时自动刷新一次脚本列表
     refresh_scripts_ui()
 
-    dpg.start_dearpygui()
-    dpg.destroy_context()
+    _gui_running = True
+
+    try:
+        while dpg.is_dearpygui_running():
+            # 🔥 检查外部退出信号
+            if _gui_exit_event.is_set():
+                print("[GUI] 收到退出信号，准备关闭...")
+                dpg.stop_dearpygui()  # 停止渲染循环
+                break
+
+            # 手动渲染一帧
+            dpg.render_dearpygui_frame()
+
+    finally:
+        # 清理资源
+        dpg.destroy_context()
+        _gui_running = False
+        print("[GUI] ✅ GUI 已完全清理")
 
 
 # ================= 通用控件封装（无tag版本） =================
@@ -635,7 +655,15 @@ def add_combo_tagged(key, label, items, tag=None):
         width=280,
         tag=tag
     )
+def stop_gui():
+    """外部调用：请求 GUI 退出"""
+    print("[GUI] 正在请求 GUI 退出...")
+    _gui_exit_event.set()
 
+
+def is_gui_running():
+    """检查 GUI 是否还在运行"""
+    return _gui_running
 
 if __name__ == "__main__":
     create_gui()

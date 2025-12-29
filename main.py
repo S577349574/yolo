@@ -6,6 +6,8 @@ from threading import Event as ThreadEvent
 
 
 import makcu_patch
+from gui import stop_gui
+
 makcu_patch.apply()
 
 # 导入您的模块
@@ -150,7 +152,11 @@ def main():
     try:
         import threading
         # ⭐ 启动 GUI 线程（不阻塞主程序）
-        gui_thread = threading.Thread(target=run_gui_in_background, daemon=True)
+        gui_thread = threading.Thread(
+            target=run_gui_in_background,
+            daemon=False,  # 必须是非守护线程
+            name="GUI-Thread"
+        )
         gui_thread.start()
 
         load_config(force_reload=True)
@@ -676,8 +682,21 @@ def main():
                 utils.log("✅ 驱动已卸载")
             except Exception as e:
                 utils.log(f"⚠️ 卸载驱动时出错: {e}")
+
+        # ========== 🔥 8. 关闭 GUI（关键步骤）==========
         if preview_window:
             preview_window.close()
+
+        if 'gui_thread' in locals() and gui_thread.is_alive():
+            utils.log("⏳ 正在关闭 GUI 窗口...")
+            stop_gui()  # 发送退出信号
+            gui_thread.join(timeout=3)  # 等待最多 3 秒
+
+            if gui_thread.is_alive():
+                utils.log("⚠️ GUI 线程在 3 秒内未退出，可能存在问题")
+            else:
+                utils.log("✅ GUI 线程已正常退出")
+
         # ⭐ 11. 检查残留线程
         import threading
         active_threads = threading.enumerate()
