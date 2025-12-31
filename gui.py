@@ -494,13 +494,22 @@ def create_gui():
                 update_dependent_controls("USE_DRIVER_MODE", driver_deps, driver_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("按键监控", color=(200, 200, 200))
+                dpg.add_text("🎮 按键监控配置", color=(200, 200, 200))
+                dpg.add_text("  选择哪些按键触发瞄准", color=(150, 150, 150), indent=20)
+
+                # ⭐ 主要按键
                 add_bool("ENABLE_LEFT_MOUSE_MONITOR", "监控左键")
                 add_bool("ENABLE_RIGHT_MOUSE_MONITOR", "监控右键")
+
+                add_bool("ENABLE_MOUSE4_MONITOR", "监控侧键4 (后退键)")
+                add_bool("ENABLE_MOUSE5_MONITOR", "监控侧键5 (前进键)")
+
+                # 监控间隔
+                dpg.add_separator()
                 add_int("KEY_MONITOR_INTERVAL_MS", "监控间隔 (ms)", 10, 1000)
 
                 dpg.add_separator()
-                dpg.add_text("按键映射 ID (谨慎修改)", color=(150, 150, 150))
+                dpg.add_text("⚙ 按键映射 ID (高级选项，谨慎修改)", color=(150, 150, 150))
                 add_int("APP_MOUSE_LEFT_DOWN", "Left Down ID", 0, 100)
                 add_int("APP_MOUSE_LEFT_UP", "Left Up ID", 0, 100)
                 add_int("APP_MOUSE_RIGHT_DOWN", "Right Down ID", 0, 100)

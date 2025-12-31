@@ -411,7 +411,7 @@ class TargetSelector:
                 for d in selected_group_detections
             ]
 
-            utils.log(
+            utils.log_debug(
                 f"✓ 锁定目标组 | {selected_group_id} | "
                 f"组成:[{'+'.join(group_composition)}] | "
                 f"选择:{selected_part_type} | "

@@ -237,6 +237,8 @@ class ConfigManager:
             # ========== 按键监控 ==========
             "ENABLE_LEFT_MOUSE_MONITOR": False,
             "ENABLE_RIGHT_MOUSE_MONITOR": True,
+            "ENABLE_MOUSE4_MONITOR": False,       # ⭐ 新增：侧键4（后退键）
+            "ENABLE_MOUSE5_MONITOR": False,       # ⭐ 新增：侧键5（前进键）
             "KEY_MONITOR_INTERVAL_MS": 50,
 
             # ========== 系统配置 ==========
@@ -440,6 +442,8 @@ class ConfigManager:
             "PREVIEW_SHOW_AIM_POINT", "USE_LZ4", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
             "ENABLE_HEAD_PRIORITY","IGNORE_SMALL_TARGET_HEAD", "ENABLE_LEFT_MOUSE_MONITOR",
             "ENABLE_RIGHT_MOUSE_MONITOR",
+            "ENABLE_MOUSE4_MONITOR",     # ⭐ 新增
+            "ENABLE_MOUSE5_MONITOR",     # ⭐ 新增
             "ENABLE_LOGGING", "DEBUG_MODE", "MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE",
             "AUTO_FIRE_DEBUG_MODE", "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
             "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET",
@@ -630,6 +634,8 @@ class ConfigManager:
 
             "按键监控": [
                 "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
+                "ENABLE_MOUSE4_MONITOR",      # ⭐ 新增
+                "ENABLE_MOUSE5_MONITOR",
                 "KEY_MONITOR_INTERVAL_MS"
             ],
 

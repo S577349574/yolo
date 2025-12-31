@@ -237,6 +237,8 @@ def main():
             shared_controller=shared_makcu_controller,  # ⭐ 必须传递
             enable_left=get_config('ENABLE_LEFT_MOUSE_MONITOR', False),
             enable_right=get_config('ENABLE_RIGHT_MOUSE_MONITOR', True),
+            enable_mouse4=get_config('ENABLE_MOUSE4_MONITOR', False),     # ⭐ 新增
+            enable_mouse5=get_config('ENABLE_MOUSE5_MONITOR', False),
             enable_auto_fire=get_config('ENABLE_AUTO_FIRE', False),
             poll_interval=get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
         )
