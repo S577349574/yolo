@@ -1,11 +1,11 @@
-# main.py (修复版 - 解决FPS下降和GPU利用率低的问题)
+# main.py (完整修复版 - 正确使用准星偏移量)
 
 import math
 import time
 from threading import Event as ThreadEvent
 
-
 import makcu_patch
+from crosshair.threaded_crosshair_detector import ThreadedCrosshairDetector
 from gui import stop_gui
 
 makcu_patch.apply()
@@ -24,12 +24,14 @@ from script_system.shared_game_state import get_game_state
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from yolo_detector import YOLOv8Detector
+from crosshair.crosshair_manager import CrosshairManager
 
 # 服务器信息
 LICENSE_SERVER_URL = "http://1.14.184.43:45000"
 LICENSE_SECRET_KEY = "your_secret_key_change_this"
 
 _original_print = print
+
 
 class AppState:
     """应用程序状态管理类（线程安全）"""
@@ -73,6 +75,7 @@ class AppState:
     def is_left_pressed(self):
         return self.left_mouse_pressed.is_set()
 
+
 def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState):
     """后台发送心跳包"""
     heartbeat_interval = 30
@@ -105,10 +108,12 @@ class CachedConfig:
         self.auto_fire_distance_threshold = None
         self.auto_fire_accuracy_threshold = None
         self.inference_fps = None
+        self.use_detected_crosshair = None  # ⭐ 新增
+        self.crosshair_fallback_to_center = None  # ⭐ 新增
         self.refresh()
 
     def refresh(self):
-        self.inference_fps = get_config("INFERENCE_FPS", 240)  # ⭐ 默认240
+        self.inference_fps = get_config("INFERENCE_FPS", 240)
         self.auto_fire_accuracy_threshold = get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75)
         self.auto_fire_distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
         self.recoil_vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
@@ -119,13 +124,19 @@ class CachedConfig:
         self.enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
         self.manual_recoil_trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'both_buttons')
         self.recoil_require_target = get_config('RECOIL_REQUIRE_TARGET', True)
+        # ⭐ 新增配置项
+        self.use_detected_crosshair = get_config('USE_DETECTED_CROSSHAIR', True)
+        self.crosshair_fallback_to_center = get_config('CROSSHAIR_USE_FALLBACK_CENTER', True)
+
 
 def run_gui_in_background():
     """后台运行 GUI"""
     from gui import create_gui
     create_gui()
+
+
 def main():
-    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box, crosshair_manager
     print("\n" + "=" * 60)
     print("正在初始化...")
 
@@ -144,60 +155,28 @@ def main():
     script_manager = None
     preview_window = None
     game_state = get_game_state()
-    # ⭐ FPS 统计变量
+
+    # FPS 统计变量
     fps_history = []
     fps_max_samples = 30
     global image_source
     last_fps_time = time.perf_counter()
+
     try:
         import threading
-        # ⭐ 启动 GUI 线程（不阻塞主程序）
+
+        # 启动 GUI 线程
         gui_thread = threading.Thread(
             target=run_gui_in_background,
-            daemon=False,  # 必须是非守护线程
+            daemon=False,
             name="GUI-Thread"
         )
         gui_thread.start()
 
         load_config(force_reload=True)
-        start_auto_reload(interval_sec=2)  # 每 2 秒检查一次配置变更
+        start_auto_reload(interval_sec=2)
         utils.log("✅ 配置热重载已启动")
-        # # ==================== 配置加载与验证 ====================
-        # load_config(force_reload=True)
-        # card_key = get_config('LICENSE_KEY', "").strip()
-        #
-        # if not card_key:
-        #     utils.log("\n" + "=" * 60)
-        #     utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
-        #     utils.log("请打开程序目录下的 config.json 文件，")
-        #     utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
-        #     utils.log("=" * 60)
-        #     input("\n按回车键退出...")
-        #     return
-        #
-        # print("\n" + "=" * 60)
-        # print("正在进行许可证验证...")
-        # auth = LicenseAuthenticator(LICENSE_SERVER_URL, LICENSE_SECRET_KEY)
-        # success, message = auth.verify(card_key)
-        #
-        # if not success:
-        #     utils.log(f"❌ 许可证验证失败: {message}")
-        #     utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
-        #     input("按回车键退出...")
-        #     return
-        #
-        # utils.log(f"✅ 验证成功: {message}")
-        # utils.log(f"📅 过期时间: {auth.expire_date}")
-        #
-        # start_auto_reload()
-        # heartbeat_thread = Thread(
-        #     target=heartbeat_worker,
-        #     args=(auth, app_state),
-        #     daemon=True,
-        #     name="HeartbeatThread"
-        # )
-        # heartbeat_thread.start()
-        # utils.log("✅ 后台心跳与配置监控已启动")
+
         use_makcu = get_config("USE_MAKCU", False)
         enable_left_monitor = get_config('ENABLE_LEFT_MOUSE_MONITOR', False)
         enable_right_monitor = get_config('ENABLE_RIGHT_MOUSE_MONITOR', True)
@@ -234,10 +213,10 @@ def main():
         key_monitor = create_key_monitor(
             app_state=app_state,
             use_makcu=use_makcu,
-            shared_controller=shared_makcu_controller,  # ⭐ 必须传递
+            shared_controller=shared_makcu_controller,
             enable_left=get_config('ENABLE_LEFT_MOUSE_MONITOR', False),
             enable_right=get_config('ENABLE_RIGHT_MOUSE_MONITOR', True),
-            enable_mouse4=get_config('ENABLE_MOUSE4_MONITOR', False),     # ⭐ 新增
+            enable_mouse4=get_config('ENABLE_MOUSE4_MONITOR', False),
             enable_mouse5=get_config('ENABLE_MOUSE5_MONITOR', False),
             enable_auto_fire=get_config('ENABLE_AUTO_FIRE', False),
             poll_interval=get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
@@ -247,12 +226,11 @@ def main():
             utils.log("❌ 按键监控器创建失败")
             return
 
-        # ⭐ 启动监控
         if not key_monitor.start():
             utils.log("❌ 按键监控器启动失败")
             return
 
-        # ==================== 驱动加载 ====================
+        # 驱动加载
         use_driver_mode = get_config("USE_DRIVER_MODE", True)
 
         if use_driver_mode:
@@ -263,7 +241,7 @@ def main():
             else:
                 utils.log("✅ 驱动已准备就绪")
 
-        # ==================== 模式检查 ====================
+        # 模式检查
         enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
         enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
 
@@ -276,7 +254,7 @@ def main():
         print("🎮 FPS 助手启动成功，祝您游戏愉快！")
         print("=" * 60)
 
-        # ==================== 核心组件初始化 ====================
+        # 核心组件初始化
         model = YOLOv8Detector()
         cached_config = CachedConfig()
 
@@ -306,11 +284,44 @@ def main():
             target_class_ids = list(model.names.keys())
             utils.log(f"⚠️ 未配置目标类别，将识别所有类别: {list(model.names.values())}")
 
+        # 准星检测管理器
+        crosshair_manager = None
+        enable_crosshair = get_config('ENABLE_CROSSHAIR_DETECTION', False)
+
+        if enable_crosshair:
+            try:
+                utils.log("\n" + "=" * 60)
+                utils.log("🎯 正在初始化准星检测系统...")
+
+                detector_type = get_config('CROSSHAIR_DETECTOR_TYPE', 'template')
+                valorant_config = get_config('CROSSHAIR_VALORANT_CONFIG', '')
+
+                crosshair_manager = CrosshairManager(
+                    detector_type=detector_type,
+                    valorant_config_code=valorant_config if valorant_config else None,
+                    enable_detection=True
+                )
+                threaded_detector = ThreadedCrosshairDetector(crosshair_manager)
+                threaded_detector.start()
+                utils.log("✅ 准星检测系统初始化完成")
+                utils.log(f"   检测器类型: {detector_type}")
+                utils.log(f"   检测器信息: {crosshair_manager.get_detector_info()}")
+                utils.log("=" * 60 + "\n")
+
+            except Exception as e:
+                utils.log(f"❌ 准星检测初始化失败: {e}")
+                utils.log("   将继续运行（不影响核心功能）\n")
+                crosshair_manager = None
+                import traceback
+                traceback.print_exc()
+        else:
+            utils.log("ℹ️ 准星检测未启用")
+
         # 鼠标控制器
         mouse_controller = create_mouse_controller(
             use_driver=use_driver_mode,
             use_makcu=use_makcu,
-            shared_controller=shared_makcu_controller  # ⭐ 传递共享实例
+            shared_controller=shared_makcu_controller
         )
 
         # 屏幕信息
@@ -330,12 +341,12 @@ def main():
             utils.log("✅ 已启用手动压枪模式（需检测到目标 + 按键触发）")
         elif enable_auto_fire:
             utils.log("✅ 已启用自动开火模式（需按住右键触发）")
-        # ==================== 图像源初始化（新） ====================
 
+        # 图像源初始化
         image_source = create_image_source()
         image_source.start()
 
-        # ⭐⭐⭐ 新增：预览窗口初始化 ⭐⭐⭐
+        # 预览窗口初始化
         enable_preview = get_config('ENABLE_PREVIEW_WINDOW', False)
 
         if enable_preview:
@@ -349,7 +360,8 @@ def main():
                 width=preview_width,
                 height=preview_height
             )
-        # ==================== 初始化脚本系统 ====================
+
+        # 初始化脚本系统
         try:
             utils.log("\n" + "=" * 60)
             utils.log("🔧 正在初始化 Lua 脚本系统...")
@@ -364,7 +376,7 @@ def main():
                     target_selector=target_selector,
                     yolo_detector=model,
                     screen_capture=None,
-                    key_monitor=key_monitor,  # ✅ 传入 key_monitor
+                    key_monitor=key_monitor,
                     verbose=verbose_logging
                 )
                 api.bind_app_state(app_state)
@@ -376,8 +388,8 @@ def main():
                 target_selector=None,
                 yolo_detector=model,
                 screen_capture=None,
-                key_monitor=key_monitor,  # ✅ 传入 key_monitor
-                verbose=verbose_logging  # ✅ 添加 verbose 参数
+                key_monitor=key_monitor,
+                verbose=verbose_logging
             )
             script_api.bind_app_state(app_state)
 
@@ -404,7 +416,6 @@ def main():
             utils.log("程序将继续运行（不影响核心功能）\n")
             script_manager = None
 
-
         if script_manager:
             script_api.target_selector = target_selector
 
@@ -425,32 +436,60 @@ def main():
         utils.log(f"⬇️ 压枪速度: {cached_config.recoil_vertical_speed} px/s")
         utils.log(f"📍 屏幕中心: ({screen_center_x}, {screen_center_y})")
         utils.log(f"🎮 目标帧率: {cached_config.inference_fps} FPS")
+
+        # ⭐ 新增：显示准星配置
+        if enable_crosshair and cached_config.use_detected_crosshair:
+            utils.log(f"🎯 准星模式: 使用检测到的准星位置")
+            utils.log(f"   回退策略: {'启用' if cached_config.crosshair_fallback_to_center else '禁用'}")
+        else:
+            utils.log(f"🎯 准星模式: 使用屏幕中心")
+
         utils.log("=" * 60 + "\n")
 
-        # ⭐ 帧率控制参数
+        # 帧率控制参数
         target_fps = cached_config.inference_fps
         min_frame_time = 1.0 / target_fps if target_fps > 0 else 0
         last_frame_time = time.perf_counter()
 
+        crosshair_position = None
+        crosshair_stats_counter = 0
+        crosshair_stats_interval = get_config('CROSSHAIR_STATS_INTERVAL', 300)
 
+        # ⭐ 准星使用统计
+        crosshair_used_count = 0
+        fallback_used_count = 0
 
-
-
-        # ==================== 主循环（优化版） ====================
+        # ==================== 主循环（完整修复版）====================
         while not app_state.is_exiting():
             frame_start = time.perf_counter()
 
-            # ========== 1. 读取帧（非阻塞） ==========
+            # ========== 1. 读取帧 ==========
             img_bgra = image_source.get_frame(timeout=0.001)
             if img_bgra is None:
                 time.sleep(0.0001)
                 continue
-
-
+            # ========== 3. 准星检测 ==========
+            fallback_center = (screen_center_x, screen_center_y) if cached_config.crosshair_fallback_to_center else None
             # ========== 2. 模型推理 ==========
             results = model.predict(img_bgra)
 
-            # ========== 3. 目标列表构建 ==========
+            crosshair_position = crosshair_manager.detect(
+                img=img_bgra,
+                capture_area=capture_area,
+                fallback_center=fallback_center
+            ) if crosshair_manager and crosshair_manager.enabled else None
+
+            # ⭐⭐⭐ 核心修复：确定真实的瞄准参考点 ⭐⭐⭐
+            if crosshair_position and cached_config.use_detected_crosshair:
+                aim_reference_x = crosshair_position[0]
+                aim_reference_y = crosshair_position[1]
+            else:
+                aim_reference_x = screen_center_x
+                aim_reference_y = screen_center_y
+
+            mouse_controller.update_crosshair_position(aim_reference_x, aim_reference_y)
+
+            # ========== 4. 目标列表构建（使用真实准星位置）==========
             candidate_targets = []
             for result in results:
                 if target_class_ids and result['class_id'] not in target_class_ids:
@@ -458,6 +497,7 @@ def main():
 
                 box = result['box']
 
+                # 计算瞄准点（相对于捕获区域）
                 target_x, target_y = target_selector.calculate_aim_point(
                     box, capture_area
                 )
@@ -465,44 +505,55 @@ def main():
                 center_x = capture_area['left'] + (box[0] + box[2]) // 2
                 center_y = capture_area['top'] + (box[1] + box[3]) // 2
 
-
                 width = box[2] - box[0]
                 height = box[3] - box[1]
 
                 class_id = result['class_id']
                 class_name = model.names.get(class_id, 'unknown')
-                distance_to_center = math.sqrt(
-                    (target_x - screen_center_x) ** 2 +
-                    (target_y - screen_center_y) ** 2
+
+                # ⭐ 修复：使用真实准星位置计算距离
+                distance_to_crosshair = math.sqrt(
+                    (target_x - aim_reference_x) ** 2 +
+                    (target_y - aim_reference_y) ** 2
                 )
 
                 candidate_targets.append({
-                    'x': center_x,  # ⭐ 改为目标中心点（用于分组距离计算）
-                    'y': center_y,  # ⭐ 改为目标中心点
+                    'x': center_x,
+                    'y': center_y,
                     'box': box,
                     'width': width,
                     'height': height,
                     'confidence': result['confidence'],
                     'class_id': class_id,
                     'class_name': class_name,
-                    'distance': distance_to_center,
-                    # 可选：如果你在 calculate_aim_point 已经计算了更精确的瞄准点
+                    'distance': distance_to_crosshair,  # ⭐ 修复：使用真实距离
                     'aim_x': target_x,
                     'aim_y': target_y,
                 })
 
-            # ⭐⭐⭐ 新增：更新共享游戏状态 - 目标列表 ⭐⭐⭐
+            # ========== 5. 更新共享游戏状态 ==========
             game_state = get_game_state()
             game_state.update_targets(candidate_targets)
 
-            # ========== 4. 目标选择 ==========
+            if crosshair_position:
+                game_state.has_crosshair = True
+                game_state.crosshair_x = crosshair_position[0]
+                game_state.crosshair_y = crosshair_position[1]
+                game_state.crosshair_offset_x = crosshair_position[0] - screen_center_x
+                game_state.crosshair_offset_y = crosshair_position[1] - screen_center_y
+            else:
+                game_state.has_crosshair = False
+
+            # ========== 6. 目标选择（传入真实准星位置）==========
             best_x, best_y = target_selector.select_best_target(
                 candidate_targets,
                 screen_info['width'],
-                screen_info['height']
+                screen_info['height'],
+                reference_x=aim_reference_x,  # ⭐ 传入真实准星
+                reference_y=aim_reference_y
             )
 
-            # ⭐⭐⭐ 计算真实FPS ⭐⭐⭐
+            # ========== 7. 计算真实FPS ==========
             current_time = time.perf_counter()
             delta = current_time - last_fps_time
             last_fps_time = current_time
@@ -512,13 +563,11 @@ def main():
                 fps_history.append(current_fps)
                 if len(fps_history) > fps_max_samples:
                     fps_history.pop(0)
-
-                # 计算平均FPS
                 avg_fps = sum(fps_history) / len(fps_history)
             else:
                 avg_fps = 0.0
 
-            # ⭐⭐⭐ 更新预览窗口（传递真实FPS）⭐⭐⭐
+            # ========== 8. 更新预览窗口 ==========
             if preview_window and preview_window.enabled:
                 preview_window.update(
                     img=img_bgra,
@@ -526,25 +575,34 @@ def main():
                     target_class_ids=target_class_ids,
                     best_target=(best_x, best_y) if best_x else None,
                     is_locked=target_selector.is_locked,
-                    screen_center=(screen_center_x, screen_center_y),
+                    screen_center=(aim_reference_x, aim_reference_y),
                     class_names=model.names,
-                    inference_fps=avg_fps  # ⭐ 传递真实推理FPS
+                    inference_fps=avg_fps,
+                    crosshair_position=crosshair_position
                 )
 
-            # ========== 5. 开火控制 ==========
+            # ========== 9. 鼠标控制（修复版）==========
+            if app_state.is_mouse_active() and best_x is not None:
+                # ⭐ 修复：基于真实准星位置判断是否需要移动
+                if target_selector.should_send_command(
+                        best_x, best_y, aim_reference_x, aim_reference_y
+                ):
+                    # ⭐ 修复：移动到目标位置（已经是绝对坐标）
+                    mouse_controller.move_to_target(best_x, best_y)
+
+            # ========== 10. 自动开火控制 ==========
             if best_x is not None:
+                # ⭐ 修复：使用真实准星位置计算偏移距离
                 offset_distance = math.sqrt(
-                    (best_x - screen_center_x) ** 2 +
-                    (best_y - screen_center_y) ** 2
+                    (best_x - aim_reference_x) ** 2 +
+                    (best_y - aim_reference_y) ** 2
                 )
 
-                # ⭐ 可选：更新瞄准/开火状态（供脚本使用）
                 game_state.is_aiming = app_state.is_mouse_active()
                 game_state.is_firing = auto_fire.is_firing
                 game_state.is_locked = target_selector.is_locked
                 game_state.lock_frames = target_selector.target_lock_frames
 
-                # 如果有压枪偏移，也可以更新
                 if enable_manual_recoil or (enable_auto_fire and auto_fire.is_firing):
                     game_state.update_recoil_state(
                         active=True,
@@ -554,37 +612,33 @@ def main():
                     )
                 else:
                     game_state.update_recoil_state(active=False)
-            if preview_window and preview_window.enabled:
-                continue_preview = preview_window.update(
-                    img=img_bgra,
-                    results=results,
-                    target_class_ids=target_class_ids,
-                    best_target=(best_x, best_y) if best_x else None,
-                    is_locked=target_selector.is_locked,
-                    screen_center=(screen_center_x, screen_center_y),
-                    class_names=model.names
-                )
 
-                if not continue_preview:
-                    preview_window = None  # 用户关闭窗口
-
-            if app_state.is_mouse_active() and best_x is not None:
-                if target_selector.should_send_command(
-                        best_x, best_y, screen_center_x, screen_center_y
-                ):
-                    mouse_controller.move_to_target(best_x, best_y)
-            # ========== 7. 脚本事件 ==========
+            # ========== 11. 脚本事件 ==========
             if script_manager:
                 current_time = time.perf_counter()
                 delta_time = current_time - last_frame_time
                 last_frame_time = current_time
 
-                # ⭐ 更新性能数据
                 game_state.current_fps = 1.0 / delta_time if delta_time > 0 else 0
                 game_state.delta_time = delta_time
                 game_state.frame_count += 1
 
                 script_manager.call_event("onFrame", candidate_targets, delta_time)
+
+            # ⭐ 定期打印准星使用统计
+            crosshair_stats_counter += 1
+            if crosshair_stats_counter >= crosshair_stats_interval:
+                total_frames = crosshair_used_count + fallback_used_count
+                if total_frames > 0:
+                    crosshair_usage_rate = (crosshair_used_count / total_frames) * 100
+                    utils.log(f"\n📊 准星使用统计（最近 {crosshair_stats_interval} 帧）:")
+                    utils.log(f"   检测到准星: {crosshair_used_count} 帧 ({crosshair_usage_rate:.1f}%)")
+                    utils.log(f"   使用屏幕中心: {fallback_used_count} 帧 ({100 - crosshair_usage_rate:.1f}%)")
+
+                # 重置计数器
+                crosshair_stats_counter = 0
+                crosshair_used_count = 0
+                fallback_used_count = 0
 
     except KeyboardInterrupt:
         utils.log("\n⚠️ 用户中断")
@@ -597,8 +651,10 @@ def main():
         utils.log("\n🧹 正在清理资源并安全退出...")
         app_state.request_exit()
         stop_auto_reload()
+
         if key_monitor:
             key_monitor.stop()
+
         # 1. 停止脚本系统
         if script_manager:
             try:
@@ -666,7 +722,19 @@ def main():
                     utils.log("⚠️ 捕获进程仍未退出，强制杀死...")
                     capture_process.kill()
                     capture_process.join(timeout=0.5)
-
+        # ⭐ 新增：打印准星检测统计
+        if crosshair_manager and crosshair_manager.enabled:
+            try:
+                utils.log("\n" + "=" * 60)
+                utils.log("📊 准星检测最终统计")
+                stats = crosshair_manager.get_stats()
+                utils.log(f"  总检测帧数: {stats['total']}")
+                utils.log(f"  成功帧数: {stats['success']}")
+                utils.log(f"  成功率: {stats['success_rate']}")
+                utils.log(f"  检测器类型: {stats['detector_type']}")
+                utils.log("=" * 60 + "\n")
+            except Exception as e:
+                utils.log(f"⚠️ 打印准星统计时出错: {e}")
         # 9. 关闭鼠标控制器
         if mouse_controller:
             try:

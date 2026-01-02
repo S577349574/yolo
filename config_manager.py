@@ -146,7 +146,14 @@ class ConfigManager:
             "FRAME_HEIGHT": 256,
             "FRAME_CHANNELS": 3,
             "USE_LZ4": True,
-
+            # ========== 准星检测配置 ==========
+            "ENABLE_CROSSHAIR_DETECTION": False,           # 是否启用准星检测
+            "CROSSHAIR_DETECTOR_TYPE": "template",         # 检测器类型: 'color', 'template', 'cross_shape'
+            "CROSSHAIR_VALORANT_CONFIG": "",               # Valorant准星配置代码（可选）
+            "CROSSHAIR_TEMPLATE_PATH": "templates/crosshair.png",  # 外部模板路径
+            "CROSSHAIR_USE_FALLBACK_CENTER": True,         # 检测失败时使用屏幕中心
+            "CROSSHAIR_DEBUG_MODE": False,                 # 调试模式（显示详细日志）
+            "CROSSHAIR_STATS_INTERVAL": 300,
             # 预览窗口
             "ENABLE_PREVIEW_WINDOW": False,
             "PREVIEW_WINDOW_WIDTH": 800,
@@ -463,7 +470,27 @@ class ConfigManager:
             if not p.exists():
                 self._log(f"⚠ 模型文件不存在: {p}")
             c["MODEL_PATH"] = str(p)
+        # ========== 准星检测验证 ==========
 
+        # 检测器类型验证
+        if c.get("CROSSHAIR_DETECTOR_TYPE") not in ["color", "template", "cross_shape"]:
+            c["CROSSHAIR_DETECTOR_TYPE"] = "template"
+
+        # 统计间隔验证
+        stats_interval = c.get("CROSSHAIR_STATS_INTERVAL", 300)
+        try:
+            stats_interval = int(stats_interval)
+            stats_interval = max(60, min(1800, stats_interval))
+        except (ValueError, TypeError):
+            stats_interval = 300
+        c["CROSSHAIR_STATS_INTERVAL"] = stats_interval
+
+        # 布尔值验证
+        bool_keys.extend([
+            "ENABLE_CROSSHAIR_DETECTION",
+            "CROSSHAIR_USE_FALLBACK_CENTER",
+            "CROSSHAIR_DEBUG_MODE"
+        ])
         # ========== 互斥模式验证 ==========
         if c.get("ENABLE_AUTO_FIRE") and c.get("ENABLE_MANUAL_RECOIL"):
             self._log("⚠ 自动开火和手动压枪不能同时启用，已禁用自动开火")
@@ -583,7 +610,15 @@ class ConfigManager:
             "目标分组": [
                 "TARGET_GROUP_DISTANCE_THRESHOLD"
             ],
-
+            "准星检测配置": [
+                "ENABLE_CROSSHAIR_DETECTION",
+                "CROSSHAIR_DETECTOR_TYPE",
+                "CROSSHAIR_VALORANT_CONFIG",
+                "CROSSHAIR_TEMPLATE_PATH",
+                "CROSSHAIR_USE_FALLBACK_CENTER",
+                "CROSSHAIR_DEBUG_MODE",
+                "CROSSHAIR_STATS_INTERVAL"
+            ],
             "目标选择": [
                 "MIN_TARGET_LOCK_FRAMES", "TARGET_SWITCH_DISTANCE_THRESHOLD",
                 "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES", "TARGET_ID_GRID_SIZE"

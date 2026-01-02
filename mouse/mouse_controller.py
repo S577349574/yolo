@@ -1,12 +1,14 @@
+# mouse_controller.py (完整修复版 - 支持动态准星位置)
+
 """
-鼠标控制器基类 - 包含所有公共逻辑（支持配置热重载）
+鼠标控制器基类 - 包含所有公共逻辑（支持配置热重载 + 动态准星）
 """
 
 import math
 import queue as thread_queue
 import time
 from abc import ABC, abstractmethod
-from threading import Thread, Event as ThreadEvent
+from threading import Thread, Event as ThreadEvent, Lock
 
 import win32api
 
@@ -16,7 +18,7 @@ from pid_controller import PIDController
 
 
 class MouseControllerBase(ABC):
-    """鼠标控制器抽象基类"""
+    """鼠标控制器抽象基类（支持动态准星位置）"""
 
     # 统一的按钮标志常量
     BUTTON_NONE = 0
@@ -37,16 +39,19 @@ class MouseControllerBase(ABC):
         # 屏幕信息
         self.screen_width = win32api.GetSystemMetrics(0)
         self.screen_height = win32api.GetSystemMetrics(1)
-        self.center_x = self.screen_width // 2
-        self.center_y = self.screen_height // 2
+
+        # ⭐ 默认准星位置（屏幕中心）
+        self._crosshair_x = self.screen_width // 2
+        self._crosshair_y = self.screen_height // 2
+        self._crosshair_lock = Lock()  # 线程安全锁
 
         # 从配置加载参数
         self._load_config()
 
-        # ⭐ 注册配置热重载回调
+        # 注册配置热重载回调
         self._register_config_callbacks()
 
-        # ⭐ 初始化 PID 控制器（使用无参构造，内部自动加载配置并注册回调）
+        # 初始化 PID 控制器
         self.pid = PIDController()
 
         # 按钮映射
@@ -63,6 +68,7 @@ class MouseControllerBase(ABC):
 
         if self.debug_mode:
             utils.log(f"[{self.get_mode()}] 屏幕: {self.screen_width}x{self.screen_height}")
+            utils.log(f"[{self.get_mode()}] 默认准星: ({self._crosshair_x}, {self._crosshair_y})")
             utils.log(f"[{self.get_mode()}] 死区: {math.sqrt(self.dead_zone_sq):.1f}px")
             utils.log(f"[{self.get_mode()}] 最大步进: {self.max_step}px")
 
@@ -85,7 +91,7 @@ class MouseControllerBase(ABC):
         self.debug_mode = get_config("DEBUG_MODE", False)
 
     def _register_config_callbacks(self):
-        """⭐ 注册配置变更回调（实现热重载）"""
+        """注册配置变更回调（实现热重载）"""
 
         # 死区配置
         def update_dead_zone(value):
@@ -122,6 +128,52 @@ class MouseControllerBase(ABC):
             utils.log(f"[{self.get_mode()}] 🔄 调试模式: {'开启' if value else '关闭'}")
         on_config_change("DEBUG_MODE", update_debug)
 
+    # ==================== ⭐ 新增：准星位置管理 ====================
+
+    def update_crosshair_position(self, x: float, y: float):
+        """
+        更新准星位置（线程安全）
+
+        Args:
+            x: 准星 X 坐标
+            y: 准星 Y 坐标
+        """
+        with self._crosshair_lock:
+            old_x, old_y = self._crosshair_x, self._crosshair_y
+            self._crosshair_x = int(x)
+            self._crosshair_y = int(y)
+
+            # 调试输出（仅在位置变化较大时）
+            if self.debug_mode:
+                delta = math.hypot(x - old_x, y - old_y)
+                if delta > 10:  # 偏移超过10像素才输出
+                    utils.log(
+                        f"[{self.get_mode()}] 🎯 准星更新: "
+                        f"({old_x}, {old_y}) → ({self._crosshair_x}, {self._crosshair_y}) "
+                        f"[偏移:{delta:.1f}px]"
+                    )
+
+    def get_crosshair_position(self) -> tuple[int, int]:
+        """
+        获取当前准星位置（线程安全）
+
+        Returns:
+            (x, y): 准星坐标
+        """
+        with self._crosshair_lock:
+            return self._crosshair_x, self._crosshair_y
+
+    def reset_crosshair_to_center(self):
+        """重置准星位置到屏幕中心"""
+        center_x = self.screen_width // 2
+        center_y = self.screen_height // 2
+        self.update_crosshair_position(center_x, center_y)
+
+        if self.debug_mode:
+            utils.log(f"[{self.get_mode()}] 🎯 准星已重置到屏幕中心")
+
+    # ==================== 修改：使用动态准星位置 ====================
+
     def _start_worker_thread(self):
         """启动工作线程"""
         self.mouse_thread = Thread(target=self._mouse_worker, daemon=True)
@@ -143,27 +195,31 @@ class MouseControllerBase(ABC):
             utils.log(f"[{self.get_mode()} Thread] 工作线程已终止")
 
     def _process_move_command(self, move_command):
-        """处理移动命令"""
+        """处理移动命令（使用动态准星位置）"""
         target_x, target_y, _, delay_ms, button_flags = move_command
 
         # 计算延迟
         sleep_time = (delay_ms * self.ms_to_sec) if delay_ms else self.default_delay_sec
         self.move_count += 1
 
-        # 计算误差
-        error_x = target_x - self.center_x
-        error_y = target_y - self.center_y
+        # ⭐ 修复：使用当前准星位置计算误差
+        crosshair_x, crosshair_y = self.get_crosshair_position()
+        error_x = target_x - crosshair_x
+        error_y = target_y - crosshair_y
         distance_sq = error_x * error_x + error_y * error_y
 
         # 死区判断
         if distance_sq < self.dead_zone_sq:
             if self.debug_mode and self.move_count % 10 == 1:
-                utils.log(f"[{self.get_mode()}] 在死区内，跳过")
+                utils.log(
+                    f"[{self.get_mode()}] 在死区内，跳过 "
+                    f"[准星:({crosshair_x},{crosshair_y}) 目标:({target_x},{target_y})]"
+                )
             self.pid.reset()
             time.sleep(sleep_time)
             return
 
-        # ⭐ PID 计算（使用修复后的 compute 方法）
+        # PID 计算
         move_x_raw, move_y_raw = self.pid.compute(error_x, error_y)
 
         # 限幅
@@ -235,8 +291,8 @@ class MouseControllerBase(ABC):
         将目标坐标加入移动队列
 
         Args:
-            target_x: 目标 X 坐标
-            target_y: 目标 Y 坐标
+            target_x: 目标 X 坐标（绝对坐标）
+            target_y: 目标 Y 坐标（绝对坐标）
             delay_ms: 延迟毫秒数
             button_flags: 按钮标志
 
@@ -333,11 +389,13 @@ class MouseControllerBase(ABC):
 
     def get_stats(self):
         """获取统计信息"""
+        crosshair_x, crosshair_y = self.get_crosshair_position()
         return {
             "mode": self.get_mode(),
             "move_count": self.move_count,
             "overshoot_count": self.overshoot_count,
             "is_ready": self.is_ready(),
+            "crosshair_position": (crosshair_x, crosshair_y),  # ⭐ 新增
             "pid_params": self.pid.get_params() if hasattr(self.pid, 'get_params') else {},
         }
 
@@ -346,8 +404,8 @@ class MouseControllerBase(ABC):
         直接移动到目标位置（瞬移，不使用PID）
 
         Args:
-            target_x: 目标 X 坐标
-            target_y: 目标 Y 坐标
+            target_x: 目标 X 坐标（绝对坐标）
+            target_y: 目标 Y 坐标（绝对坐标）
 
         Returns:
             bool: 是否成功
@@ -356,16 +414,20 @@ class MouseControllerBase(ABC):
             utils.log(f"[{self.get_mode()}] ⚠ 控制器未就绪")
             return False
 
-        # 直接计算完整误差
-        dx = target_x - self.center_x
-        dy = target_y - self.center_y
+        # ⭐ 修复：使用当前准星位置计算移动量
+        crosshair_x, crosshair_y = self.get_crosshair_position()
+        dx = target_x - crosshair_x
+        dy = target_y - crosshair_y
 
         # 限幅（可选，防止过大的移动）
         dx = max(-self.max_mickey, min(self.max_mickey, int(dx)))
         dy = max(-self.max_mickey, min(self.max_mickey, int(dy)))
 
         if self.debug_mode:
-            utils.log(f"[{self.get_mode()}] 瞬移: ({dx}, {dy})")
+            utils.log(
+                f"[{self.get_mode()}] 瞬移: ({dx}, {dy}) "
+                f"[准星:({crosshair_x},{crosshair_y}) → 目标:({target_x},{target_y})]"
+            )
 
         return self._send_move(dx, dy)
 

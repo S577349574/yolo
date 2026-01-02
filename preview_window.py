@@ -1,4 +1,4 @@
-# preview_window.py (完整的多类别彩色版本)
+# preview_window.py (完整修复版 - 准星跟随检测位置)
 
 import time
 import cv2
@@ -6,14 +6,14 @@ import numpy as np
 import threading
 from queue import Queue, Empty
 from typing import List, Dict, Optional, Tuple
-import colorsys  # ⭐ 用于生成颜色
+import colorsys
 
 import utils
 from config_manager import get_config
 
 
 class PreviewWindow:
-    """预览窗口管理类（支持多类别彩色显示）"""
+    """预览窗口管理类（支持多类别彩色显示 + 准星检测可视化）"""
 
     def __init__(
             self,
@@ -37,6 +37,7 @@ class PreviewWindow:
         self.show_aim_point = get_config('PREVIEW_SHOW_AIM_POINT', True)
         self.show_all_classes = get_config('PREVIEW_SHOW_ALL_CLASSES', True)
         self.highlight_targets = get_config('PREVIEW_HIGHLIGHT_TARGETS', True)
+        self.show_crosshair_detection = get_config('PREVIEW_SHOW_CROSSHAIR_DETECTION', True)
 
         self.box_thickness = get_config('PREVIEW_BOX_THICKNESS', 2)
         self.text_scale = get_config('PREVIEW_TEXT_SCALE', 0.5)
@@ -47,20 +48,21 @@ class PreviewWindow:
         self._fps_max_samples = 30
         self._last_time = time.perf_counter()
 
-        # ⭐⭐⭐ 多类别颜色系统 ⭐⭐⭐
+        # 多类别颜色系统
         self._generate_class_colors()
 
         # 特殊状态颜色
         self.special_colors = {
-            'locked': (0, 255, 0),  # 绿色 - 锁定状态
-            'crosshair': (0, 0, 255),  # 红色 - 准心
-            'aim_point': (255, 0, 255),  # 洋红 - 瞄准点
+            'locked': (0, 255, 0),
+            'crosshair': (0, 0, 255),  # 红色 - 真实准星位置
+            'crosshair_detected': (0, 255, 255),  # 黄色 - 检测到的准星（调试用）
+            'aim_point': (255, 0, 255),
             'fps_good': (0, 255, 0),
             'fps_medium': (0, 165, 255),
             'fps_low': (0, 0, 255)
         }
 
-        # 异步渲染支持（保持原有逻辑）
+        # 异步渲染支持
         if self.use_thread:
             self._frame_queue = Queue(maxsize=2)
             self._stop_event = threading.Event()
@@ -77,58 +79,34 @@ class PreviewWindow:
             utils.log(f"✅ 预览窗口已启动（同步模式）: {window_name}")
 
         utils.log(f"   多类别彩色显示已启用")
-        utils.log(f"   快捷键: P=关闭, B=检测框, L=标签, F=FPS, H=高亮锁定")
+        utils.log(f"   准星检测可视化已启用")
 
     def _generate_class_colors(self):
         """为不同类别生成区分颜色"""
         self.class_colors = {}
 
-        # ⭐ 方案1：预定义常见类别的固定颜色（推荐）
         predefined = {
-            # 人体部位（你的模型）
             0: (255, 100, 255),  # body - 洋红/粉色
             1: (100, 255, 255),  # head - 青色/天蓝
-
-            # 常见游戏类别（备用）
-            2: (255, 255, 100),  # 类别2 - 黄色
-            3: (255, 150, 100),  # 类别3 - 橙色
-            4: (150, 100, 255),  # 类别4 - 紫色
-            5: (100, 255, 150),  # 类别5 - 绿色
+            2: (255, 255, 100),
+            3: (255, 150, 100),
+            4: (150, 100, 255),
+            5: (100, 255, 150),
         }
 
-        # ⭐ 方案2：为其他类别自动生成均匀分布的颜色
-        for class_id in range(80):  # YOLO最多80类
+        for class_id in range(80):
             if class_id in predefined:
                 self.class_colors[class_id] = predefined[class_id]
             else:
-                # 使用HSV色彩空间，在色环上均匀分布
-                hue = (class_id * 137.5) % 360  # 黄金角（137.5°）确保颜色均匀
-                saturation = 0.9  # 高饱和度（鲜艳）
-                value = 0.9  # 高明度（明亮）
-
-                # HSV -> RGB -> BGR
+                hue = (class_id * 137.5) % 360
+                saturation = 0.9
+                value = 0.9
                 rgb = colorsys.hsv_to_rgb(hue / 360.0, saturation, value)
                 bgr = tuple(int(c * 255) for c in reversed(rgb))
                 self.class_colors[class_id] = bgr
 
-        # 打印已定义的类别颜色（调试用）
-        utils.log(f"   已生成 {len(self.class_colors)} 个类别颜色")
-        for cid, color in predefined.items():
-            utils.log(f"     类别{cid}: RGB{color[::-1]}")  # 打印RGB顺序
-
     def _get_box_color(self, class_id, is_target, is_locked):
-        """
-        获取检测框颜色（始终返回类别颜色）
-
-        Args:
-            class_id: 类别ID
-            is_target: 是否为目标类别（未使用，保留接口兼容）
-            is_locked: 是否已锁定（未使用，保留接口兼容）
-
-        Returns:
-            BGR颜色元组
-        """
-        # ⭐ 始终返回类别固定颜色（不再覆盖）
+        """获取检测框颜色"""
         return self.class_colors.get(class_id, (128, 128, 128))
 
     def update(
@@ -140,9 +118,10 @@ class PreviewWindow:
             is_locked: bool = False,
             screen_center: Optional[Tuple[int, int]] = None,
             class_names: Optional[Dict[int, str]] = None,
-            inference_fps: Optional[float] = None
+            inference_fps: Optional[float] = None,
+            crosshair_position: Optional[Tuple[int, int]] = None
     ) -> bool:
-        """更新预览窗口（保持原有逻辑）"""
+        """更新预览窗口"""
         if not self.enabled:
             return False
 
@@ -166,7 +145,8 @@ class PreviewWindow:
                     'is_locked': is_locked,
                     'screen_center': screen_center,
                     'class_names': class_names,
-                    'inference_fps': inference_fps
+                    'inference_fps': inference_fps,
+                    'crosshair_position': crosshair_position
                 })
             except Exception as e:
                 utils.log(f"⚠️ 预览队列错误: {e}")
@@ -176,11 +156,12 @@ class PreviewWindow:
             return self._render_frame(
                 img, results, target_class_ids,
                 best_target, is_locked, screen_center,
-                class_names, inference_fps
+                class_names, inference_fps,
+                crosshair_position
             )
 
     def _render_loop(self):
-        """渲染线程主循环（保持原有逻辑）"""
+        """渲染线程主循环"""
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.window_name, self.width, self.height)
 
@@ -196,7 +177,8 @@ class PreviewWindow:
                     frame_data['is_locked'],
                     frame_data['screen_center'],
                     frame_data['class_names'],
-                    frame_data.get('inference_fps')
+                    frame_data.get('inference_fps'),
+                    frame_data.get('crosshair_position')
                 )
 
                 if not continue_preview:
@@ -231,7 +213,8 @@ class PreviewWindow:
             is_locked: bool,
             screen_center: Optional[Tuple[int, int]],
             class_names: Optional[Dict[int, str]],
-            inference_fps: Optional[float] = None
+            inference_fps: Optional[float] = None,
+            crosshair_position: Optional[Tuple[int, int]] = None
     ) -> bool:
         """实际渲染逻辑"""
         display_img = np.copy(img)
@@ -240,8 +223,6 @@ class PreviewWindow:
             display_img = cv2.cvtColor(display_img, cv2.COLOR_BGRA2BGR)
 
         h, w = display_img.shape[:2]
-
-        # FPS
         current_fps = inference_fps if inference_fps is not None else self._calculate_fps()
 
         # 绘制检测框
@@ -250,13 +231,25 @@ class PreviewWindow:
                 display_img, results, target_class_ids, is_locked, class_names
             )
 
-        # 绘制准心
+        # ⭐⭐⭐ 修复：绘制真实准星位置（红色十字）⭐⭐⭐
         if self.show_crosshair and screen_center:
             self._draw_crosshair(display_img, screen_center, w, h)
 
         # 绘制瞄准点
         if self.show_aim_point and best_target and screen_center:
             self._draw_aim_point(display_img, best_target, screen_center, w, h)
+
+        # ⭐ 调试模式：显示检测到的准星原始位置（黄色）
+        if crosshair_position and screen_center and self.show_crosshair_detection:
+            # 判断是否与真实准星位置不同（表示准星有偏移）
+            offset_x = abs(crosshair_position[0] - screen_center[0])
+            offset_y = abs(crosshair_position[1] - screen_center[1])
+
+            # 仅当偏移量大于5像素时才显示（避免无意义的重叠）
+            if offset_x > 5 or offset_y > 5:
+                self._draw_crosshair_detection(
+                    display_img, crosshair_position, screen_center, w, h
+                )
 
         # 绘制统计信息
         if self.show_fps:
@@ -274,7 +267,7 @@ class PreviewWindow:
         return True
 
     def _draw_detections(self, img, results, target_class_ids, is_locked, class_names):
-        """绘制所有检测框（仅使用类别颜色）"""
+        """绘制所有检测框"""
         for result in results:
             class_id = result['class_id']
             box = result['box']
@@ -282,19 +275,15 @@ class PreviewWindow:
             conf = result['confidence']
 
             is_target = not target_class_ids or class_id in target_class_ids
-
-            # ⭐ 始终使用类别颜色
             color = self._get_box_color(class_id, is_target, is_locked)
 
-            # ⭐ 锁定时只是加粗边框（不改颜色）
             if is_locked and is_target and self.highlight_targets:
-                thickness = self.box_thickness + 2  # 加粗
+                thickness = self.box_thickness + 2
             else:
                 thickness = self.box_thickness
 
             cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
 
-            # ========== 绘制标签（保持不变）==========
             if self.show_labels or self.show_confidence:
                 class_name = class_names.get(class_id, f"class_{class_id}") if class_names else f"ID:{class_id}"
 
@@ -305,12 +294,8 @@ class PreviewWindow:
                 else:
                     label = f"{conf:.2f}"
 
-                # 绘制文字背景
                 (text_w, text_h), baseline = cv2.getTextSize(
-                    label,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    self.text_scale,
-                    1
+                    label, cv2.FONT_HERSHEY_SIMPLEX, self.text_scale, 1
                 )
 
                 cv2.rectangle(
@@ -321,49 +306,157 @@ class PreviewWindow:
                     -1
                 )
 
-                # 文字颜色
                 text_color = self._get_text_color(color)
                 cv2.putText(
-                    img,
-                    label,
-                    (x1, y1 - baseline - 2),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    self.text_scale,
-                    text_color,
-                    1,
-                    cv2.LINE_AA
+                    img, label, (x1, y1 - baseline - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, self.text_scale,
+                    text_color, 1, cv2.LINE_AA
                 )
 
     @staticmethod
     def _get_text_color(bg_color: Tuple[int, int, int]) -> Tuple[int, int, int]:
-        """根据背景颜色自动选择文字颜色（确保对比度）"""
+        """根据背景颜色自动选择文字颜色"""
         b, g, r = bg_color
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         return (0, 0, 0) if luminance > 128 else (255, 255, 255)
 
-    def _draw_crosshair(self, img, screen_center, img_width, img_height):
-        """绘制准心十字线"""
-        center_x, center_y = img_width // 2, img_height // 2
+    def _draw_crosshair(
+            self,
+            img: np.ndarray,
+            screen_center: Tuple[int, int],  # 屏幕坐标系的准星位置
+            img_width: int,
+            img_height: int
+    ):
+        """
+        绘制真实准星位置（红色十字）
+
+        Args:
+            screen_center: main.py传入的真实准星位置（屏幕坐标）
+            img_width: 捕获图像的宽度
+            img_height: 捕获图像的高度
+        """
+        # ⭐⭐⭐ 关键修复：计算准星在图像中的相对位置 ⭐⭐⭐
+
+        # 获取屏幕尺寸
+        from utils import get_screen_info
+        screen_info = get_screen_info()
+        screen_width = screen_info['width']
+        screen_height = screen_info['height']
+
+        # 计算捕获区域在屏幕上的位置（假设居中捕获）
+        capture_left = (screen_width - img_width) // 2
+        capture_top = (screen_height - img_height) // 2
+
+        # 将屏幕坐标转换为图像坐标
+        crosshair_x = screen_center[0] - capture_left
+        crosshair_y = screen_center[1] - capture_top
+
+        # 确保坐标在图像范围内
+        if not (0 <= crosshair_x < img_width and 0 <= crosshair_y < img_height):
+            # 准星在捕获区域外，绘制在边界上
+            crosshair_x = max(0, min(img_width - 1, crosshair_x))
+            crosshair_y = max(0, min(img_height - 1, crosshair_y))
+
+        # 绘制十字线
         line_len, gap = 20, 5
-        color = self.special_colors['crosshair']
+        color = self.special_colors['crosshair']  # 红色
 
-        cv2.line(img, (center_x - line_len, center_y), (center_x - gap, center_y), color, 2)
-        cv2.line(img, (center_x + gap, center_y), (center_x + line_len, center_y), color, 2)
-        cv2.line(img, (center_x, center_y - line_len), (center_x, center_y - gap), color, 2)
-        cv2.line(img, (center_x, center_y + gap), (center_x, center_y + line_len), color, 2)
-        cv2.circle(img, (center_x, center_y), 2, color, -1)
+        cv2.line(img, (crosshair_x - line_len, crosshair_y),
+                 (crosshair_x - gap, crosshair_y), color, 2)
+        cv2.line(img, (crosshair_x + gap, crosshair_y),
+                 (crosshair_x + line_len, crosshair_y), color, 2)
+        cv2.line(img, (crosshair_x, crosshair_y - line_len),
+                 (crosshair_x, crosshair_y - gap), color, 2)
+        cv2.line(img, (crosshair_x, crosshair_y + gap),
+                 (crosshair_x, crosshair_y + line_len), color, 2)
+        cv2.circle(img, (crosshair_x, crosshair_y), 2, color, -1)
 
-    def _draw_aim_point(self, img, best_target, screen_center, img_width, img_height):
-        """绘制瞄准点"""
-        aim_x = best_target[0] - (screen_center[0] - img_width // 2)
-        aim_y = best_target[1] - (screen_center[1] - img_height // 2)
+    def _draw_aim_point(
+            self,
+            img: np.ndarray,
+            best_target: Tuple[int, int],
+            screen_center: Tuple[int, int],
+            img_width: int,
+            img_height: int
+    ):
+        """绘制瞄准点（洋红色）- 完整修复版"""
+        from utils import calculate_capture_area, get_config
 
+        crop_size = get_config('CROP_SIZE', 640)
+        capture_area = calculate_capture_area(crop_size)
+
+        # ⭐ 目标点坐标转换
+        aim_x = best_target[0] - capture_area['left']
+        aim_y = best_target[1] - capture_area['top']
+
+        # 确保在图像范围内
         if 0 <= aim_x < img_width and 0 <= aim_y < img_height:
             color = self.special_colors['aim_point']
+
+            # 绘制外圈和中心点
             cv2.circle(img, (int(aim_x), int(aim_y)), 6, color, 2)
             cv2.circle(img, (int(aim_x), int(aim_y)), 2, color, -1)
-            cv2.line(img, (img_width // 2, img_height // 2),
-                     (int(aim_x), int(aim_y)), color, 1, cv2.LINE_AA)
+
+            # ⭐ 准星位置坐标转换（用于绘制连线）
+            crosshair_x = screen_center[0] - capture_area['left']
+            crosshair_y = screen_center[1] - capture_area['top']
+
+            # 绘制从准星到目标的连线
+            cv2.line(
+                img,
+                (int(crosshair_x), int(crosshair_y)),
+                (int(aim_x), int(aim_y)),
+                color,
+                1,
+                cv2.LINE_AA
+            )
+
+    def _draw_crosshair_detection(
+            self,
+            img: np.ndarray,
+            crosshair_pos: Tuple[int, int],
+            screen_center: Tuple[int, int],
+            img_width: int,
+            img_height: int
+    ):
+        """
+        ⭐ 调试模式：绘制检测到的准星原始位置（黄色标记）
+        仅在准星有偏移时显示，用于验证检测结果
+        """
+        # 转换为图像坐标
+        img_center_x = img_width // 2
+        img_center_y = img_height // 2
+
+        crosshair_x = crosshair_pos[0] - (screen_center[0] - img_center_x)
+        crosshair_y = crosshair_pos[1] - (screen_center[1] - img_center_y)
+
+        # 确保坐标在图像范围内
+        if not (0 <= crosshair_x < img_width and 0 <= crosshair_y < img_height):
+            return
+
+        color = self.special_colors['crosshair_detected']  # 黄色
+
+        # 绘制小十字标记（比红色准星小）
+        cv2.drawMarker(
+            img,
+            (int(crosshair_x), int(crosshair_y)),
+            color,
+            markerType=cv2.MARKER_DIAMOND,
+            markerSize=15,
+            thickness=1,
+            line_type=cv2.LINE_AA
+        )
+
+        # 绘制标签
+        label = "DETECTED"
+        label_x = int(crosshair_x) + 20
+        label_y = int(crosshair_y) - 10
+
+        cv2.putText(
+            img, label, (label_x, label_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+            color, 1, cv2.LINE_AA
+        )
 
     def _draw_stats(self, img, fps, detection_count, is_locked, render_fps=None):
         """绘制统计信息"""
@@ -420,6 +513,9 @@ class PreviewWindow:
         elif key == ord('h') or key == ord('H'):
             self.highlight_targets = not self.highlight_targets
             utils.log(f"高亮锁定: {'开' if self.highlight_targets else '关'}")
+        elif key == ord('c') or key == ord('C'):
+            self.show_crosshair_detection = not self.show_crosshair_detection
+            utils.log(f"准星检测显示: {'开' if self.show_crosshair_detection else '关'}")
 
     def close(self):
         """关闭窗口"""

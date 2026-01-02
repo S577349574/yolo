@@ -1,3 +1,5 @@
+# target_selector.py (完整修复版 - 支持真实准星位置)
+
 import math
 import numpy as np
 from collections import deque
@@ -121,7 +123,7 @@ class TargetSelector:
         self.is_locked: bool = False
 
         # 目标锁定（目标组级别）
-        self.locked_target_group_id: Optional[str] = None  # 锁定的目标组ID
+        self.locked_target_group_id: Optional[str] = None
         self.target_lock_frames: int = 0
 
         # 瞄准点平滑（EMA方式）
@@ -159,8 +161,8 @@ class TargetSelector:
     def _group_detections_by_target(
             self,
             detections: List[Dict],
-            center_x: float,
-            center_y: float
+            reference_x: float,  # ⭐ 修改：接受真实准星位置
+            reference_y: float
     ) -> Dict[str, List[Dict]]:
         """
         将检测框按目标个体分组
@@ -176,11 +178,12 @@ class TargetSelector:
         # 先按类别分类
         bodies = [d for d in detections if d.get('class_id') == 0]
         heads = [d for d in detections if d.get('class_id') == 1]
-        # 计算所有检测框的距离和面积
+
+        # ⭐ 修改：使用真实准星位置计算距离
         for detection in detections:
             detection['distance_to_center'] = math.hypot(
-                detection['x'] - center_x,
-                detection['y'] - center_y
+                detection['x'] - reference_x,
+                detection['y'] - reference_y
             )
 
             # 计算面积
@@ -202,7 +205,7 @@ class TargetSelector:
             min_distance = float('inf')
 
             for group_id, group_detections in groups.items():
-                body = group_detections[0]  # 组里的身体
+                body = group_detections[0]
                 distance = math.hypot(head['x'] - body['x'], head['y'] - body['y'])
 
                 if distance < min_distance and distance < group_distance_threshold:
@@ -210,10 +213,8 @@ class TargetSelector:
                     closest_group = group_id
 
             if closest_group:
-                # 分配到身体组
                 groups[closest_group].append(head)
             else:
-                # 独立的头部，创建新组
                 group_id = f"target_{next_group_id}"
                 next_group_id += 1
                 groups[group_id] = [head]
@@ -224,19 +225,27 @@ class TargetSelector:
             self,
             candidate_targets: List[Dict],
             screen_width: int,
-            screen_height: int
+            screen_height: int,
+            reference_x: Optional[float] = None,  # ⭐ 新增：真实准星X
+            reference_y: Optional[float] = None  # ⭐ 新增：真实准星Y
     ) -> Tuple[Optional[int], Optional[int]]:
         """
         目标选择：先按目标个体分组，再选择类别
 
-        核心逻辑：
-        1. 将检测框按目标个体分组（身体+头部 = 1个目标）
-        2. 选择距离最近的目标组（用最大框代表） ← 第一优先级
-        3. 在选中的目标组内，优先选头部           ← 第二优先级
-        4. 保留锁定稳定性（避免频繁切换目标组）
+        Args:
+            candidate_targets: 候选目标列表
+            screen_width: 屏幕宽度
+            screen_height: 屏幕高度
+            reference_x: 真实准星X坐标（如果为None则使用屏幕中心）
+            reference_y: 真实准星Y坐标（如果为None则使用屏幕中心）
         """
 
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
+
+        # ⭐ 确定参考点（准星位置）
+        if reference_x is None or reference_y is None:
+            reference_x = screen_width // 2
+            reference_y = screen_height // 2
 
         # ===== 1. 无目标处理 =====
         if not candidate_targets:
@@ -246,7 +255,7 @@ class TargetSelector:
                 self._reset_tracking()
                 return None, None
 
-            # 卡尔曼预测...（保持原有逻辑）
+            # 卡尔曼预测
             if self.use_kalman and self.is_locked:
                 predicted = self.kalman_filter.predict_only(
                     max_frames=get_config('KALMAN_MAX_PREDICT_FRAMES', 5)
@@ -267,15 +276,11 @@ class TargetSelector:
 
             return None, None
 
-        # ===== 2-6. 目标分组与组选择 =====
-        # （保持原有逻辑，第40-147行）
-        center_x = screen_width // 2
-        center_y = screen_height // 2
-
+        # ===== 2. 目标分组（使用真实准星位置）=====
         target_groups = self._group_detections_by_target(
             candidate_targets,
-            center_x,
-            center_y
+            reference_x,  # ⭐ 传入真实准星位置
+            reference_y
         )
 
         # 计算每个目标组的代表距离
@@ -293,7 +298,7 @@ class TargetSelector:
         closest_group = group_info[0]
         selected_group_id = closest_group['group_id']
 
-        # ===== 锁定稳定性检查（保持原有逻辑）=====
+        # ===== 3. 锁定稳定性检查 =====
         min_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 10)
         target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
         switch_distance_threshold = get_config('TARGET_SWITCH_DISTANCE_THRESHOLD', 50)
@@ -329,10 +334,9 @@ class TargetSelector:
                     if get_config('DEBUG_MODE', False):
                         utils.log_debug(f"[保持锁定] {reason}")
 
-        # ===== 7. ⭐ 关键修改：在已选定的目标组内，选择具体部位 =====
+        # ===== 4. 组内部位选择 =====
         selected_group_detections = closest_group['detections']
 
-        # 分类组内检测框
         heads = []
         bodies = []
         head_class_id = get_config('HEAD_CLASS_ID', 1)
@@ -343,7 +347,7 @@ class TargetSelector:
             else:
                 bodies.append(detection)
 
-        # 头部过滤（小目标）
+        # 头部过滤
         valid_heads = []
         if get_config('IGNORE_SMALL_TARGET_HEAD', True):
             small_size_threshold = get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)
@@ -363,7 +367,6 @@ class TargetSelector:
             valid_heads = heads
 
         if get_config('ENABLE_HEAD_PRIORITY', True) and valid_heads:
-            # 策略1: 有有效头部，优先选择距离最近的头部
             selected_detection = min(valid_heads, key=lambda d: d['distance_to_center'])
             selected_part_type = 'head'
 
@@ -375,7 +378,6 @@ class TargetSelector:
                 )
 
         elif bodies:
-            # 策略2: 没有有效头部，选择身体
             selected_detection = min(bodies, key=lambda d: d['distance_to_center'])
             selected_part_type = 'body'
 
@@ -388,7 +390,6 @@ class TargetSelector:
                 )
 
         else:
-            # 策略3: 既没有有效头部也没有身体（极端情况）
             selected_detection = min(
                 selected_group_detections,
                 key=lambda d: d['distance_to_center']
@@ -398,14 +399,13 @@ class TargetSelector:
             if get_config('DEBUG_MODE', False):
                 utils.log_debug(f"[组内选择] 兜底策略")
 
-        # ===== 8. 更新锁定状态 =====
+        # ===== 5. 更新锁定状态 =====
         is_new_target = (selected_group_id != self.locked_target_group_id)
 
         if is_new_target:
             self.locked_target_group_id = selected_group_id
             self.target_lock_frames = 0
 
-            # 日志输出
             group_composition = [
                 "头" if d.get('class_id') == head_class_id else "身"
                 for d in selected_group_detections
@@ -420,19 +420,17 @@ class TargetSelector:
         else:
             self.target_lock_frames += 1
 
-            # 如果是组内部位切换，也输出日志
             if get_config('DEBUG_MODE', False):
                 utils.log_debug(
                     f"[组内稳定] 锁定{self.target_lock_frames}帧 | "
                     f"当前部位:{selected_part_type}"
                 )
 
-        # ===== 9. 应用平滑 =====
+        # ===== 6. 应用平滑 =====
         if 'aim_x' in selected_detection and 'aim_y' in selected_detection:
             raw_x = selected_detection['aim_x']
             raw_y = selected_detection['aim_y']
         else:
-            # 回退：使用几何中心
             raw_x = selected_detection['x']
             raw_y = selected_detection['y']
 
@@ -457,14 +455,12 @@ class TargetSelector:
         """平滑处理 - 支持 EMA 或卡尔曼"""
 
         if self.use_kalman:
-            # 卡尔曼滤波路径
             if is_new_target:
                 self.kalman_filter.init_with_position(raw_x, raw_y)
                 return int(raw_x), int(raw_y)
 
             smooth_x, smooth_y = self.kalman_filter.update(raw_x, raw_y)
 
-            # 调试输出
             if get_config('DEBUG_MODE', False):
                 delta_x = abs(smooth_x - raw_x)
                 delta_y = abs(smooth_y - raw_y)
@@ -477,7 +473,6 @@ class TargetSelector:
             return int(smooth_x), int(smooth_y)
 
         else:
-            # EMA 平滑路径
             smooth_alpha = get_config('AIM_POINT_SMOOTH_ALPHA', 0.25)
 
             if is_new_target or self.smoothed_aim_x is None:
@@ -499,12 +494,20 @@ class TargetSelector:
             self,
             target_x: int,
             target_y: int,
-            screen_center_x: int,
-            screen_center_y: int
+            reference_x: float,  # ⭐ 修改：接受真实准星位置
+            reference_y: float
     ) -> bool:
-        """判断是否需要发送移动命令"""
-        offset_x = target_x - screen_center_x
-        offset_y = target_y - screen_center_y
+        """
+        判断是否需要发送移动命令
+
+        Args:
+            target_x: 目标X坐标
+            target_y: 目标Y坐标
+            reference_x: 真实准星X坐标
+            reference_y: 真实准星Y坐标
+        """
+        offset_x = target_x - reference_x
+        offset_y = target_y - reference_y
         offset_distance = math.hypot(offset_x, offset_y)
 
         precision_dead_zone = get_config('PRECISION_DEAD_ZONE', 2)
@@ -537,11 +540,9 @@ class TargetSelector:
         self.target_lock_frames = 0
         self.frames_without_target = 0
 
-        # 重置平滑参数
         self.smoothed_aim_x = None
         self.smoothed_aim_y = None
 
-        # 重置卡尔曼
         if self.use_kalman:
             self.kalman_filter.reset()
 
