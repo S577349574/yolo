@@ -33,7 +33,7 @@ class ImageSource(ABC):
             timeout: 超时时间（秒）
 
         Returns:
-            np.ndarray (H, W, C) BGR/BGRA 格式，或 None
+            np.ndarray (H, W, 3) BGR, or None
         """
         pass
 
@@ -100,8 +100,15 @@ class LocalScreenSource(ImageSource):
         if not self._running or not self.frame_buffer:
             return None
 
-        # 返回 BGRA 格式 (640, 640, 4)
-        return self.frame_buffer.read_frame(timeout=timeout)
+        frame = self.frame_buffer.read_frame(timeout=timeout)
+        if frame is None:
+            return None
+
+        # frame: BGRA (H, W, 4) → BGR (H, W, 3)
+        if frame.ndim == 3 and frame.shape[2] == 4:
+            frame = frame[:, :, :3]
+
+        return frame
 
     def get_stats(self) -> dict:
         if self.frame_buffer:

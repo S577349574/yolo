@@ -136,7 +136,7 @@ def run_gui_in_background():
 
 
 def main():
-    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box, crosshair_manager
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box, crosshair_manager, threaded_detector
     print("\n" + "=" * 60)
     print("正在初始化...")
 
@@ -468,16 +468,25 @@ def main():
             if img_bgra is None:
                 time.sleep(0.0001)
                 continue
-            # ========== 3. 准星检测 ==========
-            fallback_center = (screen_center_x, screen_center_y) if cached_config.crosshair_fallback_to_center else None
+
             # ========== 2. 模型推理 ==========
             results = model.predict(img_bgra)
 
-            crosshair_position = crosshair_manager.detect(
-                img=img_bgra,
-                capture_area=capture_area,
-                fallback_center=fallback_center
-            ) if crosshair_manager and crosshair_manager.enabled else None
+            # ⭐⭐⭐ 3. 准星检测（多线程非阻塞）⭐⭐⭐
+            fallback_center = (screen_center_x, screen_center_y) if cached_config.crosshair_fallback_to_center else None
+
+            if crosshair_manager and crosshair_manager.enabled:
+                # 提交帧到后台线程（非阻塞）
+                threaded_detector.submit_frame(
+                    img_bgra=img_bgra,
+                    capture_area=capture_area,
+                    fallback_center=fallback_center
+                )
+
+                # 立即获取最新结果（非阻塞）
+                crosshair_position = threaded_detector.get_position(fallback_center)
+            else:
+                crosshair_position = None
 
             # ⭐⭐⭐ 核心修复：确定真实的瞄准参考点 ⭐⭐⭐
             if crosshair_position and cached_config.use_detected_crosshair:

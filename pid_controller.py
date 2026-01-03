@@ -6,7 +6,7 @@ from collections import deque
 from typing import Tuple, Optional
 
 from config_manager import get_config, on_config_change
-
+import utils
 
 class PIDController:
     """
@@ -238,7 +238,7 @@ class PIDController:
 
         # ========== 6. 调试输出 ==========
         if self.debug_mode and (abs(error_x) > 10 or abs(error_y) > 10):
-            print(
+            utils.log_debug(
                 f"[PID] err=({error_x:+.1f}, {error_y:+.1f}) → out=({output_x:+.1f}, {output_y:+.1f}) dt={dt * 1000:.1f}ms")
 
         return int(round(output_x)), int(round(output_y))
@@ -377,37 +377,3 @@ class PIDController:
 def create_pid_controller() -> PIDController:
     """创建并返回 PID 控制器实例"""
     return PIDController()
-
-
-# ========== 单元测试 ==========
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("PID 控制器测试")
-    print("=" * 50)
-
-    # 创建控制器
-    pid = create_pid_controller()
-    print(f"\n创建控制器: {pid}")
-    print(f"当前参数: {pid.get_params()}")
-
-    # 模拟误差序列
-    test_errors = [
-        (100, 50),  # 大误差
-        (80, 40),
-        (50, 25),
-        (20, 10),
-        (5, 3),  # 接近死区
-        (2, 1),  # 在死区内
-    ]
-
-    print("\n模拟 PID 响应:")
-    print("-" * 50)
-
-    for i, (ex, ey) in enumerate(test_errors):
-        time.sleep(0.016)  # 模拟 60 FPS
-        move_x, move_y = pid.compute(ex, ey)
-        print(f"帧 {i + 1}: 误差=({ex:+4d}, {ey:+4d}) → 移动=({move_x:+4d}, {move_y:+4d})")
-
-    print("-" * 50)
-    print("\n测试完成！")

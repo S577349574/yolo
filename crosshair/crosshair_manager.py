@@ -253,13 +253,6 @@ class CrosshairManager:
             return result
         else:
             self._miss_count += 1
-
-            # 连续丢失告警
-            if self._miss_count == 60:
-                utils.log(f"⚠️ 准星检测连续丢失 {self._miss_count} 帧")
-            elif self._miss_count % 120 == 0:
-                utils.log(f"⚠️ 准星检测连续丢失 {self._miss_count} 帧")
-
             return fallback_center
 
     def get_stats(self) -> Dict:
