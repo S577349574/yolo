@@ -350,18 +350,19 @@ class TargetSelector:
         # 头部过滤
         valid_heads = []
         if get_config('IGNORE_SMALL_TARGET_HEAD', True):
-            small_size_threshold = get_config('SMALL_TARGET_SIZE_THRESHOLD', 40)
+            small_area_threshold = get_config('SMALL_TARGET_AREA_THRESHOLD', 200)  # 例如 20×40=800
             for head in heads:
                 box = head.get('box', (0, 0, 0, 0))
                 x1, y1, x2, y2 = box
                 box_width = x2 - x1
                 box_height = y2 - y1
+                box_area = box_width * box_height
 
-                if box_width >= small_size_threshold and box_height >= small_size_threshold:
+                if box_area >= small_area_threshold:
                     valid_heads.append(head)
                 elif get_config('DEBUG_MODE', False):
-                    utils.log_debug(
-                        f"[过滤小头部] 尺寸:{box_width:.0f}x{box_height:.0f} < {small_size_threshold}px"
+                    print(
+                        f"[过滤小头部] 面积:{box_area:.0f}px² < {small_area_threshold}px²"
                     )
         else:
             valid_heads = heads

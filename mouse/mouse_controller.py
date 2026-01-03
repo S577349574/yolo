@@ -143,16 +143,6 @@ class MouseControllerBase(ABC):
             self._crosshair_x = int(x)
             self._crosshair_y = int(y)
 
-            # 调试输出（仅在位置变化较大时）
-            if self.debug_mode:
-                delta = math.hypot(x - old_x, y - old_y)
-                if delta > 10:  # 偏移超过10像素才输出
-                    utils.log(
-                        f"[{self.get_mode()}] 🎯 准星更新: "
-                        f"({old_x}, {old_y}) → ({self._crosshair_x}, {self._crosshair_y}) "
-                        f"[偏移:{delta:.1f}px]"
-                    )
-
     def get_crosshair_position(self) -> tuple[int, int]:
         """
         获取当前准星位置（线程安全）

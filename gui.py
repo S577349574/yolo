@@ -295,7 +295,7 @@ def create_gui():
                     tag="ignore_small_head"
                 )
 
-                add_int_tagged("SMALL_TARGET_SIZE_THRESHOLD", "小目标尺寸阈值 (像素)", 10, 200,
+                add_int_tagged("SMALL_TARGET_AREA_THRESHOLD", "小目标尺寸阈值 (像素)", 10, 1000,
                                "small_target_threshold")
 
                 dpg.add_text("说明：当检测框宽度或高度 < 此值时，忽略头部类别",

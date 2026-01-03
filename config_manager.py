@@ -191,7 +191,7 @@ class ConfigManager:
             "HEAD_PRIORITY_RANGE": 80,
             "IGNORE_SMALL_TARGET_HEAD": True,
             # 忽略小目标的头部
-            "SMALL_TARGET_SIZE_THRESHOLD": 40,
+            "SMALL_TARGET_AREA_THRESHOLD": 200,
             # ========== 瞄准点配置 ==========
             "AIM_Y_RATIO": 0.5,
             "AIM_X_OFFSET": 0.5,
@@ -350,7 +350,7 @@ class ConfigManager:
             # 头部优先
             "HEAD_CLASS_ID": (0, 100, int, 1),
             "HEAD_PRIORITY_RANGE": (0, 500, int, 80),
-            "SMALL_TARGET_SIZE_THRESHOLD": (10, 200, int, 40),  # ← 新增
+            "SMALL_TARGET_AREA_THRESHOLD": (10, 1000, int, 40),  # ← 新增
 
             # 瞄准点
             "AIM_Y_RATIO": (0.0, 1.0, float, 0.5),
@@ -626,7 +626,7 @@ class ConfigManager:
 
             "头部优先": [
                 "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE",
-                "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_SIZE_THRESHOLD"  # ← 修复：添加这两项
+                "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_AREA_THRESHOLD"  # ← 修复：添加这两项
             ],
 
             "瞄准点配置": [
