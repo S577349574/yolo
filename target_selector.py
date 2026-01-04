@@ -361,7 +361,7 @@ class TargetSelector:
                 if box_area >= small_area_threshold:
                     valid_heads.append(head)
                 elif get_config('DEBUG_MODE', False):
-                    print(
+                    utils.log_debug(
                         f"[过滤小头部] 面积:{box_area:.0f}px² < {small_area_threshold}px²"
                     )
         else:

@@ -29,6 +29,11 @@ class MouseControllerBase(ABC):
     BUTTON_MIDDLE_DOWN = 16
     BUTTON_MIDDLE_UP = 32
 
+    BUTTON_4_DOWN = 7
+    BUTTON_4_UP = 8
+    BUTTON_5_DOWN = 9
+    BUTTON_5_UP = 10
+
     def __init__(self):
         """初始化公共组件"""
         self.move_queue = thread_queue.Queue(maxsize=1)
@@ -59,6 +64,9 @@ class MouseControllerBase(ABC):
             self.BUTTON_LEFT_DOWN: self.BUTTON_LEFT_UP,
             self.BUTTON_RIGHT_DOWN: self.BUTTON_RIGHT_UP,
             self.BUTTON_MIDDLE_DOWN: self.BUTTON_MIDDLE_UP,
+            # ⭐ 新增侧键映射
+            self.BUTTON_4_DOWN: self.BUTTON_4_UP,
+            self.BUTTON_5_DOWN: self.BUTTON_5_UP,
         }
 
         # 统计信息

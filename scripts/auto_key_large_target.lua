@@ -1,4 +1,4 @@
--- scripts/auto_key_large_target.lua
+-- scripts/detect_large_target.lua
 
 -- ==================== 配置区 ====================
 local CONFIG = {
@@ -6,19 +6,14 @@ local CONFIG = {
     min_width = 80,   -- 最小宽度（建议 80-120）
     min_height = 120,  -- 最小高度（建议 120-180）
 
-    -- 目标类别
-    target_class_id = 0,
-    target_class_name = "敌",  -- 匹配你的模型类别名
-
-    -- 按键设置
-    press_key = "shift",
-    press_mode = "hold",   -- "hold"=持续按住, "press"=单次按下
-
-    -- 冷却时间（秒）
-    cooldown = 0.3,
+    -- 目标类别 ID
+    target_class_id = 0,  -- 只判断类别 ID
 
     -- 置信度阈值
     min_confidence = 0.7,
+
+    -- 日志打印频率（每 N 帧打印一次，避免刷屏）
+    log_interval = 30,  -- 每 30 帧 = 约 0.5 秒（60FPS 时）
 
     -- 调试模式
     debug = true,
@@ -26,10 +21,11 @@ local CONFIG = {
 
 -- ==================== 状态变量 ====================
 local state = {
-    is_pressing = false,
-    last_press_time = 0,
-    debug_frame_count = 0,
-    last_match_time = 0,  -- 上次匹配成功的时间
+    frame_count = 0,           -- 总帧数
+    match_frame_count = 0,     -- 匹配成功的帧数
+    last_match_time = 0,       -- 上次匹配成功的时间
+    current_target = nil,      -- 当前匹配的目标
+    is_target_locked = false,  -- 是否持续锁定目标
 }
 
 -- ==================== 辅助函数：安全获取属性 ====================
@@ -43,89 +39,116 @@ end
 
 -- ==================== 初始化 ====================
 function onInit()
-    api.log.info("✅ [AutoKey] 大目标自动按键脚本已启动")
+    api.log.info("✅ [DetectLarge] 大目标检测脚本已启动")
     api.log.info("   配置参数:")
-    api.log.info(string.format("   - 尺寸阈值: %dx%d", CONFIG.min_width, CONFIG.min_height))
-    api.log.info(string.format("   - 目标类别: %s (ID:%d)", CONFIG.target_class_name, CONFIG.target_class_id))
-    api.log.info(string.format("   - 触发按键: %s (模式: %s)", CONFIG.press_key, CONFIG.press_mode))
+    api.log.info(string.format("   - 尺寸阈值: %dx%d 像素", CONFIG.min_width, CONFIG.min_height))
+    api.log.info(string.format("   - 目标类别 ID: %d", CONFIG.target_class_id))
     api.log.info(string.format("   - 置信度阈值: %.0f%%", CONFIG.min_confidence * 100))
+    api.log.info(string.format("   - 日志频率: 每 %d 帧", CONFIG.log_interval))
 end
 
 -- ==================== 每帧更新 ====================
 function onFrame(targets, dt)
+    state.frame_count = state.frame_count + 1
     local target_count = api.len(targets)
 
     -- 1. 如果没有目标
     if target_count == 0 then
-        if state.is_pressing and CONFIG.press_mode == "hold" then
-            api.input.key_up(CONFIG.press_key)
-            state.is_pressing = false
-            if CONFIG.debug then
-                api.log.info("⚪ [AutoKey] 目标丢失，释放按键")
-            end
+        if state.is_target_locked then
+            api.log.info("⚪ [DetectLarge] 目标丢失")
+            state.is_target_locked = false
+            state.current_target = nil
         end
         return
     end
 
-    -- 2. 遍历所有目标，找到第一个符合条件的
-    local matched_target
+    -- 2. 遍历所有目标，找到第一个符合条件的大目标
+    local matched_target = nil
 
     for i = 1, target_count do
         local target = targets[i]
 
         if is_target_match(target) then
             matched_target = target
-
-            -- 更新最后匹配时间
+            state.match_frame_count = state.match_frame_count + 1
             state.last_match_time = api.system.time()
-
-            -- 调试模式下打印目标信息（降低频率）
-            if CONFIG.debug then
-                state.debug_frame_count = state.debug_frame_count + 1
-                if state.debug_frame_count % 30 == 0 then
-                    print_target_info(target)
-                end
-            end
-
+            state.current_target = target
             break
         end
     end
 
-    -- 3. 处理按键逻辑
-    local should_press = (matched_target ~= nil)
-    handle_key_press(should_press)
+    -- 3. 处理日志输出
+    if matched_target then
+        -- 刚检测到大目标
+        if not state.is_target_locked then
+            state.is_target_locked = true
+            print_target_detected(matched_target)
+        end
+
+        -- 定期打印目标信息（避免刷屏）
+        if state.frame_count % CONFIG.log_interval == 0 then
+            print_target_info(matched_target)
+        end
+    else
+        -- 目标消失
+        if state.is_target_locked then
+            api.log.info("⚪ [DetectLarge] 目标已离开检测区域")
+            state.is_target_locked = false
+            state.current_target = nil
+        end
+    end
 end
 
 -- ==================== 清理 ====================
 function onCleanup()
-    if state.is_pressing then
-        api.input.key_up(CONFIG.press_key)
-        state.is_pressing = false
-    end
-
     -- 输出统计信息
-    local total_time = api.system.time()
-    local match_duration = state.last_match_time > 0 and (total_time - state.last_match_time) or 0
+    local total_time = api.system.uptime()
+    local match_rate = state.frame_count > 0 and (state.match_frame_count / state.frame_count * 100) or 0
 
-    api.log.info("⛔ [AutoKey] 脚本已卸载")
-    api.log.info(string.format("   统计: 最后匹配于 %.1f 秒前", match_duration))
+    api.log.info("⛔ [DetectLarge] 脚本已卸载")
+    api.log.info(string.format("   统计数据:"))
+    api.log.info(string.format("   - 总帧数: %d", state.frame_count))
+    api.log.info(string.format("   - 匹配帧数: %d (%.1f%%)", state.match_frame_count, match_rate))
+    api.log.info(string.format("   - 运行时长: %.1f 秒", total_time))
 end
 
 -- ==================== 辅助函数 ====================
 
--- 打印目标详情
+-- 打印目标检测成功信息
+function print_target_detected(target)
+    if not target then return end
+
+    local width = safe_get(target, "width", 0)
+    local height = safe_get(target, "height", 0)
+    local class_id = safe_get(target, "class_id", -1)
+    local confidence = safe_get(target, "confidence", 0)
+    local x = safe_get(target, "x", 0)
+    local y = safe_get(target, "y", 0)
+
+    api.log.info("🎯 [DetectLarge] 检测到大目标！")
+    api.log.info(string.format(
+        "   类别ID: %d | 尺寸: %.0fx%.0f | 置信度: %.0f%%",
+        class_id, width, height, confidence * 100
+    ))
+    api.log.info(string.format(
+        "   位置: (%.0f, %.0f)",
+        x, y
+    ))
+end
+
+-- 打印目标详细信息（定期更新）
 function print_target_info(target)
     if not target then return end
 
     local width = safe_get(target, "width", 0)
     local height = safe_get(target, "height", 0)
-    local class_name = safe_get(target, "class_name", "?")
     local class_id = safe_get(target, "class_id", -1)
     local confidence = safe_get(target, "confidence", 0)
+    local distance = safe_get(target, "distance", 0)
 
     api.log.info(string.format(
-        "📊 [AutoKey] 目标: %s(%d) | 尺寸: %.0fx%.0f | 置信度: %.0f%%",
-        class_name, class_id, width, height, confidence * 100
+        "📊 [DetectLarge] 类别ID:%d | 尺寸: %.0fx%.0f | 置信度: %.0f%% | 距离: %.1f",
+        class_id, width, height, confidence * 100, distance
     ))
 end
 
@@ -135,20 +158,12 @@ function is_target_match(target)
 
     -- 1. 获取属性
     local class_id = safe_get(target, "class_id", -1)
-    local class_name = safe_get(target, "class_name", nil)
     local confidence = safe_get(target, "confidence", 0)
     local width = safe_get(target, "width", 0)
     local height = safe_get(target, "height", 0)
 
-    -- 2. 检查类别（优先匹配类别名）
-    local class_match = false
-    if CONFIG.target_class_name and class_name then
-        class_match = (class_name == CONFIG.target_class_name)
-    else
-        class_match = (class_id == CONFIG.target_class_id)
-    end
-
-    if not class_match then
+    -- 2. 检查类别 ID
+    if class_id ~= CONFIG.target_class_id then
         return false
     end
 
@@ -157,42 +172,20 @@ function is_target_match(target)
         return false
     end
 
-    -- 4. 检查尺寸
+    -- 4. 检查尺寸（核心逻辑）
     local width_ok = width >= CONFIG.min_width
     local height_ok = height >= CONFIG.min_height
 
     return width_ok and height_ok
 end
 
--- 执行按键逻辑
-function handle_key_press(should_press)
-    local current_time = api.system.time()
-
-    -- 冷却检查
-    if current_time - state.last_press_time < CONFIG.cooldown then
-        return
-    end
-
-    if CONFIG.press_mode == "hold" then
-        -- 模式：持续按住
-        if should_press and not state.is_pressing then
-            api.input.key_down(CONFIG.press_key)
-            state.is_pressing = true
-            state.last_press_time = current_time
-            api.log.info("🔴 [AutoKey] 按下: " .. CONFIG.press_key)
-
-        elseif not should_press and state.is_pressing then
-            api.input.key_up(CONFIG.press_key)
-            state.is_pressing = false
-            api.log.info("🟢 [AutoKey] 释放: " .. CONFIG.press_key)
-        end
-
-    elseif CONFIG.press_mode == "press" then
-        -- 模式：单次点击
-        if should_press then
-            api.input.key_press(CONFIG.press_key, 50)
-            state.last_press_time = current_time
-            api.log.info("⚡ [AutoKey] 单次触发: " .. CONFIG.press_key)
-        end
-    end
+-- ==================== 可选：返回脚本配置 ====================
+function getScriptConfig()
+    return {
+        name = "大目标检测器",
+        version = "1.0",
+        author = "Auto",
+        description = "检测超过指定尺寸的目标并打印日志",
+        execution_mode = "sync"  -- 同步模式
+    }
 end

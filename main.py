@@ -634,21 +634,6 @@ def main():
 
                 script_manager.call_event("onFrame", candidate_targets, delta_time)
 
-            # ⭐ 定期打印准星使用统计
-            crosshair_stats_counter += 1
-            if crosshair_stats_counter >= crosshair_stats_interval:
-                total_frames = crosshair_used_count + fallback_used_count
-                if total_frames > 0:
-                    crosshair_usage_rate = (crosshair_used_count / total_frames) * 100
-                    utils.log(f"\n📊 准星使用统计（最近 {crosshair_stats_interval} 帧）:")
-                    utils.log(f"   检测到准星: {crosshair_used_count} 帧 ({crosshair_usage_rate:.1f}%)")
-                    utils.log(f"   使用屏幕中心: {fallback_used_count} 帧 ({100 - crosshair_usage_rate:.1f}%)")
-
-                # 重置计数器
-                crosshair_stats_counter = 0
-                crosshair_used_count = 0
-                fallback_used_count = 0
-
     except KeyboardInterrupt:
         utils.log("\n⚠️ 用户中断")
     except Exception as e:

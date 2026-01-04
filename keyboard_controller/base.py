@@ -1,7 +1,7 @@
 """键盘控制器抽象基类"""
 
 from abc import ABC, abstractmethod
-from typing import Optional, List
+
 import utils
 
 

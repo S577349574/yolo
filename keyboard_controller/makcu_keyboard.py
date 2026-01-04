@@ -6,15 +6,9 @@ Makcu 硬件键盘控制器
 import time
 import utils
 from config_manager import get_config
-from .base import KeyboardControllerBase
+from makcu import create_controller
 
-# 尝试导入 makcu 库
-try:
-    from makcu import create_controller
-    MAKCU_AVAILABLE = True
-except ImportError:
-    MAKCU_AVAILABLE = False
-    create_controller = None
+from keyboard_controller import KeyboardControllerBase
 
 
 class MakcuKeyboardController(KeyboardControllerBase):
@@ -28,9 +22,6 @@ class MakcuKeyboardController(KeyboardControllerBase):
             shared_controller: 外部传入的 Makcu controller（避免重复连接）
             debug_mode: 调试模式
         """
-        if not MAKCU_AVAILABLE:
-            raise RuntimeError("未安装 makcu 库。请运行: pip install makcu")
-
         super().__init__(debug_mode)
 
         # ⭐ 优先使用共享的 controller

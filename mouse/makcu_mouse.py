@@ -5,16 +5,11 @@ Makcu 硬件模式鼠标控制器
 import time
 import utils
 from config_manager import get_config
-from .mouse_controller import MouseControllerBase
 
 # 尝试导入 makcu 库
-try:
-    from makcu import create_controller, MouseButton
-    MAKCU_AVAILABLE = True
-except ImportError:
-    MAKCU_AVAILABLE = False
-    create_controller = None
-    MouseButton = None
+from makcu import create_controller, MouseButton
+
+from mouse import MouseControllerBase
 
 
 class MakcuMouseController(MouseControllerBase):
@@ -27,9 +22,6 @@ class MakcuMouseController(MouseControllerBase):
         Args:
             shared_controller: 外部传入的 Makcu controller 实例（避免重复连接）
         """
-        if not MAKCU_AVAILABLE:
-            raise RuntimeError("未安装 makcu 库。请运行: pip install makcu")
-
         super().__init__()
 
         # ⭐ 优先使用共享的 controller
@@ -43,12 +35,21 @@ class MakcuMouseController(MouseControllerBase):
             self._is_shared = False
             self._connect_device()
         self.btn_map = {
+            # 左键
             self.BUTTON_LEFT_DOWN:   (MouseButton.LEFT, 'press'),
             self.BUTTON_LEFT_UP:     (MouseButton.LEFT, 'release'),
+            # 右键
             self.BUTTON_RIGHT_DOWN:  (MouseButton.RIGHT, 'press'),
             self.BUTTON_RIGHT_UP:    (MouseButton.RIGHT, 'release'),
+            # 中键
             self.BUTTON_MIDDLE_DOWN: (MouseButton.MIDDLE, 'press'),
             self.BUTTON_MIDDLE_UP:   (MouseButton.MIDDLE, 'release'),
+            # ⭐ 侧键4
+            self.BUTTON_4_DOWN:      (MouseButton.MOUSE4, 'press'),
+            self.BUTTON_4_UP:        (MouseButton.MOUSE4, 'release'),
+            # ⭐ 侧键5
+            self.BUTTON_5_DOWN:      (MouseButton.MOUSE5, 'press'),
+            self.BUTTON_5_UP:        (MouseButton.MOUSE5, 'release'),
         }
 
         # 启动工作线程 (PID循环)

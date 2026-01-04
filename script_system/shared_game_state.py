@@ -360,11 +360,3 @@ def get_game_state() -> GameState:
     """获取全局游戏状态实例"""
     return _game_state
 
-
-def init_screen_info(width: int, height: int):
-    """初始化屏幕信息"""
-    state = get_game_state()
-    state.screen_width = width
-    state.screen_height = height
-    state.center_x = width // 2
-    state.center_y = height // 2

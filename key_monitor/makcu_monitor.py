@@ -3,15 +3,9 @@
 from typing import Dict, Optional
 import time
 import utils
-from .base import KeyMonitorBase
+from makcu import create_controller, MouseButton
 
-try:
-    from makcu import create_controller, MouseButton
-    MAKCU_AVAILABLE = True
-except ImportError:
-    MAKCU_AVAILABLE = False
-    create_controller = None
-    MouseButton = None
+from key_monitor import KeyMonitorBase
 
 
 class MakcuKeyMonitor(KeyMonitorBase):
@@ -30,9 +24,6 @@ class MakcuKeyMonitor(KeyMonitorBase):
             use_hardware_monitor: bool = True,
             fallback_to_pynput: bool = True
     ):
-        if not MAKCU_AVAILABLE:
-            raise RuntimeError("未安装 makcu 库。请运行: pip install makcu")
-
         # ⭐ 调用基类初始化（传递侧键参数）
         super().__init__(
             app_state=app_state,
