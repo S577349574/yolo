@@ -3,11 +3,8 @@
 Valorant 准星配置解析器（使用统一颜色定义）
 """
 from typing import Dict, Optional
+
 from .valorant_colors import (
-    VALORANT_COLOR_NAMES,
-    VALORANT_COLOR_HEX,
-    VALORANT_COLOR_RGB,
-    VALORANT_COLOR_BGR,
     get_color_by_index
 )
 

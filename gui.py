@@ -7,9 +7,11 @@ import glob
 
 # 1. 加载配置
 cfg.load_config()
+
 # ========== 全局退出信号 ==========
 _gui_exit_event = threading.Event()
 _gui_running = False
+
 # 脚本文件夹路径
 SCRIPTS_DIR = "scripts"
 
@@ -145,12 +147,68 @@ def refresh_scripts_ui():
                 dpg.add_text("(未启用)", color=(100, 100, 100))
 
 
-# =================================================
+def generate_crosshair_preview_callback(sender, app_data, user_data):
+    """生成准星预览回调"""
+    try:
+        config_code = cfg.get_config("CROSSHAIR_VALORANT_CONFIG", "").strip()
+
+        if not config_code:
+            dpg.configure_item("status_text", default_value="[错误] 请先填写准星代码", color=(255, 0, 0))
+            return
+
+        dpg.configure_item("status_text", default_value="[处理中] 正在生成...", color=(255, 200, 0))
+
+        from crosshair.games.valorant.config_parser import ValorantConfigParser
+        from crosshair.games.valorant.crosshair_visualizer import CrosshairVisualizer
+        import cv2
+        import numpy as np
+
+        # 解析配置
+        config = ValorantConfigParser.parse(config_code)
+        desc = ValorantConfigParser.describe(config)
+
+        # ⭐ 修改：渲染尺寸改为 90
+        template_img = CrosshairVisualizer.render(config, size=90)  # ← 从 300 改为 90
+        img_rgba = cv2.cvtColor(template_img, cv2.COLOR_BGRA2RGBA)
+
+        # Alpha 混合到深灰色背景
+        alpha = img_rgba[:, :, 3:4].astype(np.float32) / 255.0
+        rgb = img_rgba[:, :, :3].astype(np.float32)
+        background = np.full((90, 90, 3), 40, dtype=np.float32)  # ← 从 (300,300) 改为 (90,90)
+        blended_rgb = rgb * alpha + background * (1 - alpha)
+
+        # 重新组合（Alpha 设为完全不透明）
+        final_rgba = np.concatenate([
+            blended_rgb.astype(np.uint8),
+            np.full((90, 90, 1), 255, dtype=np.uint8)  # ← 从 (300,300) 改为 (90,90)
+        ], axis=-1)
+
+        # 转换为纹理数据并更新
+        texture_data = (final_rgba.astype(np.float32) / 255.0).flatten().tolist()
+        dpg.set_value("crosshair_preview_texture", texture_data)
+
+        # 更新状态
+        dpg.configure_item("crosshair_preview_desc", default_value=f"✅ {desc}", color=(0, 255, 100))
+        dpg.configure_item("status_text", default_value="[成功] 准星预览已生成", color=(0, 255, 0))
+
+    except ValueError as e:
+        dpg.configure_item("crosshair_preview_desc", default_value="❌ 准星代码格式错误", color=(255, 100, 100))
+        dpg.configure_item("status_text", default_value=f"[错误] 准星代码格式错误: {str(e)}", color=(255, 0, 0))
+
+    except Exception as e:
+        dpg.configure_item("crosshair_preview_desc", default_value="❌ 生成失败", color=(255, 100, 100))
+        dpg.configure_item("status_text", default_value=f"[错误] {str(e)}", color=(255, 0, 0))
+        import traceback
+        traceback.print_exc()
+
+
+# ================= 字体设置 =================
 
 def setup_chinese_font():
     with dpg.font_registry():
         font_path = r"C:\Windows\Fonts\msyh.ttc"
-        if not os.path.exists(font_path): font_path = r"C:\Windows\Fonts\simhei.ttf"
+        if not os.path.exists(font_path):
+            font_path = r"C:\Windows\Fonts\simhei.ttf"
 
         if os.path.exists(font_path):
             with dpg.font(font_path, 18) as font_cn:
@@ -161,15 +219,32 @@ def setup_chinese_font():
             print("[GUI] ⚠ 未找到中文字体")
 
 
+# ================= 主 GUI 创建 =================
+
 def create_gui():
     dpg.create_context()
     setup_chinese_font()
+
+    # ⭐⭐⭐ 关键：在窗口创建前先注册纹理（全局可见）
+    with dpg.texture_registry():
+        default_texture = []
+        for y in range(90):
+            for x in range(90):
+                # 纯深灰色背景
+                default_texture.extend([0.16, 0.16, 0.16, 1.0])
+
+        dpg.add_dynamic_texture(
+            width=90,
+            height=90,
+            default_value=default_texture,
+            tag="crosshair_preview_texture"
+        )
 
     with dpg.window(tag="Primary Window", label="AI 全参数配置管理器 v6.0 (最新目标分组版)"):
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
-            dpg.add_button(label="💾 保存所有配置 (Save)", callback=save_callback, height=30, width=160)
+            dpg.add_button(label="保存所有配置 (Save)", callback=save_callback, height=30, width=160)
             dpg.add_text("[就绪]", tag="status_text")
 
         dpg.add_separator()
@@ -206,7 +281,112 @@ def create_gui():
                 add_int("FRAME_CHANNELS", "通道数 (RGB=3, RGBA=4)", 3, 4)
                 add_bool("USE_LZ4", "启用 LZ4 压缩传输")
 
-            # ================= TAB 3: 预览窗口 (带联动) =================
+            # ================= TAB 3: 准星检测 =================
+            with dpg.tab(label="准星检测"):
+                dpg.add_text("准星检测系统", color=(255, 200, 0))
+
+                # 主开关（带联动）
+                crosshair_deps = [
+                    "crosshair_detector_type",
+                    "crosshair_valorant_config",
+                    "crosshair_preview_btn",
+                    "crosshair_template_path",
+                    "crosshair_use_fallback",
+                    "crosshair_debug_mode",
+                    "crosshair_stats_interval"
+                ]
+                crosshair_enabled = cfg.get_config("ENABLE_CROSSHAIR_DETECTION", False)
+                dpg.add_checkbox(
+                    label="启用准星检测",
+                    default_value=crosshair_enabled,
+                    callback=create_master_switch_callback("ENABLE_CROSSHAIR_DETECTION", crosshair_deps)
+                )
+
+                dpg.add_separator()
+                dpg.add_text("检测器配置", color=(100, 255, 255))
+
+                add_combo_tagged(
+                    "CROSSHAIR_DETECTOR_TYPE",
+                    "检测器类型",
+                    ["color", "template", "cross_shape"],
+                    "crosshair_detector_type"
+                )
+
+                dpg.add_text("说明: color=颜色匹配 | template=模板匹配 | cross_shape=十字形状检测",
+                             color=(150, 150, 150), indent=20)
+
+                dpg.add_separator()
+                dpg.add_text("Valorant 准星配置", color=(100, 255, 255))
+
+                add_input_text_tagged(
+                    "CROSSHAIR_VALORANT_CONFIG",
+                    "准星代码",
+                    "crosshair_valorant_config"
+                )
+
+                dpg.add_text("示例: 0;P;c;5;o;1;d;1;0t;1;0l;2;0o;2;0a;1;0f;0;1b;0",
+                             color=(150, 150, 150), indent=20)
+
+                dpg.add_button(
+                    label="生成预览",
+                    callback=generate_crosshair_preview_callback,
+                    width=200,
+                    height=30,
+                    tag="crosshair_preview_btn"
+                )
+
+                dpg.add_separator()
+                dpg.add_text("外部模板配置", color=(100, 255, 255))
+
+                add_input_text_tagged(
+                    "CROSSHAIR_TEMPLATE_PATH",
+                    "模板图片路径",
+                    "crosshair_template_path"
+                )
+
+                dpg.add_text("说明: 用于 template 模式，支持相对/绝对路径",
+                             color=(150, 150, 150), indent=20)
+
+                dpg.add_separator()
+                dpg.add_text("高级选项", color=(100, 255, 255))
+
+                add_bool_tagged(
+                    "CROSSHAIR_USE_FALLBACK_CENTER",
+                    "检测失败时使用屏幕中心",
+                    "crosshair_use_fallback"
+                )
+
+                add_bool_tagged(
+                    "CROSSHAIR_DEBUG_MODE",
+                    "启用调试模式（详细日志）",
+                    "crosshair_debug_mode"
+                )
+
+                add_int_tagged(
+                    "CROSSHAIR_STATS_INTERVAL",
+                    "统计输出间隔（秒）",
+                    60, 1800,
+                    "crosshair_stats_interval"
+                )
+
+                dpg.add_separator()
+                dpg.add_text("准星预览", color=(255, 255, 0))
+
+                # ⭐ 使用 child_window 包裹图像
+                with dpg.child_window(width=110, height=110, border=True):
+                    dpg.add_image(
+                        "crosshair_preview_texture",
+                        width=90,
+                        height=90,
+                        tag="crosshair_preview_image"
+                    )
+
+                dpg.add_text("准星描述: 未生成", tag="crosshair_preview_desc", color=(100, 100, 100))
+
+                # ⭐ 初始化控件状态
+                update_dependent_controls("ENABLE_CROSSHAIR_DETECTION", crosshair_deps, crosshair_enabled)
+
+            # ================= TAB 4: 预览窗口 =================
             with dpg.tab(label="预览窗口"):
                 dpg.add_text("窗口基础设置", color=(255, 200, 0))
 
@@ -219,7 +399,7 @@ def create_gui():
                 ]
                 preview_enabled = cfg.get_config("ENABLE_PREVIEW_WINDOW", False)
                 dpg.add_checkbox(
-                    label="🖥 启用预览窗口",
+                    label="启用预览窗口",
                     default_value=preview_enabled,
                     callback=create_master_switch_callback("ENABLE_PREVIEW_WINDOW", preview_deps)
                 )
@@ -245,8 +425,7 @@ def create_gui():
                 # ⭐ 初始化子控件状态
                 update_dependent_controls("ENABLE_PREVIEW_WINDOW", preview_deps, preview_enabled)
 
-            # ================= TAB 4: 视觉识别 =================
-            # ================= TAB 4: 视觉识别 =================
+            # ================= TAB 5: 视觉识别 =================
             with dpg.tab(label="视觉识别"):
                 dpg.add_text("检测参数", color=(100, 255, 100))
                 add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
@@ -257,18 +436,28 @@ def create_gui():
 
                 current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
                 for i in range(10):
-                    if i % 5 == 0: group_tag = dpg.add_group(horizontal=True)
+                    if i % 5 == 0:
+                        group_tag = dpg.add_group(horizontal=True)
                     is_active = i in current_ids
-                    dpg.add_checkbox(label=f"ID {i}", default_value=is_active, callback=update_class_ids_callback,
-                                     user_data=i, parent=group_tag)
+                    dpg.add_checkbox(
+                        label=f"ID {i}",
+                        default_value=is_active,
+                        callback=update_class_ids_callback,
+                        user_data=i,
+                        parent=group_tag
+                    )
                     dpg.add_spacer(width=20, parent=group_tag)
 
                 dpg.add_separator()
                 dpg.add_text("头部优先策略", color=(100, 255, 100))
 
                 # ⭐ 头部优先主开关（带联动）
-                head_priority_deps = ["head_class_id", "head_priority_range", "ignore_small_head",
-                                      "small_target_threshold"]
+                head_priority_deps = [
+                    "head_class_id",
+                    "head_priority_range",
+                    "ignore_small_head",
+                    "small_target_threshold"
+                ]
                 head_priority_enabled = cfg.get_config("ENABLE_HEAD_PRIORITY", True)
                 dpg.add_checkbox(
                     label="启用头部优先",
@@ -289,7 +478,7 @@ def create_gui():
                 small_target_deps = ["small_target_threshold"]
                 ignore_small_head_enabled = cfg.get_config("IGNORE_SMALL_TARGET_HEAD", True)
                 dpg.add_checkbox(
-                    label="🔍 忽略小目标的头部检测框",
+                    label="忽略小目标的头部检测框",
                     default_value=ignore_small_head_enabled,
                     callback=create_master_switch_callback("IGNORE_SMALL_TARGET_HEAD", small_target_deps),
                     tag="ignore_small_head"
@@ -307,7 +496,7 @@ def create_gui():
                 update_dependent_controls("ENABLE_HEAD_PRIORITY", head_priority_deps, head_priority_enabled)
                 update_dependent_controls("IGNORE_SMALL_TARGET_HEAD", small_target_deps, ignore_small_head_enabled)
 
-            # ================= TAB 5: PID 瞄准 =================
+            # ================= TAB 6: PID 瞄准 =================
             with dpg.tab(label="PID 控制"):
                 dpg.add_text("瞄准偏移", color=(100, 200, 255))
                 add_float("AIM_Y_RATIO", "Y轴 瞄准高度 (0.5=中心)", 0.0, 1.0)
@@ -331,9 +520,9 @@ def create_gui():
                 add_int("PRECISION_DEAD_ZONE", "瞄准死区 (像素)", 0, 50)
                 add_int("DEFAULT_DELAY_MS_PER_STEP", "每步延迟 (ms)", 0, 50)
 
-            # ================= TAB 6: 目标追踪 (重构) =================
+            # ================= TAB 7: 目标追踪 =================
             with dpg.tab(label="目标追踪"):
-                dpg.add_text("🎯 目标分组设置 (新增)", color=(255, 255, 0))
+                dpg.add_text("目标分组设置", color=(255, 255, 0))
                 add_int("TARGET_GROUP_DISTANCE_THRESHOLD", "身体头部分组距离阈值", 10, 500)
                 add_int("TARGET_ID_GRID_SIZE", "目标ID网格大小 (像素)", 5, 100)
 
@@ -341,14 +530,14 @@ def create_gui():
                              color=(150, 150, 150))
 
                 dpg.add_separator()
-                dpg.add_text("🔒 目标选择与锁定", color=(255, 100, 255))
+                dpg.add_text("目标选择与锁定", color=(255, 100, 255))
                 add_int("MIN_TARGET_LOCK_FRAMES", "最小锁定帧数", 1, 100)
                 add_int("TARGET_SWITCH_DISTANCE_THRESHOLD", "切换距离阈值 (像素)", 10, 500)
                 add_int("TARGET_IDENTITY_DISTANCE", "同目标判定距离 (像素)", 10, 500)
                 add_int("MAX_LOST_FRAMES", "丢失目标容忍帧", 1, 300)
 
                 dpg.add_separator()
-                dpg.add_text("📊 卡尔曼滤波 (Kalman)", color=(255, 100, 255))
+                dpg.add_text("卡尔曼滤波 (Kalman)", color=(255, 100, 255))
 
                 # ⭐ 卡尔曼滤波联动
                 kalman_deps = ["kalman_process", "kalman_measure", "kalman_predict"]
@@ -366,11 +555,11 @@ def create_gui():
                 update_dependent_controls("USE_KALMAN_FILTER", kalman_deps, kalman_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("🎯 EMA 平滑 (备用)", color=(255, 100, 255))
+                dpg.add_text("EMA 平滑 (备用)", color=(255, 100, 255))
                 add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数 (仅在禁用卡尔曼时生效)", 0.01, 1.0)
 
                 dpg.add_separator()
-                dpg.add_text("🚀 移动预判", color=(255, 100, 255))
+                dpg.add_text("移动预判", color=(255, 100, 255))
 
                 # ⭐ 预判联动
                 lead_deps = ["lead_frames"]
@@ -384,7 +573,7 @@ def create_gui():
                 add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 30, "lead_frames")
                 update_dependent_controls("ENABLE_LEAD_TARGET", lead_deps, lead_enabled)
 
-            # ================= TAB 7: 压枪系统 =================
+            # ================= TAB 8: 压枪系统 =================
             with dpg.tab(label="压枪配置"):
                 dpg.add_text("总开关", color=(255, 180, 0))
 
@@ -430,7 +619,7 @@ def create_gui():
 
                 update_dependent_controls("ENABLE_MANUAL_RECOIL", recoil_deps, recoil_enabled)
 
-            # ================= TAB 8: 自动开火 =================
+            # ================= TAB 9: 自动开火 =================
             with dpg.tab(label="自动开火"):
                 # ⭐ 自动开火联动
                 autofire_deps = ["autofire_debug", "autofire_acc", "autofire_dist", "autofire_lock"]
@@ -454,13 +643,13 @@ def create_gui():
 
                 update_dependent_controls("ENABLE_AUTO_FIRE", autofire_deps, autofire_enabled)
 
-            # ================= TAB 9: 驱动与按键 =================
+            # ================= TAB 10: 驱动与按键 =================
             with dpg.tab(label="驱动 & 按键"):
                 dpg.add_text("硬件模式选择", color=(255, 255, 0))
-                dpg.add_text("⚠ Makcu 和 传统驱动 只能选一个", color=(255, 100, 100))
+                dpg.add_text("Makcu 和 传统驱动 只能选一个", color=(255, 100, 100))
 
                 dpg.add_separator()
-                dpg.add_text("🔧 Makcu 硬件模式", color=(100, 255, 255))
+                dpg.add_text("Makcu 硬件模式", color=(100, 255, 255))
 
                 # ⭐ Makcu 联动
                 makcu_deps = ["makcu_port", "makcu_reconnect"]
@@ -476,7 +665,7 @@ def create_gui():
                 update_dependent_controls("USE_MAKCU", makcu_deps, makcu_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("🖱 传统驱动模式 (罗技/KMBox等)", color=(150, 150, 150))
+                dpg.add_text("🖱 驱动模式", color=(150, 150, 150))
 
                 # ⭐ 传统驱动联动
                 driver_deps = ["driver_fallback", "driver_path", "driver_request", "driver_mickey"]
@@ -494,13 +683,12 @@ def create_gui():
                 update_dependent_controls("USE_DRIVER_MODE", driver_deps, driver_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("🎮 按键监控配置", color=(200, 200, 200))
+                dpg.add_text("按键监控配置", color=(200, 200, 200))
                 dpg.add_text("  选择哪些按键触发瞄准", color=(150, 150, 150), indent=20)
 
                 # ⭐ 主要按键
                 add_bool("ENABLE_LEFT_MOUSE_MONITOR", "监控左键")
                 add_bool("ENABLE_RIGHT_MOUSE_MONITOR", "监控右键")
-
                 add_bool("ENABLE_MOUSE4_MONITOR", "监控侧键4 (后退键)")
                 add_bool("ENABLE_MOUSE5_MONITOR", "监控侧键5 (前进键)")
 
@@ -515,7 +703,7 @@ def create_gui():
                 add_int("APP_MOUSE_RIGHT_DOWN", "Right Down ID", 0, 100)
                 add_int("APP_MOUSE_RIGHT_UP", "Right Up ID", 0, 100)
 
-            # ================= TAB 10: 脚本扩展 =================
+            # ================= TAB 11: 脚本扩展 =================
             with dpg.tab(label="脚本扩展"):
                 dpg.add_text("脚本执行设置", color=(255, 255, 0))
                 add_bool("SCRIPT_AUTO_RELOAD", "脚本自动重载 (监听文件修改)")
@@ -526,7 +714,7 @@ def create_gui():
 
                 with dpg.group(horizontal=True):
                     dpg.add_text("可用脚本列表", color=(0, 255, 255))
-                    dpg.add_button(label="🔄 刷新列表", callback=refresh_scripts_ui, small=True)
+                    dpg.add_button(label="刷新列表", callback=refresh_scripts_ui, small=True)
 
                 dpg.add_text("勾选以启用脚本 (自动保存至配置)", color=(150, 150, 150))
 
@@ -541,6 +729,7 @@ def create_gui():
     # 启动时自动刷新一次脚本列表
     refresh_scripts_ui()
 
+    global _gui_running
     _gui_running = True
 
     try:
@@ -548,7 +737,7 @@ def create_gui():
             # 🔥 检查外部退出信号
             if _gui_exit_event.is_set():
                 print("[GUI] 收到退出信号，准备关闭...")
-                dpg.stop_dearpygui()  # 停止渲染循环
+                dpg.stop_dearpygui()
                 break
 
             # 手动渲染一帧
@@ -565,31 +754,64 @@ def create_gui():
 
 def add_float(key, label, min_v=0.0, max_v=1.0, speed=0.01):
     val = float(cfg.get_config(key, 0.0))
-    dpg.add_drag_float(label=label, default_value=val, min_value=min_v, max_value=max_v, speed=speed,
-                       callback=update_config_callback, user_data=key, width=280)
+    dpg.add_drag_float(
+        label=label,
+        default_value=val,
+        min_value=min_v,
+        max_value=max_v,
+        speed=speed,
+        callback=update_config_callback,
+        user_data=key,
+        width=280
+    )
 
 
 def add_int(key, label, min_v=0, max_v=100):
     val = int(cfg.get_config(key, 0))
-    dpg.add_drag_int(label=label, default_value=val, min_value=min_v, max_value=max_v, callback=update_config_callback,
-                     user_data=key, width=280)
+    dpg.add_drag_int(
+        label=label,
+        default_value=val,
+        min_value=min_v,
+        max_value=max_v,
+        callback=update_config_callback,
+        user_data=key,
+        width=280
+    )
 
 
 def add_bool(key, label):
     val = bool(cfg.get_config(key, False))
-    dpg.add_checkbox(label=label, default_value=val, callback=update_config_callback, user_data=key)
+    dpg.add_checkbox(
+        label=label,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key
+    )
 
 
 def add_input_text(key, label):
     val = str(cfg.get_config(key, ""))
-    dpg.add_input_text(label=label, default_value=val, callback=update_config_callback, user_data=key, width=280)
+    dpg.add_input_text(
+        label=label,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key,
+        width=280
+    )
 
 
 def add_combo(key, label, items):
     val = str(cfg.get_config(key, items[0]))
-    if val not in items: items.append(val)
-    dpg.add_combo(label=label, items=items, default_value=val, callback=update_config_callback, user_data=key,
-                  width=280)
+    if val not in items:
+        items.append(val)
+    dpg.add_combo(
+        label=label,
+        items=items,
+        default_value=val,
+        callback=update_config_callback,
+        user_data=key,
+        width=280
+    )
 
 
 # ================= 通用控件封装（带tag版本 - 用于联动） =================
@@ -664,6 +886,10 @@ def add_combo_tagged(key, label, items, tag=None):
         width=280,
         tag=tag
     )
+
+
+# ================= 外部控制函数 =================
+
 def stop_gui():
     """外部调用：请求 GUI 退出"""
     print("[GUI] 正在请求 GUI 退出...")
@@ -673,6 +899,7 @@ def stop_gui():
 def is_gui_running():
     """检查 GUI 是否还在运行"""
     return _gui_running
+
 
 if __name__ == "__main__":
     create_gui()

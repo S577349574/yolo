@@ -136,7 +136,7 @@ def run_gui_in_background():
 
 
 def main():
-    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box, crosshair_manager, threaded_detector
+    global frame_buffer, image_source, key_monitor, shared_makcu_controller, script_api, box, crosshair_manager, threaded_detector, gui_thread
     print("\n" + "=" * 60)
     print("正在初始化...")
 
