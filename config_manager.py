@@ -267,7 +267,7 @@ class ConfigManager:
             # ========== 压枪模式 ==========
             "ENABLE_MANUAL_RECOIL": True,
             "ENABLE_RECOIL_CONTROL": True,
-            "MANUAL_RECOIL_TRIGGER_MODE": "both_buttons",
+            "MANUAL_RECOIL_TRIGGER_MODE": "left_only",
 
             # ========== 压枪触发条件 ==========
             "RECOIL_REQUIRE_TARGET": False,
@@ -423,8 +423,8 @@ class ConfigManager:
         # ========== 枚举值验证 ==========
         if c.get("IMAGE_SOURCE_TYPE") not in ["local", "network"]:
             c["IMAGE_SOURCE_TYPE"] = "local"
-        if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "both_buttons"]:
-            c["MANUAL_RECOIL_TRIGGER_MODE"] = "both_buttons"
+        if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "left_right","left_button4","left_button5"]:
+            c["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
         if c.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
             c["RECOIL_PATTERN"] = "linear"
         if c.get("LOG_LEVEL") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:

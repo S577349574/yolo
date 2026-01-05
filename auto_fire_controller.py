@@ -132,25 +132,28 @@ class AutoFireController:
     # ==================== 适配新接口的辅助方法 ====================
 
     def _send_move(self, dx: int, dy: int) -> bool:
-        """发送鼠标移动（适配新接口）"""
-        if hasattr(self.mouse_controller, '_send_move'):
-            return self.mouse_controller._send_move(dx, dy)
-        elif hasattr(self.mouse_controller, '_send_mouse_request'):
-            no_button = get_config('APP_MOUSE_NO_BUTTON', 0)
-            return self.mouse_controller._send_mouse_request(dx, dy, no_button)
-        else:
-            utils.log("⚠ 鼠标控制器接口不兼容")
-            return False
+        """发送鼠标移动（带边界检查）"""
+        result = self.mouse_controller._send_move(dx, dy)
+
+        if result:
+            current_x, current_y = self.mouse_controller.get_crosshair_position()
+            new_x = current_x + dx
+            new_y = current_y + dy
+
+            # ⭐ 边界检查（防止超出屏幕）
+            screen_w = self.mouse_controller.screen_width
+            screen_h = self.mouse_controller.screen_height
+            new_x = max(0, min(screen_w - 1, new_x))
+            new_y = max(0, min(screen_h - 1, new_y))
+
+            self.mouse_controller.update_crosshair_position(new_x, new_y)
+
+        return result
 
     def _send_button(self, button_flags: int) -> bool:
-        """发送鼠标按钮（适配新接口）"""
-        if hasattr(self.mouse_controller, '_send_button'):
-            return self.mouse_controller._send_button(button_flags)
-        elif hasattr(self.mouse_controller, '_send_mouse_request'):
-            return self.mouse_controller._send_mouse_request(0, 0, button_flags)
-        else:
-            utils.log("⚠ 鼠标控制器接口不兼容")
-            return False
+        """发送鼠标按钮（简化版）"""
+        # 直接调用，不需要兼容性检查
+        return self.mouse_controller._send_button(button_flags)
 
     # ==================== 准确率跟踪 ====================
 
@@ -285,10 +288,17 @@ class AutoFireController:
 
     def _manual_recoil_loop(self) -> None:
         """手动压枪监控循环（智能触发版本）"""
-        trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'both_buttons')
+        trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'left_only')
         require_target = get_config('RECOIL_REQUIRE_TARGET', True)
 
-        mode_desc = "左键" if trigger_mode == 'left_only' else "左键+右键"
+        mode_descriptions = {
+            'left_only': '仅左键',
+            'left_right': '左键+右键',
+            'left_button4': '左键+侧键4',
+            'left_button5': '左键+侧键5',
+        }
+
+        mode_desc = mode_descriptions.get(trigger_mode, trigger_mode)
         target_desc = " + 需要目标" if require_target else ""
         utils.log(f"🎯 手动压枪模式：{mode_desc}{target_desc}")
 
@@ -299,7 +309,7 @@ class AutoFireController:
         else:
             utils.log(f"✅ 使用 {type(self.key_monitor).__name__} 进行按键监听")
             use_key_monitor = True
-        last_trigger_state = False
+
         last_recoil_active = False  # 用于检测压枪状态变化
 
         manual_fire_start_time = 0.0
@@ -309,31 +319,32 @@ class AutoFireController:
         manual_total_offset_x = 0.0
         manual_total_offset_y = 0.0
         manual_shot_count = 0
-
-        # 状态机
         recoil_paused_logged = False  # 防止重复日志
-
+        # ⭐ 添加详细调试
+        debug_button_states = get_config('DEBUG_BUTTON_STATES', True)  # 临时启用
+        last_debug_time = 0.0
         try:
             while not self.manual_recoil_stop_flag:
+
+                # ⭐ 添加调试输出（每0.5秒打印一次）
+                if debug_button_states and trigger_mode == 'left_button4':
+                    current_time = time.time()
+                    if current_time - last_debug_time > 0.5:
+                        left = self.key_monitor.is_key_pressed('left')
+                        mouse4 = self.key_monitor.is_key_pressed('mouse4')
+
+                        # ⭐ 获取完整按键状态
+                        all_states = self.key_monitor.get_button_states()
+
+                        utils.log(f"🔍 [调试] 按键状态:")
+                        utils.log(f"  - left: {left}")
+                        utils.log(f"  - mouse4: {mouse4}")
+                        utils.log(f"  - 完整状态: {all_states}")
+                        utils.log(f"  - target_detected: {self._target_detected}")
+                        last_debug_time = current_time
+
                 # ⭐ 统一按键检测接口
-                if use_key_monitor:
-                    # 使用 key_monitor（支持硬件/软件）
-                    left_pressed = self.key_monitor.is_key_pressed('left')
-                    right_pressed = self.key_monitor.is_key_pressed('right')
-                else:
-                    # 降级使用 WinAPI（兜底）
-                    import win32api
-                    left_pressed = win32api.GetKeyState(0x01) < 0
-                    right_pressed = win32api.GetKeyState(0x02) < 0
-
-                # 判断触发条件
-                if trigger_mode == 'left_only':
-                    button_condition = left_pressed
-                elif trigger_mode == 'both_buttons':
-                    button_condition = left_pressed and right_pressed
-                else:
-                    button_condition = False
-
+                button_condition = self._check_trigger_buttons(use_key_monitor, trigger_mode)
                 # ⭐ 综合判断：按键 + 目标条件
                 should_recoil = button_condition and self._should_apply_recoil()
 
@@ -359,21 +370,13 @@ class AutoFireController:
                     fire_duration = time.time() - manual_fire_start_time
 
                     if fire_duration > 0.1:  # 只记录有效压枪
-                        # 判断停止原因
-                        if not button_condition:
-                            reason = "按键释放"
-                        elif not self._target_detected:
-                            reason = "目标丢失"
-                        else:
-                            reason = "条件不满足"
-
+                        reason = self._get_stop_reason(button_condition)
                         if self.debug_mode:
                             utils.log(
                                 f"⏹ 停止压枪 ({reason}) | 持续: {fire_duration:.2f}s | "
                                 f"子弹: {manual_shot_count} | "
                                 f"累积: X={manual_total_offset_x:+.1f}px Y={manual_total_offset_y:+.1f}px"
                             )
-
                     recoil_paused_logged = False
 
                 # ⭐ 按键按下但目标丢失的情况
@@ -391,21 +394,15 @@ class AutoFireController:
                         manual_last_recoil_time = current_time
                         manual_shot_count += 1
 
-                        # 计算偏移
                         offset_x, offset_y = self._calculate_recoil_offset(delta_time, manual_shot_count)
-
-                        # 限幅
                         offset_x, offset_y = self._clamp_recoil_offset(offset_x, offset_y)
 
-                        # 累积
                         manual_accumulated_offset_x += offset_x
                         manual_accumulated_offset_y += offset_y
                         manual_total_offset_x += offset_x
                         manual_total_offset_y += offset_y
 
-                        # 发送移动（≥1px）
                         move_x, move_y = 0, 0
-
                         if abs(manual_accumulated_offset_x) >= 1.0:
                             move_x = int(manual_accumulated_offset_x)
                             manual_accumulated_offset_x -= move_x
@@ -417,7 +414,6 @@ class AutoFireController:
                         if move_x != 0 or move_y != 0:
                             self._send_move(move_x, move_y)
 
-                last_trigger_state = button_condition
                 last_recoil_active = should_recoil
                 time.sleep(0.001)
 
@@ -426,6 +422,42 @@ class AutoFireController:
             import traceback
             traceback.print_exc()
 
+    def _check_trigger_buttons(self, use_key_monitor: bool, trigger_mode: str) -> bool:
+        """
+        检查触发按键条件（根据模式自动判断）
+
+        Args:
+            use_key_monitor: 是否使用 key_monitor
+            trigger_mode: 触发模式
+
+        Returns:
+            bool: 按键条件是否满足
+        """
+        left_pressed = self.key_monitor.is_key_pressed('left')
+
+        if trigger_mode == 'left_only':
+            return left_pressed
+        elif trigger_mode == 'left_right':
+            right_pressed = self.key_monitor.is_key_pressed('right')
+            return left_pressed and right_pressed
+        elif trigger_mode == 'left_button4':
+            button4_pressed = self.key_monitor.is_key_pressed('mouse4')
+            return left_pressed and button4_pressed
+        elif trigger_mode == 'left_button5':
+            button5_pressed = self.key_monitor.is_key_pressed('mouse5')
+            return left_pressed and button5_pressed
+        else:
+            utils.log(f"⚠ 未知触发模式: {trigger_mode}，降级为仅左键")
+            return left_pressed
+
+    def _get_stop_reason(self, button_condition: bool) -> str:
+        """获取停止压枪的原因"""
+        if not button_condition:
+            return "按键释放"
+        elif not self._target_detected:
+            return "目标丢失"
+        else:
+            return "条件不满足"
     # ==================== 压枪计算方法（通用）====================
 
     def _calculate_recoil_offset(self, delta_time: float, shot_count: int) -> Tuple[float, float]:

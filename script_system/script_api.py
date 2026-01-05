@@ -39,6 +39,10 @@ class ScriptAPI:
         self.start_time = time.time()
         self.last_frame_time = time.time()
 
+
+        self.script_storage = {}  # 用于存储跨帧数据
+        self.script_timers = {}   # 用于存储定时器
+
     def bind_app_state(self, app_state):
         """绑定 app_state"""
         self._app_state_getter = lambda: app_state
@@ -57,6 +61,8 @@ class ScriptAPI:
         api.log = self._create_log_api(lua_runtime)
         api.utils = self._create_utils_api(lua_runtime)
 
+        api.storage = self._create_storage_api(lua_runtime)
+        api.timer = self._create_timer_api(lua_runtime)
         # 辅助函数
         api["getLength"] = lambda obj: len(obj) if hasattr(obj, '__len__') else 0
         api["len"] = api["getLength"]
@@ -257,7 +263,12 @@ class ScriptAPI:
             button_map = {
                 "left": self.mouse.BUTTON_LEFT_DOWN,
                 "right": self.mouse.BUTTON_RIGHT_DOWN,
-                "middle": self.mouse.BUTTON_MIDDLE_DOWN
+                "middle": self.mouse.BUTTON_MIDDLE_DOWN,
+                "mouse4": self.mouse.BUTTON_4_DOWN,  # ⭐ 新增
+                "mouse5": self.mouse.BUTTON_5_DOWN,  # ⭐ 新增
+                # 别名支持
+                "side4": self.mouse.BUTTON_4_DOWN,
+                "side5": self.mouse.BUTTON_5_DOWN,
             }
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_DOWN)
             return self.mouse.click(button_flag, int(delay_ms))
@@ -266,7 +277,9 @@ class ScriptAPI:
             button_map = {
                 "left": self.mouse.BUTTON_LEFT_DOWN,
                 "right": self.mouse.BUTTON_RIGHT_DOWN,
-                "middle": self.mouse.BUTTON_MIDDLE_DOWN
+                "middle": self.mouse.BUTTON_MIDDLE_DOWN,
+                "mouse4": self.mouse.BUTTON_4_DOWN,  # ⭐ 新增
+                "mouse5": self.mouse.BUTTON_5_DOWN,  # ⭐ 新增
             }
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_DOWN)
             return self.mouse.mouse_down(button_flag)
@@ -275,7 +288,9 @@ class ScriptAPI:
             button_map = {
                 "left": self.mouse.BUTTON_LEFT_UP,
                 "right": self.mouse.BUTTON_RIGHT_UP,
-                "middle": self.mouse.BUTTON_MIDDLE_UP
+                "middle": self.mouse.BUTTON_MIDDLE_UP,
+                "mouse4": self.mouse.BUTTON_4_UP,  # ⭐ 新增
+                "mouse5": self.mouse.BUTTON_5_UP,  # ⭐ 新增
             }
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_UP)
             return self.mouse.mouse_up(button_flag)
@@ -309,7 +324,16 @@ class ScriptAPI:
             """检查鼠标按键是否按下（使用统一接口）"""
             if not self.key_monitor:
                 return False
-            return self.key_monitor.is_key_pressed(button)
+            button_name_map = {
+                "left": "left",
+                "right": "right",
+                "middle": "middle",
+                "mouse4": "mouse4",  # ⭐ 新增
+                "mouse5": "mouse5",  # ⭐ 新增
+            }
+
+            mapped_button = button_name_map.get(button.lower(), "left")
+            return self.key_monitor.is_key_pressed(mapped_button)
 
         def get_all_button_states():
             """获取所有按键状态（使用统一接口）"""
@@ -403,6 +427,104 @@ class ScriptAPI:
 
         return log_api
 
+    def _create_storage_api(self, lua):
+        """创建全局存储 API（跨帧数据持久化）"""
+        storage_api = lua.table()
+
+        def storage_set(key, value):
+            """设置全局变量"""
+            self.script_storage[str(key)] = value
+            return True
+
+        def storage_get(key, default=None):
+            """获取全局变量"""
+            return self.script_storage.get(str(key), default)
+
+        def storage_has(key):
+            """检查变量是否存在"""
+            return str(key) in self.script_storage
+
+        def storage_delete(key):
+            """删除全局变量"""
+            if str(key) in self.script_storage:
+                del self.script_storage[str(key)]
+                return True
+            return False
+
+        def storage_clear():
+            """清空所有变量"""
+            self.script_storage.clear()
+            return True
+
+        def storage_increment(key, delta=1, default=0):
+            """增加计数器（原子操作）"""
+            current = self.script_storage.get(str(key), default)
+            new_value = current + delta
+            self.script_storage[str(key)] = new_value
+            return new_value
+
+        def storage_get_all():
+            """获取所有变量（调试用）"""
+            result = lua.table()
+            for k, v in self.script_storage.items():
+                result[k] = v
+            return result
+
+        # 注册函数
+        storage_api.set = storage_set
+        storage_api.get = storage_get
+        storage_api.has = storage_has
+        storage_api.delete = storage_delete
+        storage_api.clear = storage_clear
+        storage_api.increment = storage_increment
+        storage_api.get_all = storage_get_all
+
+        return storage_api
+
+    # ==================== ⭐ 新增：定时器 API ====================
+
+    def _create_timer_api(self, lua):
+        """创建定时器 API（用于冷却时间管理）"""
+        timer_api = lua.table()
+
+        def timer_start(name, duration_sec):
+            """启动定时器（duration_sec 秒后过期）"""
+            self.script_timers[str(name)] = time.time() + duration_sec
+            return True
+
+        def timer_is_ready(name):
+            """检查定时器是否已就绪（冷却结束）"""
+            if str(name) not in self.script_timers:
+                return True  # 未设置的定时器默认就绪
+            return time.time() >= self.script_timers[str(name)]
+
+        def timer_remaining(name):
+            """获取定时器剩余时间（秒）"""
+            if str(name) not in self.script_timers:
+                return 0
+            remaining = self.script_timers[str(name)] - time.time()
+            return max(0, remaining)
+
+        def timer_reset(name):
+            """重置定时器"""
+            if str(name) in self.script_timers:
+                del self.script_timers[str(name)]
+                return True
+            return False
+
+        def timer_clear_all():
+            """清空所有定时器"""
+            self.script_timers.clear()
+            return True
+
+        # 注册函数
+        timer_api.start = timer_start
+        timer_api.is_ready = timer_is_ready
+        timer_api.remaining = timer_remaining
+        timer_api.reset = timer_reset
+        timer_api.clear_all = timer_clear_all
+
+        return timer_api
     # ==================== 工具函数 API ====================
 
     @staticmethod

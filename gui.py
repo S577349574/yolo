@@ -593,7 +593,8 @@ def create_gui():
 
                 add_bool_tagged("ENABLE_RECOIL_CONTROL", "启用后坐力控制", "recoil_ctrl")
                 add_combo_tagged("MANUAL_RECOIL_TRIGGER_MODE", "触发按键模式",
-                                 ["left_only", "both_buttons"], "recoil_mode")
+                                 ["left_only", "left_right","left_button4","left_button5"], "recoil_mode")
+
 
                 dpg.add_separator()
                 dpg.add_text("触发逻辑", color=(255, 180, 0))

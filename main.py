@@ -7,6 +7,7 @@ from threading import Event as ThreadEvent
 import makcu_patch
 from crosshair.threaded_crosshair_detector import ThreadedCrosshairDetector
 from gui import stop_gui
+from key_monitor.factory import get_monitored_keys, get_primary_trigger_key
 
 makcu_patch.apply()
 
@@ -18,7 +19,7 @@ from driver_loader import ensure_driver_loaded, unload_driver
 from image.image_source import create_image_source
 from key_monitor import create_key_monitor
 from license_auth import LicenseAuthenticator
-from mouse import create_mouse_controller
+from mouse import create_mouse_controller, mouse_controller
 from script_system import ScriptAPI, ScriptManager, EventSystem
 from script_system.shared_game_state import get_game_state
 from target_selector import TargetSelector
@@ -31,7 +32,19 @@ LICENSE_SERVER_URL = "http://1.14.184.43:45000"
 LICENSE_SECRET_KEY = "your_secret_key_change_this"
 
 _original_print = print
+import atexit
 
+def emergency_cleanup():
+    """紧急清理：程序崩溃时抬起左键"""
+    try:
+        if 'mouse_controller' in globals() and mouse_controller:
+            mouse_controller.mouse_up(mouse_controller.BUTTON_LEFT_UP)
+            print("🆘 紧急抬起左键")
+    except:
+        pass
+
+# 注册退出钩子
+atexit.register(emergency_cleanup)
 
 class AppState:
     """应用程序状态管理类（线程安全）"""
@@ -122,7 +135,7 @@ class CachedConfig:
         self.config_names = get_config('TARGET_CLASS_NAMES', [])
         self.enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
         self.enable_manual_recoil = get_config('ENABLE_MANUAL_RECOIL', False)
-        self.manual_recoil_trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'both_buttons')
+        self.manual_recoil_trigger_mode = get_config('MANUAL_RECOIL_TRIGGER_MODE', 'left_only')
         self.recoil_require_target = get_config('RECOIL_REQUIRE_TARGET', True)
         # ⭐ 新增配置项
         self.use_detected_crosshair = get_config('USE_DETECTED_CROSSHAIR', True)
@@ -340,7 +353,7 @@ def main():
             auto_fire.start_manual_recoil_monitor()
             utils.log("✅ 已启用手动压枪模式（需检测到目标 + 按键触发）")
         elif enable_auto_fire:
-            utils.log("✅ 已启用自动开火模式（需按住右键触发）")
+            utils.log("✅ 已启用自动开火模式")
 
         # 图像源初始化
         image_source = create_image_source()
@@ -459,6 +472,22 @@ def main():
         crosshair_used_count = 0
         fallback_used_count = 0
 
+        # ⭐ 预检测启用的触发键
+        enabled_trigger_keys = get_monitored_keys()
+        primary_trigger_key = get_primary_trigger_key()
+
+        if enable_auto_fire:
+            if not enabled_trigger_keys:
+                utils.log("⚠️ 警告：已启用自动开火，但没有启用任何按键监控！")
+                utils.log("   请至少启用一个: ENABLE_RIGHT_MOUSE_MONITOR, ENABLE_LEFT_MOUSE_MONITOR, 等")
+                enable_auto_fire = False  # 禁用自动开火
+            else:
+                key_names = {
+                    'left': '左键', 'right': '右键',
+                    'mouse4': '侧键4', 'mouse5': '侧键5'
+                }
+                utils.log(f"🎯 自动开火触发键: {[key_names[k] for k in enabled_trigger_keys]}")
+                utils.log(f"   主触发键: {key_names[primary_trigger_key]}")
         # ==================== 主循环（完整修复版）====================
         while not app_state.is_exiting():
             frame_start = time.perf_counter()
@@ -599,28 +628,50 @@ def main():
                     # ⭐ 修复：移动到目标位置（已经是绝对坐标）
                     mouse_controller.move_to_target(best_x, best_y)
 
-            # ========== 10. 自动开火控制 ==========
+            # ========== ⭐ 新增：自动开火核心逻辑 ==========
             if best_x is not None:
-                # ⭐ 修复：使用真实准星位置计算偏移距离
                 offset_distance = math.sqrt(
                     (best_x - aim_reference_x) ** 2 +
                     (best_y - aim_reference_y) ** 2
                 )
 
-                game_state.is_aiming = app_state.is_mouse_active()
-                game_state.is_firing = auto_fire.is_firing
-                game_state.is_locked = target_selector.is_locked
-                game_state.lock_frames = target_selector.target_lock_frames
+                # ⭐⭐⭐ 1. 更新目标状态（两种模式都需要！）⭐⭐⭐
+                auto_fire.update_target_status(
+                    detected=True,
+                    locked=target_selector.is_locked,
+                    lock_frames=target_selector.target_lock_frames,
+                    distance=offset_distance
+                )
 
-                if enable_manual_recoil or (enable_auto_fire and auto_fire.is_firing):
-                    game_state.update_recoil_state(
-                        active=True,
-                        offset_x=auto_fire.total_offset_x if hasattr(auto_fire, 'total_offset_x') else 0,
-                        offset_y=auto_fire.total_offset_y if hasattr(auto_fire, 'total_offset_y') else 0,
-                        shot_count=auto_fire.shot_count if hasattr(auto_fire, 'shot_count') else 0
+                # ⭐⭐⭐ 2. 自动开火模式（主循环控制）⭐⭐⭐
+                if enable_auto_fire:
+                    trigger_pressed = any(
+                        key_monitor.is_key_pressed(key) for key in enabled_trigger_keys
                     )
-                else:
-                    game_state.update_recoil_state(active=False)
+
+                    if trigger_pressed:
+                        accuracy = auto_fire.update_accuracy(offset_distance)
+
+                        if auto_fire.should_auto_fire(
+                                target_locked=target_selector.is_locked,
+                                lock_frames=target_selector.target_lock_frames,
+                                current_accuracy=accuracy,
+                                error_distance=offset_distance
+                        ):
+                            if not auto_fire.is_firing:
+                                auto_fire.start_firing()
+                            auto_fire.apply_recoil_control()
+                        else:
+                            if auto_fire.is_firing:
+                                auto_fire.stop_firing()
+                    else:
+                        if auto_fire.is_firing:
+                            auto_fire.stop_firing()
+            else:
+                # ⭐ 4. 目标丢失处理
+                auto_fire.update_target_status(detected=False)
+                if enable_auto_fire and auto_fire.is_firing:
+                    auto_fire.stop_firing()
 
             # ========== 11. 脚本事件 ==========
             if script_manager:
@@ -703,7 +754,11 @@ def main():
                 utils.log("✅ 自动开火已停止")
             except Exception as e:
                 utils.log(f"⚠️ 停止自动开火时出错: {e}")
-
+                try:
+                    mouse_controller.mouse_up(mouse_controller.BUTTON_LEFT_UP)
+                    utils.log("🆘 备用方案：已抬起左键")
+                except:
+                    pass
 
         if capture_process and capture_process.is_alive():
             utils.log("⏳ 等待捕获进程退出...")
