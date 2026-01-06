@@ -30,7 +30,7 @@
     "_comment_目标分组": "========== 目标分组 ==========",
     "TARGET_GROUP_DISTANCE_THRESHOLD": 100,
     "_comment_准星检测配置": "========== 准星检测配置 ==========",
-    "ENABLE_CROSSHAIR_DETECTION": false,
+    "ENABLE_CROSSHAIR_DETECTION": true,
     "CROSSHAIR_DETECTOR_TYPE": "template",
     "CROSSHAIR_VALORANT_CONFIG": "0;P;c;7;o;1;1b;0",
     "CROSSHAIR_TEMPLATE_PATH": "templates/crosshair.png",
