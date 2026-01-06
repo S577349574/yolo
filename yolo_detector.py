@@ -27,11 +27,10 @@ def _get_best_providers():
     use_tensorrt = get_config('USE_TENSORRT', True)
 
     if use_tensorrt and 'TensorrtExecutionProvider' in available:
-        import sys
-        if getattr(sys, 'frozen', False):
-            app_dir = os.path.dirname(sys.executable)
-        else:
-            app_dir = os.path.dirname(os.path.abspath(__file__))
+        # ⭐ 直接获取 ConfigManager 中已经确定的路径 ⭐
+        from config_manager import ConfigManager
+        config_mgr = ConfigManager()
+        app_dir = config_mgr.app_dir  # 使用已验证的路径
 
         trt_cache_dir = os.path.join(app_dir, 'trt_cache')
 

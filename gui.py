@@ -346,12 +346,12 @@ def create_gui():
 
             # ================= TAB 2: 图像源配置 =================
             with dpg.tab(label="图像源"):
-                dpg.add_text("画面来源模式（需要重启启动）", color=UIColors.APPLE_BLUE)
+                dpg.add_text("画面来源模式(需要重启启动)", color=UIColors.APPLE_BLUE)
                 add_combo("IMAGE_SOURCE_TYPE", "图像源类型", ["local", "network"])
                 add_int("CROP_SIZE", "推理区域大小 (Crop)", 64, 1280)
 
                 dpg.add_separator()
-                dpg.add_text("网络画面接收配置（需要重启启动） (仅network模式生效)", color=UIColors.SECTION_HEADER)
+                dpg.add_text("网络画面接收配置(需要重启启动) (仅network模式生效)", color=UIColors.SECTION_HEADER)
                 add_int("FRAME_PORT", "接收端口", 1024, 65535)
                 add_int("FRAME_WIDTH", "画面宽度 (像素)", 64, 1920)
                 add_int("FRAME_HEIGHT", "画面高度 (像素)", 64, 1080)
@@ -693,7 +693,7 @@ def create_gui():
                 autofire_deps = ["autofire_debug", "autofire_acc", "autofire_dist", "autofire_lock"]
                 autofire_enabled = cfg.get_config("ENABLE_AUTO_FIRE", False)
                 dpg.add_checkbox(
-                    label="🔥 启用自动开火",
+                    label="启用自动开火",
                     default_value=autofire_enabled,
                     callback=create_master_switch_callback("ENABLE_AUTO_FIRE", autofire_deps)
                 )
@@ -732,7 +732,7 @@ def create_gui():
                 update_dependent_controls("USE_MAKCU", makcu_deps, makcu_enabled)
 
                 dpg.add_separator()
-                dpg.add_text("🖱 驱动模式", color=UIColors.TEXT_GRAY)
+                dpg.add_text("驱动模式", color=UIColors.TEXT_GRAY)
 
                 driver_deps = ["driver_fallback", "driver_path", "driver_request", "driver_mickey"]
                 driver_enabled = cfg.get_config("USE_DRIVER_MODE", False)
@@ -761,7 +761,7 @@ def create_gui():
                 add_int("KEY_MONITOR_INTERVAL_MS", "监控间隔 (ms)", 10, 1000)
 
                 dpg.add_separator()
-                dpg.add_text("⚙ 按键映射 ID (高级选项，谨慎修改)", color=UIColors.TEXT_GRAY)
+                dpg.add_text("按键映射 ID (高级选项，谨慎修改)", color=UIColors.TEXT_GRAY)
                 add_int("APP_MOUSE_LEFT_DOWN", "Left Down ID", 0, 100)
                 add_int("APP_MOUSE_LEFT_UP", "Left Up ID", 0, 100)
                 add_int("APP_MOUSE_RIGHT_DOWN", "Right Down ID", 0, 100)
