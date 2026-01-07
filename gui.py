@@ -356,7 +356,6 @@ def create_gui():
                 add_int("FRAME_WIDTH", "画面宽度 (像素)", 64, 1920)
                 add_int("FRAME_HEIGHT", "画面高度 (像素)", 64, 1080)
                 add_int("FRAME_CHANNELS", "通道数 (RGB=3, RGBA=4)", 3, 4)
-                add_bool("USE_LZ4", "启用 LZ4 压缩传输")
 
             # ================= TAB 3: 准星检测 =================
             with dpg.tab(label="准星检测"):

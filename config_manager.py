@@ -145,7 +145,6 @@ class ConfigManager:
             "FRAME_WIDTH": 256,
             "FRAME_HEIGHT": 256,
             "FRAME_CHANNELS": 3,
-            "USE_LZ4": True,
             # ========== 准星检测配置 ==========
             "ENABLE_CROSSHAIR_DETECTION": False,           # 是否启用准星检测
             "CROSSHAIR_DETECTOR_TYPE": "template",         # 检测器类型: 'color', 'template', 'cross_shape'
@@ -446,7 +445,7 @@ class ConfigManager:
         bool_keys = [
             "ENABLE_PREVIEW_WINDOW", "PREVIEW_SHOW_BOXES", "PREVIEW_SHOW_LABELS",
             "PREVIEW_SHOW_CONFIDENCE", "PREVIEW_SHOW_FPS", "PREVIEW_SHOW_CROSSHAIR",
-            "PREVIEW_SHOW_AIM_POINT", "USE_LZ4", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
+            "PREVIEW_SHOW_AIM_POINT", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
             "ENABLE_HEAD_PRIORITY","IGNORE_SMALL_TARGET_HEAD", "ENABLE_LEFT_MOUSE_MONITOR",
             "ENABLE_RIGHT_MOUSE_MONITOR",
             "ENABLE_MOUSE4_MONITOR",     # ⭐ 新增
