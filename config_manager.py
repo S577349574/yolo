@@ -178,9 +178,9 @@ class ConfigManager:
             "TARGET_GROUP_DISTANCE_THRESHOLD": 100,
 
             # ========== 目标选择 ==========
-            "MIN_TARGET_LOCK_FRAMES": 10,
-            "TARGET_SWITCH_DISTANCE_THRESHOLD": 50,
-            "TARGET_IDENTITY_DISTANCE": 100,
+            "MIN_TARGET_LOCK_FRAMES": 20,
+            "TARGET_SWITCH_DISTANCE_THRESHOLD": 10,
+            "TARGET_IDENTITY_DISTANCE": 10,
             "MAX_LOST_FRAMES": 30,
             "TARGET_ID_GRID_SIZE": 20,
 
@@ -197,9 +197,9 @@ class ConfigManager:
 
             # ========== 卡尔曼滤波 ==========
             "USE_KALMAN_FILTER": True,
-            "KALMAN_PROCESS_NOISE": 0.1,
-            "KALMAN_MEASUREMENT_NOISE": 5.0,
-            "KALMAN_MAX_PREDICT_FRAMES": 5,
+            "KALMAN_PROCESS_NOISE": 0.3,
+            "KALMAN_MEASUREMENT_NOISE": 1.0,
+            "KALMAN_MAX_PREDICT_FRAMES": 3,
 
             # ========== EMA 平滑（备用）==========
             "AIM_POINT_SMOOTH_ALPHA": 0.25,
