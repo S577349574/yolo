@@ -295,6 +295,12 @@ class TargetSelector:
             })
 
         group_info.sort(key=lambda g: g['distance'])
+        if not group_info:
+            self.frames_without_target += 1
+            if self.frames_without_target >= max_lost_frames:
+                self._reset_tracking()
+            return None, None
+
         closest_group = group_info[0]
         selected_group_id = closest_group['group_id']
 

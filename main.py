@@ -236,6 +236,8 @@ class CoreService:
             if not self.key_monitor or not self.key_monitor.start():
                 raise RuntimeError("按键监控器启动失败")
 
+            print(f"[Debug] key_monitor 类型: {type(self.key_monitor).__name__}")
+            print(f"[Debug] key_monitor.running: {getattr(self.key_monitor, '_running', 'N/A')}")
             # 4. 驱动加载
             use_driver_mode = get_config("USE_DRIVER_MODE", True)
             if use_driver_mode:
@@ -356,7 +358,16 @@ class CoreService:
                 pass
             self.script_manager = None
 
-        # 2. 停止按键监控
+        # 2. 停止自动开火/压枪 (⚠️ 必须在按键监控之前停止)
+        if self.auto_fire:
+            try:
+                self.auto_fire.stop_firing()
+                self.auto_fire.stop_manual_recoil_monitor()
+            except:
+                pass
+            self.auto_fire = None  # 🔥 新增：清空引用
+
+        # 3. 停止按键监控
         if self.key_monitor:
             try:
                 self.key_monitor.stop()
@@ -364,7 +375,7 @@ class CoreService:
                 pass
             self.key_monitor = None
 
-        # 3. 停止图像源 (重要)
+        # 4. 停止图像源 (重要)
         if self.image_source:
             try:
                 self.image_source.stop()
@@ -373,20 +384,14 @@ class CoreService:
                 pass
             self.image_source = None
 
-        # 4. 停止准星检测
+        # 5. 停止准星检测
         if self.threaded_detector:
             try:
                 self.threaded_detector.stop()
             except:
                 pass
-
-        # 5. 停止自动开火
-        if self.auto_fire:
-            try:
-                self.auto_fire.stop_firing()
-                self.auto_fire.stop_manual_recoil_monitor()
-            except:
-                pass
+            self.threaded_detector = None  # 🔥 新增
+            self.crosshair_manager = None  # 🔥 新增
 
         # 6. 关闭鼠标
         if self.mouse_controller:
@@ -404,7 +409,16 @@ class CoreService:
                 pass
             self.preview_window = None
 
-        print("[Core] 资源已释放")
+        if self.shared_makcu_controller:
+            try:
+                utils.log("[Core] 🔌 断开 Makcu 硬件连接...")
+                self.shared_makcu_controller.disconnect()  # ✅ 正确的方法
+                time.sleep(0.5)  # 等待 COM 口释放
+            except Exception as e:
+                utils.log(f"[Core] Makcu 断开异常: {e}")
+            self.shared_makcu_controller = None
+
+        self.target_selector = None
 
     def run(self):
         """核心服务线程入口 - 优化版"""
