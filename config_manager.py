@@ -288,6 +288,7 @@ class ConfigManager:
             "RECOIL_MAX_SINGLE_MOVE": 110.0,
 
             # ========== 脚本系统 ==========
+            "ENABLE_SCRIPT_SYSTEM": True,
             "SCRIPT_AUTO_RELOAD": True,
             "SCRIPT_TIMEOUT_MS": 10,
             "SCRIPT_DEBUG_MODE": False,
@@ -447,7 +448,7 @@ class ConfigManager:
             "PREVIEW_SHOW_CONFIDENCE", "PREVIEW_SHOW_FPS", "PREVIEW_SHOW_CROSSHAIR",
             "PREVIEW_SHOW_AIM_POINT", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
             "ENABLE_HEAD_PRIORITY","IGNORE_SMALL_TARGET_HEAD", "ENABLE_LEFT_MOUSE_MONITOR",
-            "ENABLE_RIGHT_MOUSE_MONITOR",
+            "ENABLE_RIGHT_MOUSE_MONITOR","ENABLE_SCRIPT_SYSTEM",
             "ENABLE_MOUSE4_MONITOR",     # ⭐ 新增
             "ENABLE_MOUSE5_MONITOR",     # ⭐ 新增
             "ENABLE_LOGGING", "DEBUG_MODE", "MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE",
@@ -705,7 +706,8 @@ class ConfigManager:
                 "RECOIL_MAX_SINGLE_MOVE"
             ],
 
-                        "脚本系统": [
+            "脚本系统": [
+                "ENABLE_SCRIPT_SYSTEM",
                 "SCRIPT_AUTO_RELOAD", "SCRIPT_TIMEOUT_MS",
                 "SCRIPT_DEBUG_MODE", "ENABLED_SCRIPTS"
             ]
@@ -855,39 +857,6 @@ def stop_auto_reload() -> None:
     """停止自动重载"""
     _config_manager.stop_auto_reload()
 
-
-if __name__ == "__main__":
-    config = load_config()
-    print(f"\n{'='*60}")
-    print(f"✅ 配置加载成功，共 {len(config)} 项")
-    print(f"📁 配置文件: {_config_manager.config_file}")
-    print(f"{'='*60}")
-
-    print(f"\n🎯 目标选择配置:")
-    print(f"  目标分组距离阈值: {get_config('TARGET_GROUP_DISTANCE_THRESHOLD')}px")
-    print(f"  最小锁定帧数: {get_config('MIN_TARGET_LOCK_FRAMES')}帧")
-    print(f"  切换距离阈值: {get_config('TARGET_SWITCH_DISTANCE_THRESHOLD')}px")
-    print(f"  目标识别距离: {get_config('TARGET_IDENTITY_DISTANCE')}px")
-
-    print(f"\n🎯 头部优先配置:")
-    print(f"  启用头部优先: {get_config('ENABLE_HEAD_PRIORITY')}")
-    print(f"  头部类别ID: {get_config('HEAD_CLASS_ID')}")
-    print(f"  头部优先范围: {get_config('HEAD_PRIORITY_RANGE')}px")
-
-    print(f"\n🎯 卡尔曼滤波配置:")
-    print(f"  启用卡尔曼滤波: {get_config('USE_KALMAN_FILTER')}")
-    print(f"  过程噪声: {get_config('KALMAN_PROCESS_NOISE')}")
-    print(f"  测量噪声: {get_config('KALMAN_MEASUREMENT_NOISE')}")
-    print(f"  最大预测帧数: {get_config('KALMAN_MAX_PREDICT_FRAMES')}帧")
-
-    print(f"\n🎯 鼠标控制模式:")
-    print(f"  Makcu硬件模式: {get_config('USE_MAKCU')}")
-    print(f"  驱动模式: {get_config('USE_DRIVER_MODE')}")
-    print(f"  自动降级: {get_config('MOUSE_MODE_AUTO_FALLBACK')}")
-
-    print(f"\n{'='*60}\n")
-
-
 def on_config_change(key: str, callback) -> None:
     """注册配置变更回调"""
     _callback_manager.register(key, callback)
@@ -907,3 +876,50 @@ def get_all(self) -> Dict[str, Any]:
     """获取所有配置（副本）"""
     with self._rw_lock:
         return self.config.copy()
+
+
+# ========== 全局事件信号系统 ==========
+# 1. 暂停/恢复信号 (Set=运行, Clear=暂停)
+# 默认设为 False (Clear)，等待 GUI 初始化完成后用户手动开启，或者在 GUI 初始化时自动开启
+_resume_event = threading.Event()
+
+# 2. 热重载信号 (Set=触发重载)
+_reload_event = threading.Event()
+
+# 3. 程序退出信号 (Set=退出)
+_stop_event = threading.Event()
+
+
+def get_events():
+    """获取所有控制事件，供外部模块调用"""
+    return _resume_event, _reload_event, _stop_event
+
+
+# 覆写 set 方法以支持自动触发重载
+# (将原本的 set_config 逻辑增强)
+def set_config_with_event(key: str, value: Any) -> None:
+    """设置配置并检测是否需要触发热重载"""
+    old_value = _config_manager.get(key)
+    _config_manager.set(key, value)
+
+    # 定义哪些配置修改后需要重启资源
+    CRITICAL_KEYS = [
+        "MODEL_PATH",
+        "CROP_SIZE",
+        "FRAME_WIDTH", "FRAME_HEIGHT", "FRAME_PORT",
+        "USE_MAKCU", "MAKCU_PORT",
+        "USE_DRIVER_MODE",
+        "IMAGE_SOURCE_TYPE"
+    ]
+
+    # 如果关键参数发生实质变化，触发重载
+    if key in CRITICAL_KEYS and old_value != value:
+        print(f"[Config] 🔥 关键参数 '{key}' 变更，触发热重载...")
+        _reload_event.set()
+        # 如果当前是暂停状态，为了让主线程能响应重载，必须先临时唤醒它
+        if not _resume_event.is_set():
+            _resume_event.set()
+
+
+# 替换全局的 set_config 函数引用
+set_config = set_config_with_event

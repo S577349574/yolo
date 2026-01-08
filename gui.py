@@ -54,6 +54,50 @@ def create_master_switch_callback(config_key, dependent_tags):
 
 
 # ================= 原有回调函数 =================
+# ================= 核心控制回调 =================
+
+def update_ai_button_status(is_running):
+    """根据运行状态更新按钮颜色和文字"""
+    if is_running:
+        dpg.configure_item("ai_toggle_btn", label="系统运行中 (点击暂停)")
+        dpg.bind_item_theme("ai_toggle_btn", "theme_btn_running")
+    else:
+        dpg.configure_item("ai_toggle_btn", label="系统已暂停 (点击启动)")
+        dpg.bind_item_theme("ai_toggle_btn", "theme_btn_paused")
+
+
+def toggle_ai_callback(sender, app_data, user_data):
+    """启动/暂停 AI"""
+    resume_event, _, _ = cfg.get_events()
+
+    if resume_event.is_set():
+        # 正在运行 -> 执行暂停
+        resume_event.clear()
+        update_ai_button_status(False)
+        # 可选：同步写入配置，下次启动记住状态
+        # cfg.set_config("AI_ENABLED", False)
+        print("[GUI] 发送暂停信号")
+    else:
+        # 暂停中 -> 执行启动
+        resume_event.set()
+        update_ai_button_status(True)
+        # cfg.set_config("AI_ENABLED", True)
+        print("[GUI] 发送启动信号")
+
+
+def manual_reload_callback(sender, app_data, user_data):
+    """强制热重载资源"""
+    resume_event, reload_event, _ = cfg.get_events()
+
+    print("[GUI] 发送强制重载信号...")
+    reload_event.set()
+
+    # 如果当前是暂停状态，必须临时唤醒主线程让它去处理重载
+    if not resume_event.is_set():
+        resume_event.set()
+        # 重载后是否保持暂停，取决于你的业务逻辑，这里默认重载后会让它运行
+        update_ai_button_status(True)
+
 
 def save_callback():
     """保存配置"""
@@ -297,6 +341,22 @@ def setup_apple_theme():
 def create_gui():
     dpg.create_context()
 
+
+    # 绿色主题 (运行中)
+    with dpg.theme(tag="theme_btn_running"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (46, 125, 50))       # 深绿
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (56, 142, 60))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (27, 94, 32))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
+
+    # 红色主题 (已暂停)
+    with dpg.theme(tag="theme_btn_paused"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (198, 40, 40))      # 深红
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (211, 47, 47))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (183, 28, 28))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
     # 1. 设置字体
     setup_chinese_font()
     # 2. 应用 Apple 风格主题
@@ -321,6 +381,24 @@ def create_gui():
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
+            dpg.add_button(
+                tag="ai_toggle_btn",
+                label="初始化中...",
+                callback=toggle_ai_callback,
+                width=160,
+                height=30
+            )
+
+            dpg.add_spacer(width=10)
+
+            # [核心功能] 强制重载 按钮
+            dpg.add_button(
+                label="🔄 重载配置/模型",
+                callback=manual_reload_callback,
+                height=30
+            )
+
+            dpg.add_spacer(width=20)
             dpg.add_button(label="保存所有配置 (Save)", callback=save_callback, height=30, width=160)
             dpg.add_text("[就绪]", tag="status_text", color=UIColors.TEXT_GRAY)
 
@@ -769,6 +847,7 @@ def create_gui():
             # ================= TAB 11: 脚本扩展 =================
             with dpg.tab(label="脚本扩展"):
                 dpg.add_text("脚本执行设置", color=UIColors.APPLE_BLUE)
+                add_bool("ENABLE_SCRIPT_SYSTEM", "是否开启脚本功能")
                 add_bool("SCRIPT_AUTO_RELOAD", "脚本自动重载 (监听文件修改)")
                 add_bool("SCRIPT_DEBUG_MODE", "脚本调试模式 (输出详细日志)")
                 add_int("SCRIPT_TIMEOUT_MS", "脚本执行超时 (ms)", 1, 1000)
@@ -784,7 +863,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title='AI Config Ultimate v6.0 - Apple UI', width=900, height=820)
+    dpg.create_viewport(title="AI Configurator", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("Primary Window", True)
@@ -794,12 +873,25 @@ def create_gui():
     global _gui_running
     _gui_running = True
 
+    resume_event, _, _ = cfg.get_events()
+    update_ai_button_status(resume_event.is_set())
+    last_running_state = None
     try:
         while dpg.is_dearpygui_running():
             if _gui_exit_event.is_set():
                 print("[GUI] 收到退出信号，准备关闭...")
                 dpg.stop_dearpygui()
                 break
+            # ========== 🔥 修复：实时状态同步 ==========
+            # 获取当前真实的运行状态
+            current_running_state = resume_event.is_set()
+
+            # 如果真实状态和记录的状态不一致（比如被 ConfigManager 自动开启了）
+            if current_running_state != last_running_state:
+                update_ai_button_status(current_running_state)
+                last_running_state = current_running_state
+            # =========================================
+
             dpg.render_dearpygui_frame()
 
     finally:
