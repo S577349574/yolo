@@ -1,10 +1,6 @@
-# yolo_detector.py (性能优化终极版)
+# yolo_detector.py (优化异常处理版本)
 """
-YOLOv8 检测器 - 性能优化版
-- 移除冗余代码
-- 消除不必要的计时开销
-- 使用 OpenCV NMS 加速
-- 预确定输出格式避免重复判断
+YOLOv8 检测器 - 性能优化版 + 友好的异常处理
 """
 import ast
 import os
@@ -19,18 +15,23 @@ import utils
 from config_manager import get_config
 
 
+class ModelLoadError(Exception):
+    """模型加载错误（自定义异常）"""
+    pass
+
+
 def _get_best_providers():
     """根据硬件自动选择最优 Provider"""
+    # ... (保持不变)
     available = ort.get_available_providers()
     priority = []
 
     use_tensorrt = get_config('USE_TENSORRT', True)
 
     if use_tensorrt and 'TensorrtExecutionProvider' in available:
-        # ⭐ 直接获取 ConfigManager 中已经确定的路径 ⭐
         from config_manager import ConfigManager
         config_mgr = ConfigManager()
-        app_dir = config_mgr.app_dir  # 使用已验证的路径
+        app_dir = config_mgr.app_dir
 
         trt_cache_dir = os.path.join(app_dir, 'trt_cache')
 
@@ -56,13 +57,12 @@ def _get_best_providers():
             'trt_fp16_enable': True,
             'trt_engine_cache_enable': True,
             'trt_engine_cache_path': trt_cache_dir,
-            'trt_max_workspace_size': 2147483648,  # 2GB
+            'trt_max_workspace_size': 2147483648,
             'trt_builder_optimization_level': 5,
             'trt_timing_cache_enable': True,
         }
         priority.append(('TensorrtExecutionProvider', trt_options))
 
-    # CUDA
     if 'CUDAExecutionProvider' in available:
         cuda_options = {
             'device_id': 0,
@@ -87,13 +87,69 @@ class YOLOv8Detector:
     def __init__(self):
         model_path = get_config('MODEL_PATH')
 
-        # 验证模型文件
-        if not model_path:
-            raise ValueError("MODEL_PATH 配置为空")
-        if not os.path.isfile(model_path):
-            utils.log(f"❌ 模型文件不存在: {model_path}")
-            raise FileNotFoundError(f"模型文件未找到: {model_path}")
+        # ========== 🔥 优化的模型路径验证 🔥 ==========
+        # 1. 检查配置是否为空
+        if not model_path or not isinstance(model_path, str):
+            error_msg = (
+                "❌ 模型路径配置错误\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "问题：配置文件中的 MODEL_PATH 为空或无效\n"
+                "\n"
+                "解决方案：\n"
+                "1️⃣  打开 GUI 配置界面\n"
+                "2️⃣  在「基础 & 系统」标签页中\n"
+                "3️⃣  填写正确的模型路径，例如：\n"
+                "    D:\\models\\yolov8.onnx\n"
+                "4️⃣  点击「保存所有配置」按钮\n"
+                "5️⃣  点击「重载配置/模型」按钮\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            utils.log(error_msg)
+            self._pause_system_and_raise(error_msg)
 
+        # 2. 检查文件是否存在
+        if not os.path.isfile(model_path):
+            # 提取目录和文件名
+            model_dir = os.path.dirname(model_path) or "当前目录"
+            model_name = os.path.basename(model_path)
+
+            error_msg = (
+                "❌ 模型文件不存在\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"配置的路径：{model_path}\n"
+                f"文件名：{model_name}\n"
+                f"所在目录：{model_dir}\n"
+                "\n"
+                "可能的原因：\n"
+                "1️⃣  文件路径输入错误（检查拼写和扩展名）\n"
+                "2️⃣  文件被移动或删除\n"
+                "3️⃣  文件名后缀错误（应为 .onnx）\n"
+                "\n"
+                "解决方案：\n"
+                "• 确认模型文件确实存在于该路径\n"
+                "• 在 GUI 中重新选择正确的模型路径\n"
+                "• 检查文件扩展名（当前显示为 .onnx1？）\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            utils.log(error_msg)
+
+            # 尝试查找可能的模型文件
+            self._suggest_alternative_models(model_dir)
+
+            self._pause_system_and_raise(error_msg)
+
+        # 3. 检查文件扩展名
+        _, ext = os.path.splitext(model_path)
+        if ext.lower() != '.onnx':
+            warning_msg = (
+                f"⚠️  模型文件扩展名异常\n"
+                f"当前扩展名：{ext}\n"
+                f"预期扩展名：.onnx\n"
+                f"将尝试加载，但可能失败..."
+            )
+            utils.log(warning_msg)
+
+        # ========== 正常加载流程 ==========
         self.img_size = get_config('CROP_SIZE', 640)
         utils.log(f"[YOLO] 加载模型: {model_path}")
         utils.log(f"[YOLO] 输入尺寸: {self.img_size}x{self.img_size}")
@@ -111,8 +167,25 @@ class YOLOv8Detector:
         try:
             self.session = ort.InferenceSession(model_path, sess_options, providers=providers)
         except Exception as e:
-            utils.log(f"❌ 加载模型失败: {e}")
-            raise
+            error_msg = (
+                f"❌ ONNX Runtime 加载模型失败\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"模型路径：{model_path}\n"
+                f"错误信息：{str(e)}\n"
+                f"\n"
+                f"可能的原因：\n"
+                f"1️⃣  模型文件已损坏\n"
+                f"2️⃣  ONNX 版本不兼容\n"
+                f"3️⃣  GPU 驱动问题（尝试禁用 TensorRT）\n"
+                f"\n"
+                f"解决方案：\n"
+                f"• 重新导出 ONNX 模型\n"
+                f"• 更新 onnxruntime-gpu 版本\n"
+                f"• 在配置中禁用 USE_TENSORRT\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            utils.log(error_msg)
+            self._pause_system_and_raise(error_msg)
 
         active_provider = self.session.get_providers()[0]
         utils.log(f"✓ 使用 Provider: {active_provider}")
@@ -134,16 +207,62 @@ class YOLOv8Detector:
         self._iou_threshold = get_config('IOU_THRESHOLD', 0.45)
         utils.log(f"[YOLO] 置信度阈值: {self._conf_threshold}, IOU阈值: {self._iou_threshold}")
 
-        # 性能统计开关（生产环境建议关闭）
+        # 性能统计开关
         self._enable_timing = get_config('YOLO_ENABLE_TIMING', False)
         self._enable_anomaly_detection = get_config('YOLO_ENABLE_ANOMALY_DETECTION', False)
 
-        # 预确定输出格式（避免每次推理时判断）
+        # 预确定输出格式
         self._output_needs_transpose = None
         self._output_needs_squeeze = None
 
         # 模型预热
         self._warmup()
+
+    def _suggest_alternative_models(self, search_dir):
+        """在目录中查找可能的模型文件"""
+        try:
+            if not os.path.isdir(search_dir):
+                search_dir = os.getcwd()
+
+            onnx_files = []
+            for root, dirs, files in os.walk(search_dir):
+                for file in files:
+                    if file.endswith('.onnx'):
+                        onnx_files.append(os.path.join(root, file))
+                # 只搜索一层子目录
+                if root != search_dir:
+                    break
+
+            if onnx_files:
+                utils.log("\n💡 在附近找到以下 ONNX 模型文件：")
+                for i, file in enumerate(onnx_files[:5], 1):
+                    utils.log(f"   {i}. {file}")
+                if len(onnx_files) > 5:
+                    utils.log(f"   ... 还有 {len(onnx_files) - 5} 个文件")
+            else:
+                utils.log("\n💡 在当前目录及子目录中未找到 .onnx 文件")
+
+        except Exception as e:
+            utils.log(f"⚠️  查找替代模型时出错: {e}")
+
+    def _pause_system_and_raise(self, error_msg):
+        """暂停主线程并抛出异常"""
+        try:
+            # 获取 ConfigManager 的事件
+            from config_manager import get_events
+            resume_event, _, _ = get_events()
+
+            # 暂停主线程
+            resume_event.clear()
+            utils.log("\n⏸️  系统已自动暂停，请修复配置后点击「重载配置/模型」")
+
+        except Exception as e:
+            utils.log(f"⚠️  暂停系统时出错: {e}")
+
+        # 抛出自定义异常
+        raise ModelLoadError(error_msg)
+
+    # ========== 以下方法保持不变 ==========
 
     def _warmup(self, iterations=10):
         """预热模型，消除首次推理延迟"""
@@ -159,13 +278,11 @@ class YOLOv8Detector:
         for i in range(iterations):
             start = time.perf_counter()
 
-            # 第一次推理时确定输出格式
             if i == 0:
                 input_data = self.preprocess(dummy_input)
                 outputs = self.session.run(self.output_names, {self.input_name: input_data})
                 predictions = outputs[0] if isinstance(outputs, list) else outputs
 
-                # 记住输出格式（避免后续每次判断）
                 self._output_needs_squeeze = predictions.ndim == 3
                 if self._output_needs_squeeze:
                     predictions = predictions[0]
@@ -208,50 +325,29 @@ class YOLOv8Detector:
         return {}
 
     def preprocess(self, img_bgr):
-        """
-        预处理图像（使用 OpenCV DNN 优化）
-
-        Args:
-            img_bgr: BGR 格式的输入图像 (H, W, 3)
-
-        Returns:
-            np.ndarray: 预处理后的张量 (1, 3, H, W)
-        """
+        """预处理图像"""
         blob = cv2.dnn.blobFromImage(
             img_bgr,
             scalefactor=1.0 / 255.0,
             size=(self.img_size, self.img_size),
-            swapRB=True,  # BGR -> RGB
+            swapRB=True,
             crop=False,
             ddepth=cv2.CV_32F
         )
         return blob
 
     def postprocess(self, output, conf_threshold, iou_threshold):
-        """
-        后处理：解析模型输出，过滤低置信度检测，执行按类别分组的NMS
-
-        Args:
-            output: 模型原始输出
-            conf_threshold: 置信度阈值
-            iou_threshold: NMS IOU阈值
-
-        Returns:
-            list: 检测结果列表 [{'box': [x1,y1,x2,y2], 'confidence': float, 'class_id': int}, ...]
-        """
+        """后处理：按类别分组的NMS"""
         predictions = output[0] if isinstance(output, list) else output
 
-        # 使用预先确定的格式（避免每次判断）
         if self._output_needs_squeeze:
             predictions = predictions[0]
         if self._output_needs_transpose:
             predictions = predictions.T
 
-        # 提取 boxes 和 scores
         boxes = predictions[:, :4]
         scores = predictions[:, 4:]
 
-        # 提前过滤低置信度
         max_scores = scores.max(axis=1)
         mask = max_scores > conf_threshold
 
@@ -263,20 +359,16 @@ class YOLOv8Detector:
         max_scores = max_scores[mask]
         class_ids = scores.argmax(axis=1)
 
-        # 坐标转换 xywh -> xyxy
         boxes_xyxy = self._xywh2xyxy_vectorized(boxes)
 
-        # ⭐⭐⭐ 关键改进：按类别分组执行 NMS ⭐⭐⭐
         final_results = []
         unique_classes = np.unique(class_ids)
 
         for class_id in unique_classes:
-            # 获取当前类别的所有检测框
             class_mask = class_ids == class_id
             class_boxes = boxes_xyxy[class_mask]
             class_scores = max_scores[class_mask]
 
-            # 对当前类别单独执行 NMS
             class_indices = cv2.dnn.NMSBoxes(
                 class_boxes.tolist(),
                 class_scores.tolist(),
@@ -287,14 +379,12 @@ class YOLOv8Detector:
             if len(class_indices) == 0:
                 continue
 
-            # 处理 OpenCV 返回的索引格式
             if isinstance(class_indices, np.ndarray):
                 class_indices = class_indices.flatten()
             else:
                 class_indices = [i[0] if isinstance(i, (list, tuple)) else i
                                  for i in class_indices]
 
-            # 映射回原始索引
             original_indices = np.where(class_mask)[0]
 
             for local_idx in class_indices:
@@ -309,41 +399,22 @@ class YOLOv8Detector:
 
     @staticmethod
     def _xywh2xyxy_vectorized(boxes):
-        """
-        向量化坐标转换 (中心点+宽高) -> (左上右下)
-
-        Args:
-            boxes: (N, 4) 格式为 [cx, cy, w, h]
-
-        Returns:
-            np.ndarray: (N, 4) 格式为 [x1, y1, x2, y2]
-        """
+        """向量化坐标转换"""
         xy = boxes[:, :2]
         wh = boxes[:, 2:4]
         half_wh = wh * 0.5
         return np.concatenate([xy - half_wh, xy + half_wh], axis=1)
 
     def _predict_internal(self, img_bgr):
-        """内部预测方法（用于预热）"""
+        """内部预测方法"""
         input_data = self.preprocess(img_bgr)
         return self.session.run(self.output_names, {self.input_name: input_data})
 
     def predict(self, img_bgr, conf_threshold=None, iou_threshold=None):
-        """
-        主预测接口
-
-        Args:
-            img_bgr: BGR 格式的输入图像
-            conf_threshold: 置信度阈值（可选，默认使用配置值）
-            iou_threshold: IOU 阈值（可选，默认使用配置值）
-
-        Returns:
-            list: 检测结果列表
-        """
+        """主预测接口"""
         conf = conf_threshold if conf_threshold is not None else self._conf_threshold
         iou = iou_threshold if iou_threshold is not None else self._iou_threshold
 
-        # 只在需要时才启用计时（避免不必要的性能开销）
         if self._enable_timing or self._enable_anomaly_detection:
             t_start = time.perf_counter()
             input_data = self.preprocess(img_bgr)
@@ -353,7 +424,6 @@ class YOLOv8Detector:
             results = self.postprocess(outputs, conf, iou)
             t_postprocess = time.perf_counter()
 
-            # 异常检测（可选）
             if self._enable_anomaly_detection:
                 inference_time = (t_inference - t_preprocess) * 1000
                 if inference_time > 10.0:
@@ -362,7 +432,6 @@ class YOLOv8Detector:
                     utils.log(f"   推理: {inference_time:.2f}ms")
                     utils.log(f"   后处理: {(t_postprocess - t_inference) * 1000:.2f}ms")
         else:
-            # 快速路径（无计时开销）
             input_data = self.preprocess(img_bgr)
             outputs = self.session.run(self.output_names, {self.input_name: input_data})
             results = self.postprocess(outputs, conf, iou)
@@ -370,7 +439,7 @@ class YOLOv8Detector:
         return results
 
     def update_thresholds(self):
-        """配置热更新时调用，刷新阈值"""
+        """配置热更新时调用"""
         old_conf = self._conf_threshold
         old_iou = self._iou_threshold
 
@@ -384,19 +453,11 @@ class YOLOv8Detector:
             )
 
     def get_class_name(self, class_id):
-        """
-        获取类别名称
-
-        Args:
-            class_id: 类别ID
-
-        Returns:
-            str: 类别名称
-        """
+        """获取类别名称"""
         return self.names.get(class_id, f"class_{class_id}")
 
     def __del__(self):
-        """析构函数，清理资源"""
+        """析构函数"""
         try:
             if hasattr(self, 'session'):
                 del self.session

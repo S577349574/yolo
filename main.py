@@ -1,4 +1,4 @@
-# main.py (CoreService 重构版 - 支持 GUI 暂停/热重载)
+# main.py (CoreService 重构版 - 集成许可证验证系统)
 
 import atexit
 import math
@@ -6,7 +6,7 @@ import os
 import threading
 import time
 import traceback
-from threading import Event as ThreadEvent
+from threading import Event as ThreadEvent, Thread
 
 # === 模块导入 ===
 import makcu_patch
@@ -22,6 +22,7 @@ import config_manager as cfg  # 引入 config_manager 用于获取事件
 from driver_loader import ensure_driver_loaded, unload_driver
 from image.image_source import create_image_source
 from key_monitor import create_key_monitor
+from license_auth import LicenseAuthenticator  # ⭐ 新增：许可证验证
 from mouse import create_mouse_controller
 from script_system import ScriptAPI, ScriptManager, EventSystem
 from script_system.shared_game_state import get_game_state
@@ -29,6 +30,10 @@ from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from yolo_detector import YOLOv8Detector
 from crosshair.crosshair_manager import CrosshairManager
+
+# ⭐ 服务器信息
+LICENSE_SERVER_URL = "http://1.14.184.43:45000"
+LICENSE_SECRET_KEY = "your_secret_key_change_this"
 
 # 全局变量用于紧急清理 (atexit)
 _core_instance = None
@@ -109,18 +114,17 @@ class CachedConfig:
         self.crosshair_fallback_to_center = True
 
         # === 功能开关标志（预计算）===
-        self.feature_crosshair = False       # 准星检测
-        self.feature_auto_fire = False       # 自动开火
-        self.feature_manual_recoil = False   # 手动压枪
-        self.feature_preview = False         # 预览窗口
-        self.feature_scripts = False         # 脚本系统
-        self.feature_game_state = False      # 游戏状态（脚本依赖）
+        self.feature_crosshair = False
+        self.feature_auto_fire = False
+        self.feature_manual_recoil = False
+        self.feature_preview = False
+        self.feature_scripts = False
+        self.feature_game_state = False
 
         self.refresh()
 
     def refresh(self):
         """刷新所有配置（恢复运行或热重载时调用）"""
-        # === 原有配置加载 ===
         self.inference_fps = get_config("INFERENCE_FPS", 240)
         self.auto_fire_accuracy_threshold = get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75)
         self.auto_fire_distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
@@ -140,20 +144,49 @@ class CachedConfig:
         self.feature_preview = get_config('ENABLE_PREVIEW_WINDOW', False)
         self.feature_manual_recoil = self.enable_manual_recoil
 
-        # 脚本系统：总开关 + 列表非空
         self.feature_scripts = (
-            get_config('ENABLE_SCRIPT_SYSTEM', True) and
-            bool(get_config("ENABLED_SCRIPTS", []))
+                get_config('ENABLE_SCRIPT_SYSTEM', True) and
+                bool(get_config("ENABLED_SCRIPTS", []))
         )
 
-        # 游戏状态：脚本启用时才需要更新
         self.feature_game_state = self.feature_scripts
 
-        # 自动开火：需要同时满足开关 + 触发键配置
         if self.enable_auto_fire:
             self.feature_auto_fire = bool(get_monitored_keys())
         else:
             self.feature_auto_fire = False
+
+
+def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState, stop_event: ThreadEvent):
+    """
+    ⭐ 后台心跳线程（适配新架构）
+
+    Args:
+        auth: 许可证验证器实例
+        app_state: 应用状态对象
+        stop_event: 停止事件（来自 config_manager）
+    """
+    heartbeat_interval = 30
+
+    utils.log("💓 心跳线程已启动")
+
+    while auth.is_valid() and not stop_event.is_set():
+        # 等待心跳间隔或停止信号
+        if stop_event.wait(timeout=heartbeat_interval):
+            break
+
+        if stop_event.is_set():
+            break
+
+        # 发送心跳
+        if not auth.send_heartbeat():
+            utils.log("❌ 心跳验证失败！")
+            utils.log("程序将在3秒后自动退出。")
+            time.sleep(3)
+            app_state.request_exit()
+            break
+
+    utils.log("💓 心跳线程已停止")
 
 
 class CoreService:
@@ -186,7 +219,57 @@ class CoreService:
         self.auto_fire = None
         self.preview_window = None
         self.shared_makcu_controller = None
+
+        # ⭐ 许可证相关
         self.auth = None
+        self.heartbeat_thread = None
+
+    def verify_license(self) -> bool:
+        """
+        ⭐ 许可证验证（在资源加载前执行）
+
+        Returns:
+            bool: 验证是否成功
+        """
+        print("\n" + "=" * 60)
+        print("🔐 正在进行许可证验证...")
+        print("=" * 60)
+
+        # 1. 读取卡密
+        card_key = get_config('LICENSE_KEY', "").strip()
+
+        if not card_key:
+            utils.log("\n" + "=" * 60)
+            utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
+            utils.log("请打开程序目录下的 config.json 文件，")
+            utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
+            utils.log("=" * 60)
+            return False
+
+        # 2. 验证许可证
+        self.auth = LicenseAuthenticator(LICENSE_SERVER_URL, LICENSE_SECRET_KEY)
+        success, message = self.auth.verify(card_key)
+
+        if not success:
+            utils.log(f"❌ 许可证验证失败: {message}")
+            utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
+            self.auth = None
+            return False
+
+        utils.log(f"✅ 验证成功: {message}")
+        utils.log(f"📅 过期时间: {self.auth.expire_date}")
+
+        # 3. 启动心跳线程
+        self.heartbeat_thread = Thread(
+            target=heartbeat_worker,
+            args=(self.auth, self.app_state, self.stop_event),
+            daemon=True,
+            name="HeartbeatThread"
+        )
+        self.heartbeat_thread.start()
+        utils.log("✅ 后台心跳已启动")
+
+        return True
 
     def load_resources(self) -> bool:
         """资源初始化/重载"""
@@ -238,6 +321,7 @@ class CoreService:
 
             print(f"[Debug] key_monitor 类型: {type(self.key_monitor).__name__}")
             print(f"[Debug] key_monitor.running: {getattr(self.key_monitor, '_running', 'N/A')}")
+
             # 4. 驱动加载
             use_driver_mode = get_config("USE_DRIVER_MODE", True)
             if use_driver_mode:
@@ -284,7 +368,6 @@ class CoreService:
             if self.cached_config.enable_manual_recoil:
                 self.auto_fire.start_manual_recoil_monitor()
             elif self.cached_config.enable_auto_fire:
-                # 检查按键配置
                 if not get_monitored_keys():
                     utils.log("⚠ 自动开火已禁用：未配置触发键")
                     self.cached_config.enable_auto_fire = False
@@ -302,7 +385,7 @@ class CoreService:
                     height=get_config('PREVIEW_WINDOW_HEIGHT', 800)
                 )
 
-            # 12. 脚本系统 - 🆕 添加开关判断
+            # 12. 脚本系统
             if get_config("ENABLE_SCRIPT_SYSTEM", True):
                 try:
                     event_system = EventSystem()
@@ -329,8 +412,6 @@ class CoreService:
                     for script in get_config("ENABLED_SCRIPTS", []):
                         self.script_manager.enable_script(script)
 
-                    # 更新 API 引用
-                    # self.script_manager.api.target_selector = self.target_selector
                     utils.log("✅ 脚本系统已加载")
                 except Exception as e:
                     utils.log(f"⚠ 脚本初始化失败: {e}")
@@ -358,14 +439,14 @@ class CoreService:
                 pass
             self.script_manager = None
 
-        # 2. 停止自动开火/压枪 (⚠️ 必须在按键监控之前停止)
+        # 2. 停止自动开火/压枪
         if self.auto_fire:
             try:
                 self.auto_fire.stop_firing()
                 self.auto_fire.stop_manual_recoil_monitor()
             except:
                 pass
-            self.auto_fire = None  # 🔥 新增：清空引用
+            self.auto_fire = None
 
         # 3. 停止按键监控
         if self.key_monitor:
@@ -375,7 +456,7 @@ class CoreService:
                 pass
             self.key_monitor = None
 
-        # 4. 停止图像源 (重要)
+        # 4. 停止图像源
         if self.image_source:
             try:
                 self.image_source.stop()
@@ -390,8 +471,8 @@ class CoreService:
                 self.threaded_detector.stop()
             except:
                 pass
-            self.threaded_detector = None  # 🔥 新增
-            self.crosshair_manager = None  # 🔥 新增
+            self.threaded_detector = None
+            self.crosshair_manager = None
 
         # 6. 关闭鼠标
         if self.mouse_controller:
@@ -409,42 +490,76 @@ class CoreService:
                 pass
             self.preview_window = None
 
+        # 8. Makcu 硬件
         if self.shared_makcu_controller:
             try:
                 utils.log("[Core] 🔌 断开 Makcu 硬件连接...")
-                self.shared_makcu_controller.disconnect()  # ✅ 正确的方法
-                time.sleep(0.5)  # 等待 COM 口释放
+                self.shared_makcu_controller.disconnect()
+                time.sleep(0.5)
             except Exception as e:
                 utils.log(f"[Core] Makcu 断开异常: {e}")
             self.shared_makcu_controller = None
 
         self.target_selector = None
 
+    def logout_license(self):
+        """⭐ 注销许可证"""
+        if self.auth and self.auth.is_valid():
+            utils.log("🔐 正在注销许可证...")
+            try:
+                self.auth.logout()
+                utils.log("✅ 许可证已注销")
+            except Exception as e:
+                utils.log(f"⚠️ 注销许可证时出错: {e}")
+
+        # 等待心跳线程退出
+        if self.heartbeat_thread and self.heartbeat_thread.is_alive():
+            utils.log("⏳ 等待心跳线程退出...")
+            self.heartbeat_thread.join(timeout=2.0)
+            if self.heartbeat_thread.is_alive():
+                utils.log("⚠️ 心跳线程未在超时内退出")
+
     def run(self):
-        """核心服务线程入口 - 优化版"""
+        """核心服务线程入口 - 修复版"""
         print("[Core] 服务线程启动")
+
+        # ⭐ 首先进行许可证验证
+        if not self.verify_license():
+            utils.log("[Core] ❌ 许可证验证失败，服务无法启动")
+            self.stop_event.set()
+            return
 
         # === 外层循环：生命周期管理 ===
         while not self.stop_event.is_set():
 
             # 1. 加载资源
             if not self.load_resources():
-                utils.log("[Core] 资源加载失败，等待配置修复...")
-                self.resume_event.clear()
-                self.reload_event.wait()
-                self.reload_event.clear()
-                continue
+                utils.log("[Core] ⚠️ 资源加载失败，等待配置修复...")
+                utils.log("[Core] 💡 请在 GUI 中修改配置后点击「保存」再点击「重载」按钮")
+
+                # ✅ 修复：使用超时等待，定期检查 stop_event
+                while not self.stop_event.is_set():
+                    # 每 2 秒检查一次 reload_event
+                    if self.reload_event.wait(timeout=2.0):
+                        self.reload_event.clear()
+                        utils.log("[Core] 🔄 收到重载信号，尝试重新加载...")
+                        break
+                    # 超时后继续循环，可以响应 stop_event
+
+                if self.stop_event.is_set():
+                    break
+                continue  # 重新尝试加载资源
 
             self.reload_event.clear()
 
             if not self.resume_event.is_set():
-                utils.log("[Core] 资源就绪，等待 GUI 启动信号...")
+                utils.log("[Core] ✅ 资源就绪，等待 GUI 启动信号...")
 
             # === 预计算不变量 ===
             screen_center_x = self.screen_info['width'] // 2
             screen_center_y = self.screen_info['height'] // 2
 
-            # === 本地变量缓存（避免每帧属性访问）===
+            # === 本地变量缓存 ===
             _feature_crosshair = False
             _feature_auto_fire = False
             _feature_manual_recoil = False
@@ -452,26 +567,24 @@ class CoreService:
             _feature_scripts = False
             _feature_game_state = False
             _target_fps = 240
-            _need_refresh_flags = True  # 首次进入需要刷新
+            _need_refresh_flags = True
 
-            # 性能统计
             last_fps_time = time.perf_counter()
 
             # === 内层循环：实时推理 ===
             while not self.stop_event.is_set() and not self.reload_event.is_set():
 
-                # A. 暂停控制 (CPU 0 占用)
+                # A. 暂停控制
                 if not self.resume_event.is_set():
                     self.resume_event.wait()
                     if self.stop_event.is_set() or self.reload_event.is_set():
                         break
-                    _need_refresh_flags = True  # 恢复时需要刷新
+                    _need_refresh_flags = True
 
-                # B. 刷新功能标志（暂停恢复后执行一次）
+                # B. 刷新功能标志
                 if _need_refresh_flags:
                     self.cached_config.refresh()
 
-                    # 缓存到本地变量（结合组件是否存在）
                     _feature_crosshair = (
                             self.cached_config.feature_crosshair and
                             self.threaded_detector is not None
@@ -504,7 +617,7 @@ class CoreService:
                         time.sleep(0.0001)
                         continue
 
-                    # D. 准星检测 - 🔥 功能开关优化
+                    # D. 准星检测
                     crosshair_pos = None
                     if _feature_crosshair:
                         fb_center = (
@@ -523,7 +636,7 @@ class CoreService:
 
                     self.mouse_controller.update_crosshair_position(aim_ref_x, aim_ref_y)
 
-                    # E. YOLO 推理（核心功能，不可跳过）
+                    # E. YOLO 推理
                     results = self.model.predict(img_bgra)
 
                     # F. 构建目标列表
@@ -549,7 +662,7 @@ class CoreService:
                             'aim_y': target_y
                         })
 
-                    # G. 游戏状态更新 - 🔥 仅脚本启用时更新
+                    # G. 游戏状态更新
                     if _feature_game_state:
                         game_state = get_game_state()
                         game_state.update_targets(candidate_targets)
@@ -571,7 +684,7 @@ class CoreService:
                         if self.target_selector.should_send_command(best_x, best_y, aim_ref_x, aim_ref_y):
                             self.mouse_controller.move_to_target(best_x, best_y)
 
-                    # J. 自动开火/压枪 - 🔥 完整功能开关优化
+                    # J. 自动开火/压枪
                     if _feature_auto_fire or _feature_manual_recoil:
                         if best_x is not None:
                             offset_dist = math.sqrt((best_x - aim_ref_x) ** 2 + (best_y - aim_ref_y) ** 2)
@@ -610,7 +723,7 @@ class CoreService:
                             if _feature_auto_fire and self.auto_fire.is_firing:
                                 self.auto_fire.stop_firing()
 
-                    # K. 预览窗口 - 🔥 功能开关优化
+                    # K. 预览窗口
                     current_time = time.perf_counter()
                     fps_val = 1.0 / (current_time - last_fps_time + 1e-6)
                     last_fps_time = current_time
@@ -628,7 +741,7 @@ class CoreService:
                             crosshair_position=crosshair_pos
                         )
 
-                    # L. 脚本事件 - 🔥 功能开关优化
+                    # L. 脚本事件
                     if _feature_scripts:
                         self.script_manager.call_event("onFrame", candidate_targets, 1.0 / fps_val)
 
@@ -657,6 +770,9 @@ class CoreService:
             if self.reload_event.is_set():
                 print("[Core] 🔁 正在执行热重载...")
 
+        # ⭐ 退出时注销许可证
+        self.logout_license()
+
         print("[Core] 服务线程退出")
 
 
@@ -673,7 +789,6 @@ def start_app():
     core_thread.start()
 
     # 3. 在主线程运行 GUI (DearPyGui 要求)
-    # 注意：create_gui 是一个阻塞循环，直到窗口关闭才会返回
     try:
         create_gui()
     except KeyboardInterrupt:
@@ -681,7 +796,7 @@ def start_app():
     finally:
         print("[Main] GUI 关闭，正在停止核心服务...")
         cfg.get_events()[2].set()  # 发送 stop_event
-        core_thread.join(timeout=3.0)
+        core_thread.join(timeout=5.0)  # ⭐ 增加超时时间，等待许可证注销
 
         # 强制卸载驱动
         if core.mouse_controller:
@@ -691,6 +806,20 @@ def start_app():
                 pass
 
         unload_driver(delete_service=False)
+
+        # ⭐ 打印准星检测统计（如果有）
+        if core.crosshair_manager and hasattr(core.crosshair_manager, 'get_stats'):
+            try:
+                print("\n" + "=" * 60)
+                print("📊 准星检测最终统计")
+                stats = core.crosshair_manager.get_stats()
+                print(f"  总检测帧数: {stats.get('total', 'N/A')}")
+                print(f"  成功帧数: {stats.get('success', 'N/A')}")
+                print(f"  成功率: {stats.get('success_rate', 'N/A')}")
+                print("=" * 60 + "\n")
+            except:
+                pass
+
         print("[Main] 程序已彻底退出")
         os._exit(0)
 

@@ -893,33 +893,3 @@ _stop_event = threading.Event()
 def get_events():
     """获取所有控制事件，供外部模块调用"""
     return _resume_event, _reload_event, _stop_event
-
-
-# 覆写 set 方法以支持自动触发重载
-# (将原本的 set_config 逻辑增强)
-def set_config_with_event(key: str, value: Any) -> None:
-    """设置配置并检测是否需要触发热重载"""
-    old_value = _config_manager.get(key)
-    _config_manager.set(key, value)
-
-    # 定义哪些配置修改后需要重启资源
-    CRITICAL_KEYS = [
-        "MODEL_PATH",
-        "CROP_SIZE",
-        "FRAME_WIDTH", "FRAME_HEIGHT", "FRAME_PORT",
-        "USE_MAKCU", "MAKCU_PORT",
-        "USE_DRIVER_MODE",
-        "IMAGE_SOURCE_TYPE"
-    ]
-
-    # 如果关键参数发生实质变化，触发重载
-    if key in CRITICAL_KEYS and old_value != value:
-        print(f"[Config] 🔥 关键参数 '{key}' 变更，触发热重载...")
-        _reload_event.set()
-        # 如果当前是暂停状态，为了让主线程能响应重载，必须先临时唤醒它
-        if not _resume_event.is_set():
-            _resume_event.set()
-
-
-# 替换全局的 set_config 函数引用
-set_config = set_config_with_event

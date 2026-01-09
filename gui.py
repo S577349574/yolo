@@ -388,17 +388,12 @@ def create_gui():
                 width=160,
                 height=30
             )
-
-            dpg.add_spacer(width=10)
-
             # [核心功能] 强制重载 按钮
             dpg.add_button(
-                label="🔄 重载配置/模型",
+                label="重载配置/模型",
                 callback=manual_reload_callback,
                 height=30
             )
-
-            dpg.add_spacer(width=20)
             dpg.add_button(label="保存所有配置 (Save)", callback=save_callback, height=30, width=160)
             dpg.add_text("[就绪]", tag="status_text", color=UIColors.TEXT_GRAY)
 
