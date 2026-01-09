@@ -213,7 +213,6 @@ class MouseControllerBase(ABC):
                     f"[{self.get_mode()}] 在死区内，跳过 "
                     f"[准星:({crosshair_x},{crosshair_y}) 目标:({target_x},{target_y})]"
                 )
-            self.pid.reset()
             time.sleep(sleep_time)
             return
 

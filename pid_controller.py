@@ -146,7 +146,9 @@ class PIDController:
 
         if self.debug_mode:
             print("[PID] ✅ 控制器状态已重置")
-
+            import traceback
+            # limit=2 表示只打印最近的2层调用，足以看出是哪个函数调用的
+            traceback.print_stack(limit=2)
     def soft_reset(self) -> None:
         """软重置（仅清除积分项，保留其他状态）"""
         self.integral_x = 0.0

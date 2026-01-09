@@ -496,11 +496,6 @@ class ConfigManager:
             "CROSSHAIR_USE_FALLBACK_CENTER",
             "CROSSHAIR_DEBUG_MODE"
         ])
-        # ========== 互斥模式验证 ==========
-        if c.get("ENABLE_AUTO_FIRE") and c.get("ENABLE_MANUAL_RECOIL"):
-            self._log("⚠ 自动开火和手动压枪不能同时启用，已禁用自动开火")
-            c["ENABLE_AUTO_FIRE"] = False
-
         return c
 
     def load_config(self, force_reload: bool = False) -> Dict[str, Any]:
