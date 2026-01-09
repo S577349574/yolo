@@ -390,7 +390,7 @@ class AutoFireController:
                     current_time = time.time()
                     delta_time = current_time - manual_last_recoil_time
 
-                    if delta_time >= 0.001:
+                    if delta_time >= 0.008:
                         manual_last_recoil_time = current_time
                         manual_shot_count += 1
 
@@ -415,7 +415,7 @@ class AutoFireController:
                             self._send_move(move_x, move_y)
 
                 last_recoil_active = should_recoil
-                time.sleep(0.001)
+                time.sleep(0.01)
 
         except Exception as e:
             utils.log(f"❌ 手动压枪监控线程错误: {e}")
@@ -524,8 +524,9 @@ class AutoFireController:
         current_time = time.time()
         delta_time = current_time - self.last_recoil_time
 
-        if delta_time < 0.001:
-            return
+        MIN_RECOIL_INTERVAL = 0.008  # 8ms = 125Hz 上限
+        if delta_time < MIN_RECOIL_INTERVAL:
+            return  # ⭐ 直接返回，不执行移动
 
         self.last_recoil_time = current_time
         self.shot_count += 1

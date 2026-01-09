@@ -1,5 +1,5 @@
 # Ultralytics YOLO 🚀, GPL-3.0 license
-# YOLO Continuous Integration (CI) GitHub Actions tests
+# YOLO Continuous Integration (CI) GitHub Actions server
 
 name: Ultralytics CI
 
@@ -199,6 +199,6 @@ jobs:
           yolo task=classify mode=val data=imagenet10 model=runs/classify/train/weights/last.pt imgsz=32
           yolo task=classify mode=predict model=runs/classify/train/weights/last.pt imgsz=32 source=ultralytics/assets/bus.jpg
           yolo mode=export model=runs/classify/train/weights/last.pt imgsz=32 format=torchscript
-      - name: Pytest tests
+      - name: Pytest server
         shell: bash  # for Windows compatibility
-        run: pytest tests
+        run: pytest server

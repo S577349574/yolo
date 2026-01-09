@@ -801,8 +801,13 @@ def create_gui():
 
                 add_input_text_tagged("MAKCU_PORT", "Makcu COM口 (留空自动搜索)", "makcu_port")
                 add_bool_tagged("MAKCU_AUTO_RECONNECT", "Makcu 断线自动重连", "makcu_reconnect")
-                update_dependent_controls("USE_MAKCU", makcu_deps, makcu_enabled)
 
+                add_float_input_tagged("MAKCU_MIN_SEND_INTERVAL", "发送间隔 (秒)", "makcu_interval")
+                with dpg.tooltip("makcu_interval"):
+                    dpg.add_text("串口写入的最小时间间隔.\n如果出现 Write Timeout 或卡顿.请调大此值.")
+
+                add_int_input_tagged("MAKCU_QUEUE_SIZE", "指令队列缓冲", "makcu_queue")
+                update_dependent_controls("USE_MAKCU", makcu_deps, makcu_enabled)
                 dpg.add_separator()
                 dpg.add_text("驱动模式", color=UIColors.TEXT_GRAY)
 
@@ -1012,6 +1017,30 @@ def add_input_text_tagged(key, label, tag=None):
         tag=tag
     )
 
+def add_float_input_tagged(key, label, tag=None, format="%.3f"):
+    """专门用于数字输入，无加减号，宽度一致"""
+    val = float(cfg.get_config(key, 0.0))
+    dpg.add_input_float(
+        label=label,
+        default_value=val,
+        tag=tag,
+        step=0,              # 隐藏加减号
+        format=format,       # 格式化显示
+        width=280,           # 统一宽度
+        callback=lambda s, a: cfg.set_config(key, a)
+    )
+
+def add_int_input_tagged(key, label, tag=None):
+    """专门用于整数输入，无加减号，宽度一致"""
+    val = int(cfg.get_config(key, 0))
+    dpg.add_input_int(
+        label=label,
+        default_value=val,
+        tag=tag,
+        step=0,              # 隐藏加减号
+        width=280,           # 统一宽度
+        callback=lambda s, a: cfg.set_config(key, a)
+    )
 
 def add_combo_tagged(key, label, items, tag=None):
     val = str(cfg.get_config(key, items[0]))

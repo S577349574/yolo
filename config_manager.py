@@ -223,6 +223,8 @@ class ConfigManager:
             "USE_MAKCU": False,
             "MAKCU_PORT": "",
             "MAKCU_AUTO_RECONNECT": True,
+            "MAKCU_MIN_SEND_INTERVAL": 0.012,  # ⭐ 新增：Makcu 最小发送间隔 (12ms)
+            "MAKCU_QUEUE_SIZE": 50,            # ⭐ 新增：Makcu 队列大小
             "USE_DRIVER_MODE": False,
             "MOUSE_MODE_AUTO_FALLBACK": True,
             "MAX_MICKEY": 500,
@@ -243,8 +245,8 @@ class ConfigManager:
             # ========== 按键监控 ==========
             "ENABLE_LEFT_MOUSE_MONITOR": False,
             "ENABLE_RIGHT_MOUSE_MONITOR": True,
-            "ENABLE_MOUSE4_MONITOR": False,       # ⭐ 新增：侧键4（后退键）
-            "ENABLE_MOUSE5_MONITOR": False,       # ⭐ 新增：侧键5（前进键）
+            "ENABLE_MOUSE4_MONITOR": False,       # 侧键4（后退键）
+            "ENABLE_MOUSE5_MONITOR": False,       # 侧键5（前进键）
             "KEY_MONITOR_INTERVAL_MS": 50,
 
             # ========== 系统配置 ==========
@@ -350,7 +352,7 @@ class ConfigManager:
             # 头部优先
             "HEAD_CLASS_ID": (0, 100, int, 1),
             "HEAD_PRIORITY_RANGE": (0, 500, int, 80),
-            "SMALL_TARGET_AREA_THRESHOLD": (10, 1000, int, 40),  # ← 新增
+            "SMALL_TARGET_AREA_THRESHOLD": (10, 1000, int, 40),
 
             # 瞄准点
             "AIM_Y_RATIO": (0.0, 1.0, float, 0.5),
@@ -380,6 +382,9 @@ class ConfigManager:
 
             # 鼠标控制
             "MAX_MICKEY": (100, 2000, int, 500),
+            # ⭐ 新增: Makcu 参数验证
+            "MAKCU_MIN_SEND_INTERVAL": (0.001, 0.100, float, 0.012),
+            "MAKCU_QUEUE_SIZE": (10, 1000, int, 50),
 
             # 系统配置
             "KEY_MONITOR_INTERVAL_MS": (10, 1000, int, 50),
@@ -449,8 +454,8 @@ class ConfigManager:
             "PREVIEW_SHOW_AIM_POINT", "USE_MAKCU", "MAKCU_AUTO_RECONNECT",
             "ENABLE_HEAD_PRIORITY","IGNORE_SMALL_TARGET_HEAD", "ENABLE_LEFT_MOUSE_MONITOR",
             "ENABLE_RIGHT_MOUSE_MONITOR","ENABLE_SCRIPT_SYSTEM",
-            "ENABLE_MOUSE4_MONITOR",     # ⭐ 新增
-            "ENABLE_MOUSE5_MONITOR",     # ⭐ 新增
+            "ENABLE_MOUSE4_MONITOR",     # 侧键4
+            "ENABLE_MOUSE5_MONITOR",     # 侧键5
             "ENABLE_LOGGING", "DEBUG_MODE", "MAKCU_DEBUG_MODE", "ENABLE_AUTO_FIRE",
             "AUTO_FIRE_DEBUG_MODE", "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
             "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET",
@@ -626,7 +631,7 @@ class ConfigManager:
 
             "头部优先": [
                 "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE",
-                "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_AREA_THRESHOLD"  # ← 修复：添加这两项
+                "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_AREA_THRESHOLD"
             ],
 
             "瞄准点配置": [
@@ -654,6 +659,7 @@ class ConfigManager:
 
             "鼠标控制模式": [
                 "USE_MAKCU", "MAKCU_PORT", "MAKCU_AUTO_RECONNECT",
+                "MAKCU_MIN_SEND_INTERVAL", "MAKCU_QUEUE_SIZE",  # ⭐ 新增：配置写入位置
                 "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "MAX_MICKEY"
             ],
 
@@ -669,7 +675,7 @@ class ConfigManager:
 
             "按键监控": [
                 "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-                "ENABLE_MOUSE4_MONITOR",      # ⭐ 新增
+                "ENABLE_MOUSE4_MONITOR",
                 "ENABLE_MOUSE5_MONITOR",
                 "KEY_MONITOR_INTERVAL_MS"
             ],
