@@ -14,7 +14,7 @@ _gui_exit_event = threading.Event()
 _gui_running = False
 
 # 脚本文件夹路径
-SCRIPTS_DIR = "scripts"
+SCRIPTS_DIR = "../scripts"
 
 
 # ========== 🎨 UI 颜色配置 (适配白色背景) ==========
@@ -113,6 +113,9 @@ def update_config_callback(sender, app_data, user_data):
     value = app_data
     cfg.set_config(key, value)
     dpg.configure_item("status_text", default_value=f"[未保存] 已修改: {key}", color=UIColors.WARNING_ORANGE)
+
+    if key in ["AIM_X_OFFSET", "AIM_Y_RATIO"]:
+        update_aim_offset_preview()
 
 
 def update_class_ids_callback(sender, app_data, user_data):
@@ -340,7 +343,11 @@ def setup_apple_theme():
 
 def create_gui():
     dpg.create_context()
-
+    with dpg.item_handler_registry(tag="preview_handler"):
+        # 激活状态（拖动中）
+        dpg.add_item_active_handler(callback=_handle_preview_drag)
+        # 点击状态（点击即定位）
+        dpg.add_item_clicked_handler(callback=_handle_preview_drag)
 
     # 绿色主题 (运行中)
     with dpg.theme(tag="theme_btn_running"):
@@ -361,6 +368,7 @@ def create_gui():
     setup_chinese_font()
     # 2. 应用 Apple 风格主题
     setup_apple_theme()
+
 
     # 注册纹理
     with dpg.texture_registry():
@@ -394,7 +402,10 @@ def create_gui():
                 callback=manual_reload_callback,
                 height=30
             )
+            # 保存按钮
             dpg.add_button(label="保存所有配置 (Save)", callback=save_callback, height=30, width=160)
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("修改参数后必须点击此处才可以生效,\n如果不点击保存直接点击重启参数修改会丢失.")
             dpg.add_text("[就绪]", tag="status_text", color=UIColors.TEXT_GRAY)
 
         dpg.add_separator()
@@ -641,9 +652,36 @@ def create_gui():
 
             # ================= TAB 6: PID 瞄准 =================
             with dpg.tab(label="PID 控制"):
-                dpg.add_text("瞄准偏移", color=UIColors.APPLE_BLUE)
-                add_float("AIM_Y_RATIO", "Y轴 瞄准高度 (0.5=中心)", 0.0, 1.0)
-                add_float("AIM_X_OFFSET", "X轴 微调偏移", -100.0, 100.0)
+                # 上部分：参数设置
+                dpg.add_text("瞄准偏移参数", color=UIColors.APPLE_BLUE)
+                with dpg.group(horizontal=False):
+
+                    dpg.add_input_float(label="Y轴 瞄准高度", tag="input_aim_y",
+                                        default_value=cfg.get_config("AIM_Y_RATIO", 0.5),
+                                        min_value=0.0, max_value=1.0, step=0, format="%.3f",
+                                        callback=update_config_callback, user_data="AIM_Y_RATIO",width=280)
+
+                    dpg.add_input_float(label="X轴 微调偏移", tag="input_aim_x",
+                                        default_value=cfg.get_config("AIM_X_OFFSET", 0.5),
+                                        min_value=0.0, max_value=1.0, step=0, format="%.3f",
+                                        callback=update_config_callback, user_data="AIM_X_OFFSET",width=280)
+
+                # 中部分：预览面板 (放在参数下方)
+
+                dpg.add_text("实时瞄准位置预览", color=UIColors.APPLE_BLUE)
+                with dpg.group(horizontal=True):
+                    with dpg.child_window(width=300, height=180, border=True, no_scrollbar=True):
+                        with dpg.group(horizontal=True):
+                            # 绘制区
+                            with dpg.drawlist(width=100, height=160, tag="aim_preview_drawlist"):
+                                dpg.add_draw_node(tag="aim_preview_node")
+                            dpg.bind_item_handler_registry("aim_preview_drawlist", "preview_handler")
+                            # 右侧说明文字
+                            with dpg.group():
+                                dpg.add_spacer(height=40)
+                                dpg.add_text("支持鼠标直接拖拽圆点", color=UIColors.SUCCESS_GREEN)  # 提示用户
+                                dpg.add_text("调整结果将自动同步", color=UIColors.TEXT_GRAY)
+
 
                 dpg.add_separator()
                 dpg.add_text("PID 参数 (X 横向)", color=UIColors.SECTION_HEADER)
@@ -866,6 +904,7 @@ def create_gui():
     dpg.create_viewport(title="AI Configurator", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
+    update_aim_offset_preview()
     dpg.set_primary_window("Primary Window", True)
 
     refresh_scripts_ui()
@@ -1057,6 +1096,88 @@ def add_combo_tagged(key, label, items, tag=None):
     )
 
 
+def _handle_preview_drag(sender, app_data):
+    """处理预览框内的鼠标拖拽/点击事件"""
+    if not dpg.does_item_exist("aim_preview_drawlist"):
+        return
+
+    # 直接获取鼠标相对于 drawlist 左上角的本地坐标
+    # 这能避免 child_window 导致的全局坐标偏移问题
+    local_mouse_pos = dpg.get_mouse_pos(local=True)
+    rel_x = local_mouse_pos[0]
+    rel_y = local_mouse_pos[1]
+
+    # --- 必须与 update_aim_offset_preview 保持严丝合缝的参数 ---
+    canvas_w, canvas_h = 100, 160  # Drawlist 尺寸
+    rect_w, rect_h = 60, 130       # 人体矩形尺寸
+    rect_x_start = (canvas_w - rect_w) // 2
+    rect_y_start = 10              # 矩形顶部的起始 Y 偏移
+    # ---------------------------------------------------------
+
+    # 计算比例并使用 clamp 限制在 0.0 ~ 1.0 之间
+    # 核心公式：(当前本地像素位置 - 矩形起始位置) / 矩形总长度
+    new_x_ratio = max(0.0, min(1.0, (rel_x - rect_x_start) / rect_w))
+    new_y_ratio = max(0.0, min(1.0, (rel_y - rect_y_start) / rect_h))
+
+    # 更新配置
+    cfg.set_config("AIM_X_OFFSET", round(new_x_ratio, 3))
+    cfg.set_config("AIM_Y_RATIO", round(new_y_ratio, 3))
+
+    # 同步更新 UI 输入框 (input_float)
+    if dpg.does_item_exist("input_aim_x"):
+        dpg.set_value("input_aim_x", round(new_x_ratio, 3))
+    if dpg.does_item_exist("input_aim_y"):
+        dpg.set_value("input_aim_y", round(new_y_ratio, 3))
+
+    # 立即重绘红点位置
+    update_aim_offset_preview()
+
+def update_aim_offset_preview():
+    """实时更新 PID 瞄准偏移预览图"""
+    if not dpg.does_item_exist("aim_preview_node"):
+        return
+
+    dpg.delete_item("aim_preview_node", children_only=True)
+
+    canvas_w, canvas_h = 100, 160
+    rect_w, rect_h = 60, 130
+    rect_x = (canvas_w - rect_w) // 2
+    rect_y = 10
+
+    offset_x = cfg.get_config("AIM_X_OFFSET", 0.5)
+    offset_y = cfg.get_config("AIM_Y_RATIO", 0.5)
+
+    # 1. 绘制背景阴影（增加立体感）
+    dpg.draw_rectangle([rect_x + 2, rect_y + 2], [rect_x + rect_w + 2, rect_y + rect_h + 2],
+                       color=(0, 0, 0, 20), fill=(0, 0, 0, 20), rounding=5, parent="aim_preview_node")
+
+    # 2. 绘制“人体”轮廓
+    dpg.draw_rectangle(
+        [rect_x, rect_y], [rect_x + rect_w, rect_y + rect_h],
+        color=(180, 180, 180, 255), fill=(255, 255, 255, 255),
+        thickness=1, rounding=5, parent="aim_preview_node"
+    )
+
+    # 3. 绘制十字参考线（淡淡的）
+    center_y = rect_y + rect_h // 2
+    center_x = rect_x + rect_w // 2
+    dpg.draw_line([rect_x, center_y], [rect_x + rect_w, center_y], color=(230, 230, 230, 255),
+                  parent="aim_preview_node")
+    dpg.draw_line([center_x, rect_y], [center_x, rect_y + rect_h], color=(230, 230, 230, 255),
+                  parent="aim_preview_node")
+
+    # 4. 计算并绘制瞄准点
+    dot_x = rect_x + (rect_w * offset_x)
+    dot_y = rect_y + (rect_h * offset_y)
+
+    # 呼吸感光圈 (红色半透明背景)
+    dpg.draw_circle([dot_x, dot_y], 8, color=(255, 59, 48, 50), fill=(255, 59, 48, 30), parent="aim_preview_node")
+    # 核心实点
+    dpg.draw_circle([dot_x, dot_y], 4, color=(255, 59, 48, 255), fill=(255, 59, 48, 255), parent="aim_preview_node")
+
+    # 5. 坐标数值显示
+    dpg.draw_text([10, 145], f"Target: ({offset_x:.2f}, {offset_y:.2f})", color=UIColors.TEXT_BLACK, size=12,
+                  parent="aim_preview_node")
 # ================= 外部控制函数 =================
 
 def stop_gui():

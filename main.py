@@ -779,7 +779,7 @@ class CoreService:
 def start_app():
     """程序入口"""
     # 导入 GUI (延迟导入，避免循环依赖)
-    from gui import create_gui
+    from ui.gui import create_gui
 
     # 1. 创建核心服务
     core = CoreService()
