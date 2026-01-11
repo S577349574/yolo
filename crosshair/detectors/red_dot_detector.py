@@ -1,12 +1,13 @@
 # crosshair/detectors/red_dot_detector.py
 """
-红点准星专用检测器（v4.3 - 完整调试版）
+红点准星专用检测器（v4.4 - 完整调试版 + 预览窗口）
 
 优化调试信息:
 - ✅ 完整坐标追踪链
 - ✅ 偏移距离可视化
 - ✅ 决策依据说明
 - ✅ 阈值边界诊断
+- ✅ 实时预览窗口
 """
 
 from typing import Optional, Tuple, List
@@ -18,36 +19,43 @@ from crosshair import CrosshairDetector
 
 
 class EnhancedRedDotDetector(CrosshairDetector):
-    """增强版红点检测器（完整调试版）⭐"""
+    """增强版红点检测器（完整调试版 + 预览）⭐"""
 
-    def __init__(self, enable_debug: bool = False):
+    def __init__(self, enable_debug: bool = False, enable_preview: bool = False):
         super().__init__()
 
         self.enable_debug = enable_debug
+        self.enable_preview = enable_preview
 
-        # ===== 红色 HSV 范围 =====
-        self.red_lower1 = np.array([0, 100, 80])
-        self.red_upper1 = np.array([10, 255, 255])
-        self.red_lower2 = np.array([170, 100, 80])
+        # ===== 红色+黄色 HSV 范围 =====
+        self.red_lower1 = np.array([0, 70, 50])  # 包含橙黄色
+        self.red_upper1 = np.array([40, 255, 255])  # 扩展到黄色
+        self.red_lower2 = np.array([160, 70, 50])  # 降低阈值
         self.red_upper2 = np.array([180, 255, 255])
 
         # ===== 高亮中心检测 =====
-        self.bright_center_threshold = 120
-        self.min_center_area = 3
-        self.max_center_area = 50
+        self.bright_center_threshold = 100  # 从120降低（黄色可能较暗）
+        self.min_center_area = 2
+        self.max_center_area = 20
 
-        # ===== 面积 & 尺度 =====
-        self.min_area = 8
-        self.max_area = 150
-        self.min_radius = 2.0
-        self.max_radius = 5.0
+        # ===== 面积 & 尺度 (针对16像素准星) =====
+        self.min_area = 10  # 从8调整
+        self.max_area = 30  # 从150大幅降低
+        self.min_radius = 1.5  # 从2.0降低
+        self.max_radius = 4.0  # 从5.0降低
 
         # ===== 形状 =====
-        self.min_circularity = 0.5
+        self.min_circularity = 0.4  # 从0.5进一步放宽
 
         # ===== 结构验证参数 =====
-        self.ring_sample_points = 24
-        self.min_ring_completeness = 0.25
+        self.ring_sample_points = 16  # 从24降低（准星更小）
+        self.min_ring_completeness = 0.20  # 从0.25降低
+
+        # ===== 预览窗口 =====
+        self.preview_window_name = "Red Dot Detector Preview"
+        if self.enable_preview:
+            cv2.namedWindow(self.preview_window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(self.preview_window_name, 800, 800)
 
         # ===== 调试统计 =====
         self._frame_count = 0
@@ -66,9 +74,158 @@ class EnhancedRedDotDetector(CrosshairDetector):
         utils.log(f"🔴 {self.get_name()} 初始化完成")
         if enable_debug:
             utils.log("   🐛 详细调试模式已启用（完整坐标追踪）")
+        if enable_preview:
+            utils.log("   👁️  预览窗口已启用")
 
     def get_name(self) -> str:
-        return "增强红点检测器（完整调试版）"
+        return "增强红点检测器（完整调试版 + 预览）"
+
+    def __del__(self):
+        """析构函数：关闭预览窗口"""
+        if self.enable_preview:
+            cv2.destroyWindow(self.preview_window_name)
+
+    # ==========================================================
+    # 预览窗口绘制
+    # ==========================================================
+    def _draw_preview(self, roi: np.ndarray, result: Optional[Tuple[int, int]],
+                      debug_info: dict = None):
+        """绘制预览窗口"""
+        if not self.enable_preview:
+            return
+
+        # 创建预览图像（放大显示）
+        scale = 4
+        h, w = roi.shape[:2]
+        preview = cv2.resize(roi, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
+
+        # 转换为彩色（如果是灰度图）
+        if len(preview.shape) == 2:
+            preview = cv2.cvtColor(preview, cv2.COLOR_GRAY2BGR)
+
+        roi_cx = w / 2
+        roi_cy = h / 2
+
+        # 绘制ROI中心十字线（蓝色）
+        cv2.line(preview,
+                 (int(roi_cx * scale), 0),
+                 (int(roi_cx * scale), h * scale),
+                 (255, 0, 0), 1)
+        cv2.line(preview,
+                 (0, int(roi_cy * scale)),
+                 (w * scale, int(roi_cy * scale)),
+                 (255, 0, 0), 1)
+
+        # 绘制ROI中心点
+        cv2.circle(preview,
+                   (int(roi_cx * scale), int(roi_cy * scale)),
+                   3, (255, 0, 0), -1)
+        cv2.putText(preview, "ROI Center",
+                    (int(roi_cx * scale) + 10, int(roi_cy * scale) - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+
+        # 如果有检测结果，绘制准星位置
+        if result:
+            cx, cy = result
+
+            # 绘制检测到的准星中心（绿色）
+            cv2.circle(preview,
+                       (int(cx * scale), int(cy * scale)),
+                       5, (0, 255, 0), 2)
+            cv2.circle(preview,
+                       (int(cx * scale), int(cy * scale)),
+                       2, (0, 255, 0), -1)
+
+            # 绘制准星十字线（绿色）
+            cv2.line(preview,
+                     (int(cx * scale) - 20, int(cy * scale)),
+                     (int(cx * scale) + 20, int(cy * scale)),
+                     (0, 255, 0), 1)
+            cv2.line(preview,
+                     (int(cx * scale), int(cy * scale) - 20),
+                     (int(cx * scale), int(cy * scale) + 20),
+                     (0, 255, 0), 1)
+
+            # 绘制连接线
+            cv2.line(preview,
+                     (int(roi_cx * scale), int(roi_cy * scale)),
+                     (int(cx * scale), int(cy * scale)),
+                     (0, 255, 255), 1)
+
+            # 计算偏移
+            offset = np.hypot(cx - roi_cx, cy - roi_cy)
+
+            # 绘制检测信息
+            info_y = 20
+            cv2.putText(preview, f"Crosshair: ({cx}, {cy})",
+                        (10, info_y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 255, 0), 1)
+            info_y += 20
+            cv2.putText(preview, f"Offset: {offset:.2f}px",
+                        (10, info_y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 255, 255), 1)
+
+            # 绘制详细调试信息
+            if debug_info:
+                info_y += 20
+                if 'ring_score' in debug_info:
+                    cv2.putText(preview, f"Ring: {debug_info['ring_score']:.1%}",
+                                (10, info_y), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.4, (255, 255, 255), 1)
+                    info_y += 18
+
+                if 'intensity' in debug_info:
+                    cv2.putText(preview, f"Brightness: {debug_info['intensity']:.0f}",
+                                (10, info_y), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.4, (255, 255, 255), 1)
+                    info_y += 18
+
+                if 'circularity' in debug_info:
+                    cv2.putText(preview, f"Circularity: {debug_info['circularity']:.3f}",
+                                (10, info_y), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.4, (255, 255, 255), 1)
+                    info_y += 18
+
+                # 绘制红色环采样点
+                if 'red_mask' in debug_info:
+                    red_mask = debug_info['red_mask']
+                    red_overlay = cv2.resize(red_mask, (w * scale, h * scale),
+                                             interpolation=cv2.INTER_NEAREST)
+                    red_color = np.zeros_like(preview)
+                    red_color[:, :, 2] = red_overlay  # 红色通道
+                    preview = cv2.addWeighted(preview, 0.7, red_color, 0.3, 0)
+
+                # 绘制圆形轮廓
+                if 'circle_center' in debug_info and 'radius' in debug_info:
+                    ccx, ccy = debug_info['circle_center']
+                    radius = debug_info['radius']
+                    cv2.circle(preview,
+                               (int(ccx * scale), int(ccy * scale)),
+                               int(radius * scale),
+                               (255, 0, 255), 1)
+                    cv2.circle(preview,
+                               (int(ccx * scale), int(ccy * scale)),
+                               2, (255, 0, 255), -1)
+        else:
+            # 未检测到准星
+            cv2.putText(preview, "No Crosshair Detected",
+                        (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (0, 0, 255), 2)
+
+        # 绘制帧计数和统计
+        stats_y = h * scale - 60
+        cv2.putText(preview, f"Frame: {self._frame_count}",
+                    (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.4, (255, 255, 255), 1)
+        stats_y += 15
+        success_rate = (self._stats['final_success'] / max(self._frame_count, 1)) * 100
+        cv2.putText(preview, f"Success: {self._stats['final_success']}/{self._frame_count} ({success_rate:.1f}%)",
+                    (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.4, (255, 255, 255), 1)
+
+        # 显示预览窗口
+        cv2.imshow(self.preview_window_name, preview)
+        cv2.waitKey(1)
 
     # ==========================================================
     # 主检测逻辑
@@ -91,11 +248,13 @@ class EnhancedRedDotDetector(CrosshairDetector):
         if self.enable_debug:
             utils.log(f"\n📍 ROI理论中心: ({roi_cx:.1f}, {roi_cy:.1f})")
 
+        debug_info = {}
+
         # 方法1：结构化检测
         if self.enable_debug:
             utils.log("\n🔍 方法1: 结构化检测")
 
-        result = self._detect_with_structure(roi, hsv, gray, roi_cx, roi_cy)
+        result = self._detect_with_structure(roi, hsv, gray, roi_cx, roi_cy, debug_info)
         if result:
             self._stats['final_success'] += 1
             offset = np.hypot(result[0] - roi_cx, result[1] - roi_cy)
@@ -104,6 +263,8 @@ class EnhancedRedDotDetector(CrosshairDetector):
 
             if self.enable_debug:
                 utils.log(f"\n✅ 成功: {result}, 偏移ROI中心: {offset:.2f}px")
+
+            self._draw_preview(roi, result, debug_info)
             return result
 
         # 方法2：兜底检测
@@ -115,15 +276,18 @@ class EnhancedRedDotDetector(CrosshairDetector):
             self._stats['final_success'] += 1
             if self.enable_debug:
                 utils.log(f"\n✅ 兜底成功: {result}")
+
+            self._draw_preview(roi, result, debug_info)
             return result
 
         if self.enable_debug:
             utils.log("\n❌ 所有方法均失败")
             self._print_stats()
 
+        self._draw_preview(roi, None, debug_info)
         return None
 
-    def _detect_with_structure(self, roi, hsv, gray, roi_cx, roi_cy):
+    def _detect_with_structure(self, roi, hsv, gray, roi_cx, roi_cy, debug_info):
         """结构化检测（完整追踪版）"""
 
         if self.enable_debug:
@@ -138,6 +302,7 @@ class EnhancedRedDotDetector(CrosshairDetector):
         self._stats['found_bright_centers'] += 1
 
         red_mask = self._create_red_mask(hsv, roi_cx, roi_cy)
+        debug_info['red_mask'] = red_mask
 
         total_red = np.sum(red_mask > 0)
         if self.enable_debug:
@@ -153,6 +318,8 @@ class EnhancedRedDotDetector(CrosshairDetector):
                 utils.log(f"\n   {'=' * 50}")
                 utils.log(f"   🎯 候选{idx + 1}: ({cx},{cy}), 距ROI中心: {offset:.2f}px")
 
+            debug_info['intensity'] = intensity
+
             # 亮度验证
             margin = intensity - self.bright_center_threshold
             if intensity < self.bright_center_threshold:
@@ -167,6 +334,7 @@ class EnhancedRedDotDetector(CrosshairDetector):
             # 红色环验证
             ring_score = self._verify_ring(red_mask, cx, cy)
             ring_margin = ring_score - self.min_ring_completeness
+            debug_info['ring_score'] = ring_score
 
             if ring_score < self.min_ring_completeness:
                 if self.enable_debug:
@@ -179,6 +347,14 @@ class EnhancedRedDotDetector(CrosshairDetector):
 
             # 圆形验证
             is_clean, circularity, circle_center = self._verify_circle(red_mask, cx, cy)
+            debug_info['circularity'] = circularity
+
+            if circle_center:
+                contour = self._get_contour_at_point(red_mask, cx, cy)
+                if contour is not None:
+                    (ccx, ccy), radius = cv2.minEnclosingCircle(contour)
+                    debug_info['circle_center'] = (ccx, ccy)
+                    debug_info['radius'] = radius
 
             if not is_clean:
                 if self.enable_debug:
@@ -248,6 +424,14 @@ class EnhancedRedDotDetector(CrosshairDetector):
             utils.log(f"   ✅ 最终选中: {best_pos}, 得分{best_score:.3f}")
 
         return best_pos
+
+    def _get_contour_at_point(self, mask, cx, cy):
+        """获取包含指定点的轮廓"""
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            if cv2.pointPolygonTest(c, (float(cx), float(cy)), False) >= 0:
+                return c
+        return None
 
     # ==========================================================
     # 辅助方法
@@ -348,7 +532,7 @@ class EnhancedRedDotDetector(CrosshairDetector):
         return best_score
 
     def _verify_circle(self, red_mask, cx, cy):
-        """验证圆形边界"""
+        """验证圆形边界（简化版，适合小准星）"""
         contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         for c in contours:
@@ -357,39 +541,30 @@ class EnhancedRedDotDetector(CrosshairDetector):
                 perimeter = cv2.arcLength(c, True)
 
                 if perimeter == 0 or area < self.min_area:
+                    if self.enable_debug:
+                        utils.log(f"         失败原因: 面积{area:.0f}过小或周长为0")
                     continue
 
                 circularity = 4 * np.pi * area / (perimeter ** 2)
 
-                if circularity < 0.6:
+                # 只检查圆形度，不检查内外比例（小准星容易不规则）
+                if circularity < self.min_circularity:
+                    if self.enable_debug:
+                        utils.log(f"         失败原因: 圆形度{circularity:.3f} < {self.min_circularity}")
                     return False, circularity, None
 
                 (ccx, ccy), radius = cv2.minEnclosingCircle(c)
 
                 if radius < self.min_radius or radius > self.max_radius:
+                    if self.enable_debug:
+                        utils.log(f"         失败原因: 半径{radius:.1f} 不在 [{self.min_radius}, {self.max_radius}]")
                     return False, circularity, (ccx, ccy)
 
-                # 验证圆形内外比例
-                circle_mask = np.zeros_like(red_mask)
-                cv2.circle(circle_mask, (int(ccx), int(ccy)), int(radius), 255, -1)
+                # 通过所有检查
+                if self.enable_debug:
+                    utils.log(f"         ✅ 圆形度{circularity:.3f}, 半径{radius:.1f}")
 
-                outer_radius = int(radius * 1.3)
-                outer_mask = np.zeros_like(red_mask)
-                cv2.circle(outer_mask, (int(ccx), int(ccy)), outer_radius, 255, -1)
-
-                ring_mask = cv2.bitwise_and(outer_mask, cv2.bitwise_not(circle_mask))
-
-                inside = np.sum(cv2.bitwise_and(red_mask, circle_mask) > 0)
-                total_inside = np.sum(circle_mask > 0)
-                ring = np.sum(cv2.bitwise_and(red_mask, ring_mask) > 0)
-                total_ring = np.sum(ring_mask > 0)
-
-                inside_ratio = inside / total_inside if total_inside > 0 else 0
-                ring_ratio = ring / total_ring if total_ring > 0 else 0
-
-                is_clean = inside_ratio >= 0.40 and ring_ratio <= 0.15 and inside >= ring * 3
-
-                return is_clean, circularity, (ccx, ccy)
+                return True, circularity, (ccx, ccy)
 
         return False, 0.0, None
 
