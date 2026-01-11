@@ -1,9 +1,11 @@
 # crosshair/crosshair_manager.py
 """
-准星检测管理器（修复版）
-- 修复模板加载逻辑
-- 优化小红点准星支持
-- 改进错误处理和日志
+准星检测管理器（改进版 v2.0）
+- ✅ 修复模板加载逻辑
+- ✅ 优化小红点准星支持
+- ✅ 改进错误处理和日志
+- ⭐ 新增位置缓存机制（解决抖动问题）
+- ⭐ 新增平滑过渡选项
 """
 import cv2
 import numpy as np
@@ -22,19 +24,34 @@ class CrosshairManager:
         self,
         detector_type: str = 'template',
         valorant_config_code: Optional[str] = None,
-        enable_detection: bool = True
+        enable_detection: bool = True,
+        max_consecutive_misses: int = 10,
+        enable_smooth: bool = False,
+        smooth_factor: float = 0.7,
+        enable_debug=True,  # ⭐ 开启调试
     ):
         """
         初始化准星管理器
 
         Args:
-            detector_type: 检测器类型 ('color', 'template', 'cross_shape')
+            detector_type: 检测器类型 ('color', 'template', 'cross_shape', 'red_dot')
             valorant_config_code: Valorant准星配置代码（可选）
             enable_detection: 是否启用检测
+            max_consecutive_misses: 连续失败多少次后使用回退中心（默认5次）
+            enable_smooth: 是否启用位置平滑（默认True）
+            smooth_factor: 平滑系数 0~1（越大越平滑，默认0.7）
         """
+        self.enable_debug = enable_debug
         self.detector_type = detector_type
         self.enabled = enable_detection
         self.detector = None
+
+        # ⭐ 位置缓存与平滑配置
+        self._last_valid_position: Optional[Tuple[int, int]] = None
+        self._consecutive_misses = 0
+        self._max_consecutive_misses = max_consecutive_misses
+        self._enable_smooth = enable_smooth
+        self._smooth_factor = max(0.0, min(1.0, smooth_factor))
 
         # 统计信息
         self._total_frames = 0
@@ -60,6 +77,9 @@ class CrosshairManager:
         elif detector_type == 'cross_shape':
             self._init_cross_shape_detector()
 
+        elif detector_type == 'red_dot':
+            self._init_red_dot_detector()
+
         else:
             utils.log(f"❌ 未知的检测器类型: {detector_type}，回退到颜色检测")
             self._init_color_detector()
@@ -72,6 +92,15 @@ class CrosshairManager:
         self.detector = ColorCrosshairDetector()
         utils.log("   ✅ 颜色检测器初始化完成")
 
+    def _init_red_dot_detector(self):
+        """初始化红点准星检测器"""
+        utils.log("\n🎯 初始化准星检测（红点检测模式）")
+        from crosshair.detectors.red_dot_detector import EnhancedRedDotDetector
+        self.detector = EnhancedRedDotDetector(enable_debug=True)
+        utils.log("   ✅ 增强版红点检测器初始化完成")
+
+
+
     def _init_template_detector(self, valorant_config_code: Optional[str]):
         """初始化模板检测器（传递颜色信息）"""
         from crosshair.detectors.template_detector import TemplateCrosshairDetector
@@ -80,8 +109,8 @@ class CrosshairManager:
 
         template_bgr = None
         is_dot_only = False
-        target_color_bgr = None  # ⭐ 新增
-        target_color_name = None  # ⭐ 新增
+        target_color_bgr = None
+        target_color_name = None
 
         # ========== 方式1：从 Valorant 配置代码生成 ==========
         if valorant_config_code:
@@ -102,8 +131,8 @@ class CrosshairManager:
         # ========== 创建模板检测器（传递颜色信息）==========
         self.detector = TemplateCrosshairDetector(
             template_img=template_bgr,
-            target_color_bgr=target_color_bgr,  # ⭐ 传递颜色
-            target_color_name=target_color_name  # ⭐ 传递颜色名称
+            target_color_bgr=target_color_bgr,
+            target_color_name=target_color_name
         )
 
         # ========== 针对小红点优化参数 ==========
@@ -112,7 +141,7 @@ class CrosshairManager:
             self.detector.threshold = 0.6
             self.detector.search_radius = 120
             self.detector.smooth_factor = 0.3
-            self.detector.color_tolerance = 50  # ⭐ 小红点颜色容差更宽松
+            self.detector.color_tolerance = 50
             utils.log(f"   优化参数: 阈值={self.detector.threshold}, "
                       f"搜索半径={self.detector.search_radius}px, "
                       f"颜色容差={self.detector.color_tolerance}")
@@ -150,11 +179,10 @@ class CrosshairManager:
                     not config.get('outer_lines', {}).get('enabled', False)
             )
 
-            # ⭐ 提取颜色信息
-            target_color_bgr = tuple(config['color_bgr'])  # BGR格式
+            # 提取颜色信息
+            target_color_bgr = tuple(config['color_bgr'])
             target_color_name = config['color_name']
 
-            # 根据准星类型选择模板尺寸
             # 根据准星类型选择模板尺寸
             if is_dot_only:
                 template_size = 300
@@ -177,7 +205,7 @@ class CrosshairManager:
                 cv2.imwrite("crosshair.png", template_img)
                 utils.log(f"   ✅ 准星模板已生成: crosshair.png")
 
-            return (template_img, is_dot_only, target_color_bgr, target_color_name)  # ⭐ 返回4个值
+            return (template_img, is_dot_only, target_color_bgr, target_color_name)
 
         except Exception as e:
             utils.log(f"   ⚠️ Valorant配置解析失败: {e}")
@@ -221,6 +249,27 @@ class CrosshairManager:
             utils.log("   ❌ 十字形状检测器不可用，回退到颜色检测")
             self._init_color_detector()
 
+    def _smooth_position(self, new_pos: Tuple[int, int]) -> Tuple[int, int]:
+        """
+        对检测位置进行平滑处理
+
+        Args:
+            new_pos: 新检测到的位置
+
+        Returns:
+            平滑后的位置
+        """
+        if not self._enable_smooth or self._last_valid_position is None:
+            return new_pos
+
+        # 加权平均：new_pos 占 smooth_factor，last_pos 占 (1 - smooth_factor)
+        x = int(new_pos[0] * self._smooth_factor +
+                self._last_valid_position[0] * (1 - self._smooth_factor))
+        y = int(new_pos[1] * self._smooth_factor +
+                self._last_valid_position[1] * (1 - self._smooth_factor))
+
+        return (x, y)
+
     def detect(
         self,
         img: np.ndarray,
@@ -228,7 +277,7 @@ class CrosshairManager:
         fallback_center: Optional[Tuple[int, int]] = None
     ) -> Optional[Tuple[int, int]]:
         """
-        检测准星位置
+        检测准星位置（改进版 - 带缓存与平滑）
 
         Args:
             img: 图像帧（BGR或BGRA格式）
@@ -236,23 +285,44 @@ class CrosshairManager:
             fallback_center: 检测失败时的回退中心点
 
         Returns:
-            (x, y): 屏幕坐标系下的准星位置，失败则返回回退中心点
+            (x, y): 屏幕坐标系下的准星位置
         """
         if not self.enabled or self.detector is None:
             return fallback_center
 
         self._total_frames += 1
 
-        # 执行检测
+        # ========== 执行检测 ==========
         result = self.detector.detect(img, capture_area)
 
-        # 统计
+        # ========== 检测成功 ==========
         if result:
             self._success_frames += 1
-            self._miss_count = 0
-            return result
+            self._consecutive_misses = 0
+
+            # 平滑处理（可选）
+            smoothed_result = self._smooth_position(result)
+            self._last_valid_position = smoothed_result
+
+            return smoothed_result
+
+        # ========== 检测失败 ==========
         else:
+            self._consecutive_misses += 1
             self._miss_count += 1
+
+            # 策略1：优先使用上次有效位置
+            if self._last_valid_position is not None:
+                if self._consecutive_misses < self._max_consecutive_misses:
+                    # 短期失败：继续使用上次位置
+                    return self._last_valid_position
+                else:
+                    # 长期失败：使用回退中心，并重置缓存
+                    utils.log(f"⚠️ 连续{self._consecutive_misses}次检测失败，使用回退中心")
+                    self._last_valid_position = None
+                    return fallback_center
+
+            # 策略2：从未检测成功过，直接用回退中心
             return fallback_center
 
     def get_stats(self) -> Dict:
@@ -273,15 +343,21 @@ class CrosshairManager:
             'success': self._success_frames,
             'success_rate': success_rate,
             'miss_count': self._miss_count,
+            'consecutive_misses': self._consecutive_misses,
             'detector_type': self.detector_type,
-            'enabled': self.enabled
+            'enabled': self.enabled,
+            'smooth_enabled': self._enable_smooth,
+            'smooth_factor': self._smooth_factor,
+            'max_consecutive_misses': self._max_consecutive_misses
         }
 
     def reset(self):
-        """重置统计"""
+        """重置统计与缓存"""
         self._total_frames = 0
         self._success_frames = 0
         self._miss_count = 0
+        self._consecutive_misses = 0
+        self._last_valid_position = None
 
         if self.detector and hasattr(self.detector, 'reset'):
             self.detector.reset()
@@ -302,6 +378,28 @@ class CrosshairManager:
         else:
             utils.log("⚠️ 当前检测器不支持阈值调整")
 
+    def set_smooth_factor(self, factor: float):
+        """
+        设置平滑系数
+
+        Args:
+            factor: 平滑系数 0~1（越大越平滑）
+        """
+        old_factor = self._smooth_factor
+        self._smooth_factor = max(0.0, min(1.0, factor))
+        utils.log(f"平滑系数调整: {old_factor:.2f} → {self._smooth_factor:.2f}")
+
+    def set_max_consecutive_misses(self, count: int):
+        """
+        设置最大连续失败次数
+
+        Args:
+            count: 次数（建议3-10）
+        """
+        old_count = self._max_consecutive_misses
+        self._max_consecutive_misses = max(1, count)
+        utils.log(f"最大连续失败次数调整: {old_count} → {self._max_consecutive_misses}")
+
     def enable(self):
         """启用检测"""
         self.enabled = True
@@ -311,6 +409,16 @@ class CrosshairManager:
         """禁用检测"""
         self.enabled = False
         utils.log("⏸️ 准星检测已禁用")
+
+    def enable_smooth(self):
+        """启用平滑"""
+        self._enable_smooth = True
+        utils.log("✅ 位置平滑已启用")
+
+    def disable_smooth(self):
+        """禁用平滑"""
+        self._enable_smooth = False
+        utils.log("⏸️ 位置平滑已禁用")
 
     def get_detector_info(self) -> str:
         """获取检测器信息"""
@@ -328,15 +436,20 @@ class CrosshairManager:
         if hasattr(self.detector, 'template_w'):
             info += f", 模板尺寸: {self.detector.template_w}x{self.detector.template_h}"
 
+        info += f", 平滑: {'开' if self._enable_smooth else '关'}"
+        info += f", 容错: {self._max_consecutive_misses}次"
+
         return info
 
     def __str__(self):
         """字符串表示"""
+        stats = self.get_stats()
         return (
             f"CrosshairManager("
             f"type={self.detector_type}, "
             f"enabled={self.enabled}, "
-            f"success_rate={self.get_stats()['success_rate']}"
+            f"success_rate={stats['success_rate']}, "
+            f"smooth={'ON' if self._enable_smooth else 'OFF'}"
             f")"
         )
 
@@ -350,7 +463,10 @@ class CrosshairManager:
 
 def create_crosshair_manager(
     config_code: Optional[str] = None,
-    detector_type: str = 'template'
+    detector_type: str = 'template',
+    max_consecutive_misses: int = 10,
+    enable_smooth: bool = True,
+    smooth_factor: float = 0.7
 ) -> CrosshairManager:
     """
     创建准星管理器的便捷函数
@@ -358,6 +474,9 @@ def create_crosshair_manager(
     Args:
         config_code: Valorant准星配置代码
         detector_type: 检测器类型
+        max_consecutive_misses: 容错次数
+        enable_smooth: 是否启用平滑
+        smooth_factor: 平滑系数
 
     Returns:
         CrosshairManager实例
@@ -365,6 +484,8 @@ def create_crosshair_manager(
     return CrosshairManager(
         detector_type=detector_type,
         valorant_config_code=config_code,
-        enable_detection=True
+        enable_detection=True,
+        max_consecutive_misses=max_consecutive_misses,
+        enable_smooth=enable_smooth,
+        smooth_factor=smooth_factor
     )
-

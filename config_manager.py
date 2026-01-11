@@ -478,7 +478,7 @@ class ConfigManager:
         # ========== 准星检测验证 ==========
 
         # 检测器类型验证
-        if c.get("CROSSHAIR_DETECTOR_TYPE") not in ["color", "template", "cross_shape"]:
+        if c.get("CROSSHAIR_DETECTOR_TYPE") not in ["color", "template","cross_shape","red_dot"]:
             c["CROSSHAIR_DETECTOR_TYPE"] = "template"
 
         # 统计间隔验证

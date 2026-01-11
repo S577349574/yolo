@@ -468,7 +468,7 @@ def create_gui():
                 add_combo_tagged(
                     "CROSSHAIR_DETECTOR_TYPE",
                     "检测器类型",
-                    ["color", "template", "cross_shape"],
+                    ["color", "template", "cross_shape","red_dot"],
                     "crosshair_detector_type"
                 )
 

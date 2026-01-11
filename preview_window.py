@@ -358,18 +358,23 @@ class PreviewWindow:
             crosshair_y = max(0, min(img_height - 1, crosshair_y))
 
         # 绘制十字线
-        line_len, gap = 20, 5
-        color = self.special_colors['crosshair']  # 红色
+        line_len = 0  # 十字线长度（原来是20，改小了）
+        gap = 1  # 中心空隙（原来是5，改小了）
+        thickness = 1  # 线条粗细（原来是2，改成1更细）
+        center_size = 1  # 中心点大小（原来是2）
+        color = self.special_colors['locked']  # 红色
 
+        # 绘制十字线
         cv2.line(img, (crosshair_x - line_len, crosshair_y),
-                 (crosshair_x - gap, crosshair_y), color, 2)
+                 (crosshair_x - gap, crosshair_y), color, thickness)
         cv2.line(img, (crosshair_x + gap, crosshair_y),
-                 (crosshair_x + line_len, crosshair_y), color, 2)
+                 (crosshair_x + line_len, crosshair_y), color, thickness)
         cv2.line(img, (crosshair_x, crosshair_y - line_len),
-                 (crosshair_x, crosshair_y - gap), color, 2)
+                 (crosshair_x, crosshair_y - gap), color, thickness)
         cv2.line(img, (crosshair_x, crosshair_y + gap),
-                 (crosshair_x, crosshair_y + line_len), color, 2)
-        cv2.circle(img, (crosshair_x, crosshair_y), 2, color, -1)
+                 (crosshair_x, crosshair_y + line_len), color, thickness)
+
+        cv2.circle(img, (crosshair_x, crosshair_y), center_size, color, -1)
 
     def _draw_aim_point(
             self,

@@ -1,3 +1,4 @@
+# crosshair/__init__.py
 """
 准星检测器模块 - 统一导出接口
 """
@@ -15,7 +16,9 @@ def create_crosshair_detector() -> CrosshairDetector:
     """
     detector_type = get_config('CROSSHAIR_DETECTOR_TYPE', 'color')
 
-    # 通用检测器
+    utils.log(f"🔍 请求创建检测器类型: {detector_type}")
+
+    # ===== 通用检测器 =====
     if detector_type == 'color':
         from .detectors.color_detector import ColorCrosshairDetector
         return ColorCrosshairDetector()
@@ -28,9 +31,14 @@ def create_crosshair_detector() -> CrosshairDetector:
         from .detectors.cross_shape_detector import CrossShapeDetector
         return CrossShapeDetector()
 
-
+    # ===== 红点准星检测器 =====
+    elif detector_type == 'red_dot':
+        from .detectors.red_dot_detector import RedDotCrosshairDetector
+        utils.log("🔴 创建红点准星检测器")
+        return RedDotCrosshairDetector()
+    # ===== 未知类型回退 =====
     else:
-        utils.log(f"⚠️ 未知的检测器类型: {detector_type}，使用颜色检测器")
+        utils.log(f"❌ 未知的检测器类型: {detector_type}，回退到颜色检测")
         from .detectors.color_detector import ColorCrosshairDetector
         return ColorCrosshairDetector()
 
