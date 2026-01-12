@@ -95,8 +95,8 @@ class CrosshairManager:
     def _init_red_dot_detector(self):
         """初始化红点准星检测器"""
         utils.log("\n🎯 初始化准星检测（红点检测模式）")
-        from crosshair.detectors.red_dot_detector import EnhancedRedDotDetector
-        self.detector = EnhancedRedDotDetector(enable_debug=True)
+        from crosshair.detectors.red_dot_detector import SimpleRedDotDetector
+        self.detector = SimpleRedDotDetector(enable_debug=True)
         utils.log("   ✅ 增强版红点检测器初始化完成")
 
 
