@@ -96,7 +96,7 @@ class CrosshairManager:
         """初始化红点准星检测器"""
         utils.log("\n🎯 初始化准星检测（红点检测模式）")
         from crosshair.detectors.red_dot_detector import SimpleRedDotDetector
-        self.detector = SimpleRedDotDetector(enable_debug=True)
+        self.detector = SimpleRedDotDetector()
         utils.log("   ✅ 增强版红点检测器初始化完成")
 
 
@@ -465,7 +465,7 @@ def create_crosshair_manager(
     config_code: Optional[str] = None,
     detector_type: str = 'template',
     max_consecutive_misses: int = 10,
-    enable_smooth: bool = True,
+    enable_smooth: bool = False,
     smooth_factor: float = 0.7
 ) -> CrosshairManager:
     """

@@ -3,7 +3,7 @@ import queue
 from typing import Optional, Tuple
 import numpy as np
 
-
+import time
 class ThreadedCrosshairDetector:
     """多线程准星检测器"""
 
@@ -22,6 +22,9 @@ class ThreadedCrosshairDetector:
         # 统计信息
         self.detection_count = 0
         self.success_count = 0
+
+        self.last_report_time = time.time()
+        self.frames_processed = 0
 
     def start(self):
         """启动检测线程"""
@@ -89,6 +92,7 @@ class ThreadedCrosshairDetector:
 
                 # 执行检测
                 self.detection_count += 1
+
                 position = self.crosshair_manager.detect(
                     img=frame_data['img'],
                     capture_area=frame_data['area'],
@@ -100,7 +104,6 @@ class ThreadedCrosshairDetector:
                     if position is not None:
                         self.latest_position = position
                         self.success_count += 1
-
             except queue.Empty:
                 # 队列空了，继续等待
                 continue

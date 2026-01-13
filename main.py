@@ -340,7 +340,7 @@ class CoreService:
                     self.crosshair_manager = CrosshairManager(
                         detector_type=get_config('CROSSHAIR_DETECTOR_TYPE', 'template'),
                         valorant_config_code=get_config('CROSSHAIR_VALORANT_CONFIG', ''),
-                        enable_detection=True
+                        enable_detection=True,enable_smooth=False
                     )
                     self.threaded_detector = ThreadedCrosshairDetector(self.crosshair_manager)
                     self.threaded_detector.start()

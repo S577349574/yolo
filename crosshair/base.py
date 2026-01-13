@@ -83,8 +83,8 @@ class CrosshairDetector(ABC):
         abs_x_in_img = x1 + local_pos[0]
         abs_y_in_img = y1 + local_pos[1]
 
-        screen_x = capture_area['left'] + abs_x_in_img
-        screen_y = capture_area['top'] + abs_y_in_img
+        screen_x = round(capture_area['left'] + abs_x_in_img)
+        screen_y = round(capture_area['top'] + abs_y_in_img)
 
         # 5. 平滑处理
         if self.last_pos:
