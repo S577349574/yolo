@@ -23,7 +23,7 @@ class SimpleRedDotDetector(CrosshairDetector):
         self.red_upper2 = np.array([180, 255, 255])
 
         # 尺寸参数
-        self.min_red_area = 10
+        self.min_red_area = 5
         self.max_red_area = 50
 
         # 中心亮度验证
