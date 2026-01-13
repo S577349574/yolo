@@ -24,7 +24,7 @@ class SimpleRedDotDetector(CrosshairDetector):
 
         # 尺寸参数
         self.min_red_area = 10
-        self.max_red_area = 200
+        self.max_red_area = 50
 
         # 中心亮度验证
         self.min_center_brightness = 100

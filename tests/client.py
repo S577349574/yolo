@@ -1,4 +1,4 @@
-# test_client.py - 适配新版本（显示完整机器码 + 查看本机机器码功能）
+# client.py - 适配新版本（显示完整机器码 + 查看本机机器码功能）
 import time
 from datetime import datetime
 
@@ -254,7 +254,7 @@ class AdminClient:
             print(f"❌ 连接错误: {str(e)}")
 
 
-def test_connection():
+def connection():
     """测试服务器连接"""
     print("\n正在测试服务器连接...")
     print(f"服务器地址: {SERVER_URL}")
@@ -286,7 +286,7 @@ def test_connection():
         return False
 
 
-def test_scenario_1():
+def scenario_1():
     """测试场景1: 基础登录和心跳"""
     print("\n" + "=" * 50)
     print("测试场景1: 基础登录和心跳")
@@ -319,7 +319,7 @@ def test_scenario_1():
         print(f"❌ {message}")
 
 
-def test_scenario_2():
+def scenario_2():
     """测试场景2: 多设备登录限制"""
     print("\n" + "=" * 50)
     print("测试场景2: 多设备登录限制（机器码绑定）")
@@ -371,7 +371,7 @@ def test_scenario_2():
             print("❌ 设备2仍然无法登录")
 
 
-def test_scenario_3():
+def scenario_3():
     """测试场景3: 管理员功能测试"""
     print("\n" + "=" * 50)
     print("测试场景3: 管理员功能测试（含安全日志）")
@@ -425,7 +425,7 @@ def test_scenario_3():
         print(f"✅ 客户端{i + 1}已登出")
 
 
-def test_scenario_4():
+def scenario_4():
     """测试场景4: 安全防护测试"""
     print("\n" + "=" * 50)
     print("测试场景4: 安全防护测试")
@@ -472,7 +472,7 @@ def test_scenario_4():
     admin.get_security_logs(limit=10)
 
 
-def test_scenario_5():
+def scenario_5():
     """测试场景5: 机器码一致性验证"""
     print("\n" + "=" * 50)
     print("测试场景5: 机器码一致性验证")
@@ -586,7 +586,7 @@ def interactive_mode():
             admin.kick_device(card_key, machine_code)
 
         elif choice == "12":
-            test_connection()
+            connection()
 
         elif choice == "13":
             print(f"\n🆔 本机机器码: {auth.machine_code}")
@@ -609,7 +609,7 @@ if __name__ == "__main__":
     print(f"管理员密钥: {ADMIN_KEY}")
     print(f"密钥: {'*' * len(SECRET_KEY)}")
 
-    if not test_connection():
+    if not connection():
         print("\n⚠️ 无法连接到服务器，请解决连接问题后再试")
         input("\n按回车键退出...")
         exit(1)
@@ -625,15 +625,15 @@ if __name__ == "__main__":
     mode = input("\n请选择(1-6): ").strip()
 
     if mode == "1":
-        test_scenario_1()
+        scenario_1()
     elif mode == "2":
-        test_scenario_2()
+        scenario_2()
     elif mode == "3":
-        test_scenario_3()
+        scenario_3()
     elif mode == "4":
-        test_scenario_4()
+        scenario_4()
     elif mode == "5":
-        test_scenario_5()
+        scenario_5()
     elif mode == "6":
         interactive_mode()
     else:
