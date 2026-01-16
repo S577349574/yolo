@@ -1,7 +1,7 @@
 # benchmark.py
 """
-性能基准测试 - 简化版(10秒测试)
-只测试: MSS截图 + YOLO推理
+性能基准测试 - 多后端版本
+支持测试: ONNX Runtime / ncnn
 """
 
 import time
@@ -9,24 +9,57 @@ import numpy as np
 import mss
 import cv2
 
-from yolo_detector import YOLOv8Detector
 from config_manager import get_config
 
 
-def test_capture_and_inference(duration=10.0):
+def get_detector(backend='ncnn'):
+    """
+    获取指定后端的检测器
+
+    Args:
+        backend: 'onnx' | 'ncnn' | 'auto'
+
+    Returns:
+        detector 实例
+    """
+    if backend == 'auto':
+        # 使用重构后的 InferenceManager
+        from inference.manager import get_detector
+        return get_detector()
+
+    elif backend == 'onnx':
+        from inference.backends.onnx_backend import ONNXDetector
+        return ONNXDetector(preferred_backend='auto')
+
+    elif backend == 'ncnn':
+        from inference.backends.ncnn_backend import NCNNDetector
+        return NCNNDetector(use_gpu=True)
+
+    else:
+        raise ValueError(f"不支持的后端: {backend}")
+
+
+def test_capture_and_inference(backend='ncnn', duration=10.0):
     """测试截图+推理完整流程"""
     print("\n" + "=" * 60)
-    print(f"完整流程测试 (运行 {duration} 秒)")
+    print(f"完整流程测试 (后端: {backend.upper()}, 运行 {duration} 秒)")
     print("=" * 60)
 
     # 初始化
-    model = YOLOv8Detector()
+    model = get_detector(backend)
     crop_size = get_config('CROP_SIZE', 320)
 
     print(f"\n配置:")
+    print(f"   后端类型: {model.backend_name}")
     print(f"   截图区域: {crop_size}x{crop_size}")
-    print(f"   YOLO 输入: {model.img_size}x{model.img_size}")
-    print(f"   Provider: {model.session.get_providers()[0]}")
+
+    # 根据后端类型获取输入尺寸
+    if hasattr(model, 'img_size'):
+        img_size = model.img_size
+    else:
+        img_size = crop_size
+
+    print(f"   模型输入: {img_size}x{img_size}")
 
     # 计算截图区域
     with mss.mss() as sct:
@@ -82,28 +115,34 @@ def test_capture_and_inference(duration=10.0):
         img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
     # 预热
+    print("   预热中...")
     for _ in range(20):
         model.predict(img_bgr)
 
     inference_times = []
-    for _ in range(1000):
+    for i in range(1000):
         start = time.perf_counter()
         model.predict(img_bgr)
-        inference_times.append((time.perf_counter() - start) * 1000)
+        elapsed = (time.perf_counter() - start) * 1000
+        inference_times.append(elapsed)
+
+        # 每100次打印进度
+        if (i + 1) % 100 == 0:
+            print(f"   进度: {i + 1}/1000 (当前: {elapsed:.3f}ms)")
 
     avg_infer = sum(inference_times) / len(inference_times)
     min_infer = min(inference_times)
     max_infer = max(inference_times)
     p99_infer = sorted(inference_times)[int(len(inference_times) * 0.99)]
 
-    print(f"   平均: {avg_infer:.3f}ms")
+    print(f"\n   平均: {avg_infer:.3f}ms")
     print(f"   最小: {min_infer:.3f}ms")
     print(f"   最大: {max_infer:.3f}ms")
     print(f"   P99:  {p99_infer:.3f}ms")
     print(f"   标准差: {np.std(inference_times):.3f}ms")
     print(f"   理论最大 FPS: {1000 / avg_infer:.1f}")
 
-    # ==================== 阶段3: 完整流程 (10秒持续测试) ====================
+    # ==================== 阶段3: 完整流程 (持续测试) ====================
     print("\n" + "-" * 50)
     print(f"阶段3: 完整流程持续测试 ({duration}秒)")
     print("-" * 50)
@@ -192,6 +231,7 @@ def test_capture_and_inference(duration=10.0):
     print(f"   └──────────┴─────────┴─────────┴─────────┴─────────┘")
 
     print(f"\n   【整体性能】")
+    print(f"   • 后端类型: {model.backend_name}")
     print(f"   • 测试时长: {elapsed_total:.2f}s")
     print(f"   • 处理帧数: {frame_count}")
     print(f"   • 平均 FPS: {frame_count / elapsed_total:.1f}")
@@ -228,6 +268,96 @@ def test_capture_and_inference(duration=10.0):
     print("测试完成")
     print("=" * 60)
 
+    return {
+        'backend': model.backend_name,
+        'avg_total': avg_total,
+        'avg_inference': avg_inf,
+        'fps': frame_count / elapsed_total
+    }
+
+
+def compare_backends(duration=10.0):
+    """对比测试所有可用后端"""
+    backends_to_test = []
+
+    # 检测可用后端
+    try:
+        from inference.backends.onnx_backend import ONNXDetector
+        backends_to_test.append('onnx')
+    except:
+        pass
+
+    try:
+        from inference.backends.ncnn_backend import NCNNDetector
+        backends_to_test.append('ncnn')
+    except:
+        pass
+
+    if not backends_to_test:
+        print("❌ 没有可用的后端")
+        return
+
+    print("\n" + "=" * 60)
+    print("多后端对比测试")
+    print("=" * 60)
+    print(f"检测到可用后端: {', '.join(backends_to_test)}")
+
+    results = {}
+
+    for backend in backends_to_test:
+        try:
+            print(f"\n{'=' * 60}")
+            print(f"正在测试: {backend.upper()}")
+            print(f"{'=' * 60}")
+
+            result = test_capture_and_inference(backend=backend, duration=duration)
+            results[backend] = result
+
+            # 释放资源
+            import gc
+            gc.collect()
+            time.sleep(2)
+
+        except Exception as e:
+            print(f"\n❌ {backend.upper()} 测试失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ==================== 对比结果 ====================
+    if len(results) > 1:
+        print("\n" + "=" * 60)
+        print("后端性能对比")
+        print("=" * 60)
+
+        print(f"\n   ┌──────────────┬──────────┬──────────┬──────────┐")
+        print(f"   │  后端        │  总耗时  │  推理    │  FPS     │")
+        print(f"   ├──────────────┼──────────┼──────────┼──────────┤")
+
+        for backend, data in results.items():
+            print(f"   │ {data['backend']:12} │ {data['avg_total']:7.3f}  │ "
+                  f"{data['avg_inference']:7.3f}  │ {data['fps']:7.1f}  │")
+
+        print(f"   └──────────────┴──────────┴──────────┴──────────┘")
+
+        # 找出最快的后端
+        fastest = min(results.items(), key=lambda x: x[1]['avg_total'])
+        print(f"\n   🏆 最快后端: {fastest[0].upper()} "
+              f"({fastest[1]['avg_total']:.3f}ms, {fastest[1]['fps']:.1f} FPS)")
+
 
 if __name__ == '__main__':
-    test_capture_and_inference(duration=10.0)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='YOLO 推理性能测试')
+    parser.add_argument('--backend', type=str, default='ncnn',
+                        choices=['auto', 'onnx', 'ncnn', 'compare'],
+                        help='选择后端 (auto=自动选择, compare=对比所有后端)')
+    parser.add_argument('--duration', type=float, default=10.0,
+                        help='完整流程测试时长(秒)')
+
+    args = parser.parse_args()
+
+    if args.backend == 'compare':
+        compare_backends(duration=args.duration)
+    else:
+        test_capture_and_inference(backend=args.backend, duration=args.duration)

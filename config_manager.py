@@ -8,9 +8,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-
-# ========== 配置变更回调系统 ==========
-
 class ConfigCallbackManager:
     """配置变更回调管理器"""
 
@@ -135,6 +132,22 @@ class ConfigManager:
         return {
             # ========== 许可证 ==========
             "LICENSE_KEY": "",
+
+            # ========== 推理后端配置 ========== ⭐ 新增
+            "FORCE_BACKEND": None,  # 强制使用的后端: tensorrt/cuda/dml/ncnn_vulkan/ncnn_cpu/None(自动)
+
+            # ONNX Runtime 配置
+            "USE_TENSORRT": True,  # 是否启用TensorRT加速
+
+            # ncnn 配置
+            "NCNN_PARAM_PATH": None,  # ncnn模型参数文件路径（留空自动推断）
+            "NCNN_BIN_PATH": None,  # ncnn模型权重文件路径（留空自动推断）
+            "NCNN_INPUT_NAME": None,  # 输入层名称（留空自动检测）
+            "NCNN_OUTPUT_NAMES": None,  # 输出层名称列表（留空自动检测）
+            "NCNN_USE_FP16": True,  # 是否启用FP16加速
+
+            # 类别名称配置
+            "CLASS_NAMES_PATH": None,  # 类别名称文件路径（留空从模型目录的names.txt加载）
 
             # ========== 图像源配置 ==========
             "IMAGE_SOURCE_TYPE": "local",  # 可选: 'local' 或 'network'
@@ -303,6 +316,8 @@ class ConfigManager:
 
         # ========== 清理过期配置项 ==========
         deprecated_keys = [
+            "HEAD_PRIORITY_BONUS",
+            "DISTANCE_WEIGHT",
             "HEAD_PRIORITY_BONUS",           # 已替换为 HEAD_PRIORITY_RANGE
             "DISTANCE_WEIGHT",               # 不再使用
             "TARGET_SWITCH_THRESHOLD",       # 已替换为 TARGET_SWITCH_DISTANCE_THRESHOLD
@@ -413,6 +428,8 @@ class ConfigManager:
 
             # 脚本系统
             "SCRIPT_TIMEOUT_MS": (1, 1000, int, 10),
+
+            "NCNN_USE_FP16": (None, None, bool, True),  # 布尔值在后面单独验证
         }
 
         # 批量验证数值范围
@@ -428,6 +445,12 @@ class ConfigManager:
         # ========== 枚举值验证 ==========
         if c.get("IMAGE_SOURCE_TYPE") not in ["local", "network"]:
             c["IMAGE_SOURCE_TYPE"] = "local"
+        valid_backends = [None, "tensorrt", "cuda", "dml", "ncnn_vulkan", "ncnn_cpu", "cpu"]
+        if c.get("FORCE_BACKEND") not in valid_backends:
+            c["FORCE_BACKEND"] = None
+
+        if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "left_right", "left_button4", "left_button5"]:
+            c["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
         if c.get("MANUAL_RECOIL_TRIGGER_MODE") not in ["left_only", "left_right","left_button4","left_button5"]:
             c["MANUAL_RECOIL_TRIGGER_MODE"] = "left_only"
         if c.get("RECOIL_PATTERN") not in ["linear", "exponential", "custom"]:
@@ -439,7 +462,10 @@ class ConfigManager:
         for key in ["TARGET_CLASS_NAMES", "RECOIL_CUSTOM_PATTERN", "ENABLED_SCRIPTS"]:
             if not isinstance(c.get(key), list):
                 c[key] = self.get_default_config()[key]
-
+        # ⭐ 新增: NCNN_OUTPUT_NAMES 验证
+        if "NCNN_OUTPUT_NAMES" in c:
+            if c["NCNN_OUTPUT_NAMES"] is not None and not isinstance(c["NCNN_OUTPUT_NAMES"], list):
+                c["NCNN_OUTPUT_NAMES"] = None
         # TARGET_CLASS_IDS 特殊处理
         if "TARGET_CLASS_IDS" in c:
             try:
@@ -460,7 +486,9 @@ class ConfigManager:
             "AUTO_FIRE_DEBUG_MODE", "ENABLE_MANUAL_RECOIL", "ENABLE_RECOIL_CONTROL",
             "USE_DRIVER_MODE", "MOUSE_MODE_AUTO_FALLBACK", "RECOIL_REQUIRE_TARGET",
             "RECOIL_REQUIRE_LOCK", "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET",
-            "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE"
+            "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE",
+            "USE_TENSORRT",      # ⭐ 新增
+            "NCNN_USE_FP16",     # ⭐ 新增
         ]
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
@@ -476,7 +504,12 @@ class ConfigManager:
                 self._log(f"⚠ 模型文件不存在: {p}")
             c["MODEL_PATH"] = str(p)
         # ========== 准星检测验证 ==========
-
+        for key in ["NCNN_PARAM_PATH", "NCNN_BIN_PATH", "CLASS_NAMES_PATH"]:
+            if c.get(key) is not None and isinstance(c[key], str) and c[key].strip():
+                p = Path(c[key])
+                if not p.is_absolute():
+                    p = (self.app_dir / p).resolve()
+                c[key] = str(p)
         # 检测器类型验证
         if c.get("CROSSHAIR_DETECTOR_TYPE") not in ["color", "template","cross_shape","red_dot"]:
             c["CROSSHAIR_DETECTOR_TYPE"] = "template"
@@ -592,7 +625,24 @@ class ConfigManager:
         # ========== 配置分组（按功能划分）==========
         groups = {
             "许可证配置": ["LICENSE_KEY"],
+            "模型配置": [
+                # 通用模型配置
+                "MODEL_PATH",
+                "CLASS_NAMES_PATH",
 
+                # 后端选择
+                "FORCE_BACKEND",
+
+                # ONNX Runtime 配置
+                "USE_TENSORRT",
+
+                # ncnn 配置
+                "NCNN_PARAM_PATH",
+                "NCNN_BIN_PATH",
+                "NCNN_INPUT_NAME",
+                "NCNN_OUTPUT_NAMES",
+                "NCNN_USE_FP16"
+            ],
             "图像源配置": [
                 "IMAGE_SOURCE_TYPE", "CROP_SIZE",
                 "FRAME_PORT", "FRAME_WIDTH", "FRAME_HEIGHT", "FRAME_CHANNELS", "USE_LZ4",
@@ -603,7 +653,7 @@ class ConfigManager:
             ],
 
             "YOLO 检测": [
-                "MODEL_PATH", "CONF_THRESHOLD", "IOU_THRESHOLD",
+                "CONF_THRESHOLD", "IOU_THRESHOLD",
                 "TARGET_CLASS_IDS", "TARGET_CLASS_NAMES"
             ],
 
@@ -878,16 +928,10 @@ def get_all(self) -> Dict[str, Any]:
     with self._rw_lock:
         return self.config.copy()
 
-
-# ========== 全局事件信号系统 ==========
-# 1. 暂停/恢复信号 (Set=运行, Clear=暂停)
-# 默认设为 False (Clear)，等待 GUI 初始化完成后用户手动开启，或者在 GUI 初始化时自动开启
 _resume_event = threading.Event()
 
-# 2. 热重载信号 (Set=触发重载)
 _reload_event = threading.Event()
 
-# 3. 程序退出信号 (Set=退出)
 _stop_event = threading.Event()
 
 

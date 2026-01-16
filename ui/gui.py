@@ -413,10 +413,87 @@ def create_gui():
         with dpg.tab_bar():
 
             # ================= TAB 1: 基础设置 =================
+            # ================= TAB 1: 基础设置 =================
             with dpg.tab(label="基础 & 系统"):
-                dpg.add_text("核心配置", color=UIColors.APPLE_BLUE)
+                # ========== 原有配置（保持不变） ==========
+                dpg.add_text("许可证配置", color=UIColors.APPLE_BLUE)
                 add_input_text("LICENSE_KEY", "许可证密钥 (License)")
-                add_input_text("MODEL_PATH", "YOLO 模型路径")
+                # ========== 🔥 新增：核心模型配置 ========== ⭐
+                dpg.add_text("核心模型配置", color=UIColors.APPLE_BLUE)
+
+                add_input_text("MODEL_PATH", "YOLO 模型路径 (.onnx)")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("示例: models/yolov8n.onnx\n支持相对/绝对路径")
+
+                add_combo(
+                    "FORCE_BACKEND",
+                    "推理后端 (留空自动)",
+                    ["tensorrt", "cuda", "dml", "ncnn_vulkan", "ncnn_cpu", "cpu"]
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "tensorrt = TensorRT (仅NVIDIA)\n"
+                        "cuda = CUDA (NVIDIA)\n"
+                        "dml = DirectML (AMD/Intel)\n"
+                        "ncnn_vulkan = ncnn Vulkan (AMD推荐)\n"
+                        "ncnn_cpu = ncnn CPU模式\n"
+                        "cpu = 纯CPU模式"
+                    )
+
+                add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
+                add_float("IOU_THRESHOLD", "重叠剔除 (IOU)", 0.1, 0.99)
+
+                dpg.add_separator()
+
+                # ========== 🔥 新增：推理引擎高级配置（可折叠） ========== ⭐
+                with dpg.collapsing_header(label="推理引擎高级配置", default_open=False):
+                    dpg.add_text("ONNX Runtime 配置", color=UIColors.SECTION_HEADER)
+                    add_bool("USE_TENSORRT", "启用 TensorRT 加速 (仅NVIDIA)")
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("需要安装 TensorRT 并配置环境变量")
+
+                    dpg.add_separator()
+                    dpg.add_text("ncnn 模型文件配置", color=UIColors.SECTION_HEADER)
+                    dpg.add_text("说明：留空则自动从 MODEL_PATH 推断", color=UIColors.TEXT_GRAY, indent=20)
+
+                    add_input_text("NCNN_PARAM_PATH", "ncnn 参数文件 (.param)")
+                    add_input_text("NCNN_BIN_PATH", "ncnn 权重文件 (.bin)")
+
+                    dpg.add_separator()
+                    dpg.add_text("ncnn 网络结构配置", color=UIColors.SECTION_HEADER)
+                    dpg.add_text("说明：留空则自动从 .param 文件检测", color=UIColors.TEXT_GRAY, indent=20)
+
+                    add_input_text("NCNN_INPUT_NAME", "输入层名称")
+                    # NCNN_OUTPUT_NAMES 是列表，需要特殊处理
+                    current_outputs = cfg.get_config("NCNN_OUTPUT_NAMES", None)
+                    output_str = "" if current_outputs is None else ",".join(current_outputs)
+                    dpg.add_input_text(
+                        label="输出层名称（逗号分隔）",
+                        default_value=output_str,
+                        callback=lambda s, a: cfg.set_config(
+                            "NCNN_OUTPUT_NAMES",
+                            [x.strip() for x in a.split(",") if x.strip()] if a.strip() else None
+                        ),
+                        width=280
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("示例: out0,out1,out2\n留空自动检测")
+
+                    dpg.add_separator()
+                    dpg.add_text("ncnn 性能优化", color=UIColors.SECTION_HEADER)
+                    add_bool("NCNN_USE_FP16", "启用 FP16 加速 (仅GPU)")
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("半精度浮点运算，提升 AMD GPU 性能")
+
+                    dpg.add_separator()
+                    dpg.add_text("类别名称配置", color=UIColors.SECTION_HEADER)
+                    add_input_text("CLASS_NAMES_PATH", "类别名称文件路径")
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("示例: models/names.txt\n留空则从模型目录自动加载 names.txt")
+
+                dpg.add_separator()
+
+
 
                 dpg.add_separator()
                 dpg.add_text("系统性能", color=UIColors.APPLE_BLUE)

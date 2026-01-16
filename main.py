@@ -11,6 +11,7 @@ from threading import Event as ThreadEvent, Thread
 # === 模块导入 ===
 import makcu_patch
 from crosshair.threaded_crosshair_detector import ThreadedCrosshairDetector
+from inference.manager import YOLOv8Detector
 from key_monitor.factory import get_monitored_keys
 
 makcu_patch.apply()
@@ -28,7 +29,6 @@ from script_system import ScriptAPI, ScriptManager, EventSystem
 from script_system.shared_game_state import get_game_state
 from target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
-from yolo_detector import YOLOv8Detector
 from crosshair.crosshair_manager import CrosshairManager
 
 # ⭐ 服务器信息
