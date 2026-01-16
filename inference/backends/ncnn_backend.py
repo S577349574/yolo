@@ -188,31 +188,36 @@ class NCNNDetector(BaseDetector):
         utils.log(f"   平均: {avg:.2f}ms, 最小: {min_time:.2f}ms, 最大: {max_time:.2f}ms")
 
     def preprocess(self, img_bgr):
-        """预处理 - 转换为ncnn.Mat格式"""
-        # Resize
+        """优化预处理：一步到位减少内存拷贝"""
         img_resized = cv2.resize(img_bgr, (self.img_size, self.img_size))
 
-        # BGR -> RGB, 归一化, 转ncnn.Mat
-        mat_in = ncnn.Mat.from_pixels(
+        # 归一化参数：1/255 = 0.00392156
+        mean_vals = [0, 0, 0]
+        norm_vals = [0.00392156, 0.00392156, 0.00392156]
+
+        # 直接在创建时处理 BGR2RGB 和 归一化
+        mat_in = ncnn.Mat.from_pixels_resize(
             img_resized,
             ncnn.Mat.PixelType.PIXEL_BGR2RGB,
-            self.img_size,
-            self.img_size
+            self.img_size, self.img_size,
+            self.img_size, self.img_size
         )
-
-        # 归一化 (mean=0, norm=1/255)
-        mean_vals = [0.0, 0.0, 0.0]
-        norm_vals = [1.0/255.0, 1.0/255.0, 1.0/255.0]
         mat_in.substract_mean_normalize(mean_vals, norm_vals)
-
         return mat_in
 
     def _inference(self, img_bgr):
-        """执行推理 - 支持多输出"""
+        """执行推理 - 修复 AttributeError 并优化性能"""
         mat_in = self.preprocess(img_bgr)
 
         ex = self.net.create_extractor()
+        # 显式设置线程数（注意：如果使用了 Vulkan GPU，CPU 线程数影响较小）
+        # 在 Python 中，通常在 net.opt 中统一设置，但也可以在此处确保
+        # 如果需要设置线程，请确保在 net.opt 中已经设置过，或者调用全局函数：
+        # import ncnn
+        # ncnn.set_omp_num_threads(4)
+
         ex.set_light_mode(True)
+        # 移除 ex.set_num_threads(4) -> 这一行在 Python API 中不存在
 
         # 输入数据
         ex.input(self.input_name, mat_in)
@@ -224,15 +229,19 @@ class NCNNDetector(BaseDetector):
 
             if ret != 0:
                 utils.log(f"⚠️ ncnn提取输出 {output_name} 失败，错误码: {ret}")
-                return None
+                continue
 
+            # 转换为 numpy 数组
             outputs.append(np.array(mat_out))
 
-        # 如果只有一个输出，直接返回
+        if not outputs:
+            return None
+
+        # 如果只有一个输出（如日志显示自动检测到了 out0），直接返回第一个
         if len(outputs) == 1:
             return outputs[0]
 
-        # 多输出需要合并（YOLOv8的三个检测头）
+        # 多输出需要合并（针对没有在导出时合并头的 YOLOv8）
         return self._merge_multi_scale_outputs(outputs)
 
     def _merge_multi_scale_outputs(self, outputs):
@@ -263,73 +272,74 @@ class NCNNDetector(BaseDetector):
         # 在最后一维拼接
         return np.concatenate(merged, axis=2)
 
-    def postprocess(self, output, conf_threshold, iou_threshold) -> List[Dict[str, Any]]:
-        """后处理 - NMS"""
-        if output is None:
+    def postprocess(self, output: np.ndarray, conf_threshold: float, iou_threshold: float) -> List[Dict[str, Any]]:
+        """
+        高性能后处理实现
+
+        Args:
+            output: 模型推理输出，形状应为 [1, 84, 8400] 或 [84, 8400]
+            conf_threshold: 置信度阈值
+            iou_threshold: NMS IOU 阈值
+
+        Returns:
+            List[Dict]: 包含 box, confidence, class_id 的结果列表
+        """
+        if output is None or output.size == 0:
             return []
 
-        predictions = output
+        # 1. 维度对齐 [1, 84, 8400] -> [84, 8400]
+        if output.ndim == 3:
+            output = output[0]
 
-        # 处理输出形状 [1, 84, 8400] -> [8400, 84]
-        if predictions.ndim == 3:
-            predictions = predictions[0]  # 去掉batch维度
-        if predictions.shape[0] < predictions.shape[1]:
-            predictions = predictions.T  # 转置
+        # 2. 转置确保形状为 [8400, 84] (即 [候选框数量, 4个坐标+类别分数])
+        if output.shape[0] < output.shape[1]:
+            output = output.T
 
-        # 分离boxes和scores
-        boxes = predictions[:, :4]  # [N, 4] (x,y,w,h)
-        scores = predictions[:, 4:]  # [N, num_classes]
+        # 3. 快速过滤 (Vectorized Filtering)
+        # 提取类别分数并找到每个框的最大分数
+        scores = output[:, 4:]
+        max_scores = np.max(scores, axis=1)
 
-        # 获取最大置信度和类别
-        max_scores = scores.max(axis=1)
-        mask = np.asarray(max_scores > conf_threshold)  # ← 显式转换
-
-        if not mask.any():
+        # 仅保留大于阈值的索引，大幅减少后续运算量
+        keep_idx = max_scores > conf_threshold
+        if not np.any(keep_idx):
             return []
 
-        boxes = boxes[mask]
-        scores = scores[mask]
-        max_scores = max_scores[mask]
-        class_ids = scores.argmax(axis=1)
+        # 过滤数据
+        filtered_output = output[keep_idx]
+        filtered_max_scores = max_scores[keep_idx]
+        filtered_class_ids = np.argmax(filtered_output[:, 4:], axis=1)
 
-        # xywh -> xyxy
-        boxes_xyxy = self._xywh2xyxy(boxes)
+        # 4. 坐标转换 (仅针对过滤后的框)
+        # YOLOv8 输出通常是 cx, cy, w, h
+        boxes_xywh = filtered_output[:, :4]
+        boxes_xyxy = self._xywh2xyxy(boxes_xywh)
 
-        # 按类别分组NMS
+        # 5. 非极大值抑制 (NMS)
+        # 使用 OpenCV 的 NMSBoxes，其内部由 C++ 实现，速度极快
+        indices = cv2.dnn.NMSBoxes(
+            boxes_xyxy.tolist(),
+            filtered_max_scores.tolist(),
+            conf_threshold,
+            iou_threshold
+        )
+
+        # 6. 组装最终结果
         final_results = []
-        unique_classes = np.unique(class_ids)
-
-        for class_id in unique_classes:
-            class_mask = class_ids == class_id
-            class_boxes = boxes_xyxy[class_mask]
-            class_scores = max_scores[class_mask]
-
-            # OpenCV NMS
-            indices = cv2.dnn.NMSBoxes(
-                class_boxes.tolist(),
-                class_scores.tolist(),
-                conf_threshold,
-                iou_threshold
-            )
-
-            if len(indices) == 0:
-                continue
-
-            # 处理返回格式
+        if len(indices) > 0:
+            # 兼容不同版本的 OpenCV NMS 返回格式
             if isinstance(indices, np.ndarray):
                 indices = indices.flatten()
             else:
                 indices = [i[0] if isinstance(i, (list, tuple)) else i for i in indices]
 
-            # 获取原始索引
-            original_indices = np.where(class_mask)[0]
-
             for idx in indices:
-                global_idx = original_indices[idx]
+                # 注意：这里的 idx 是 filtered_output 中的索引
                 final_results.append({
-                    'box': boxes_xyxy[global_idx].tolist(),
-                    'confidence': float(max_scores[global_idx]),
-                    'class_id': int(class_id)
+                    'box': boxes_xyxy[idx].tolist(),
+                    'confidence': float(filtered_max_scores[idx]),
+                    'class_id': int(filtered_class_ids[idx]),
+                    'class_name': self.get_class_name(int(filtered_class_ids[idx]))
                 })
 
         return final_results

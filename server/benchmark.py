@@ -39,7 +39,7 @@ def get_detector(backend='ncnn'):
         raise ValueError(f"不支持的后端: {backend}")
 
 
-def test_capture_and_inference(backend='ncnn', duration=10.0):
+def capture_and_inference(backend='ncnn', duration=10.0):
     """测试截图+推理完整流程"""
     print("\n" + "=" * 60)
     print(f"完整流程测试 (后端: {backend.upper()}, 运行 {duration} 秒)")
@@ -310,7 +310,7 @@ def compare_backends(duration=10.0):
             print(f"正在测试: {backend.upper()}")
             print(f"{'=' * 60}")
 
-            result = test_capture_and_inference(backend=backend, duration=duration)
+            result = capture_and_inference(backend=backend, duration=duration)
             results[backend] = result
 
             # 释放资源
@@ -349,7 +349,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='YOLO 推理性能测试')
-    parser.add_argument('--backend', type=str, default='ncnn',
+    parser.add_argument('--backend', type=str, default='onnx',
                         choices=['auto', 'onnx', 'ncnn', 'compare'],
                         help='选择后端 (auto=自动选择, compare=对比所有后端)')
     parser.add_argument('--duration', type=float, default=10.0,
@@ -360,4 +360,4 @@ if __name__ == '__main__':
     if args.backend == 'compare':
         compare_backends(duration=args.duration)
     else:
-        test_capture_and_inference(backend=args.backend, duration=args.duration)
+        capture_and_inference(backend=args.backend, duration=args.duration)
