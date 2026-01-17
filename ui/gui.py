@@ -14,7 +14,15 @@ _gui_exit_event = threading.Event()
 _gui_running = False
 
 # 脚本文件夹路径
-SCRIPTS_DIR = "../scripts"
+current_file = os.path.abspath(__file__)
+
+# 向上推导路径：
+# 第一层 dirname: D:\yolov8\ui
+# 第二层 dirname: D:\yolov8 (这才是真正的项目根目录)
+root_dir = os.path.dirname(os.path.dirname(current_file))
+
+# 重新定义脚本目录
+SCRIPTS_DIR = os.path.join(root_dir, "scripts")
 
 
 # ========== 🎨 UI 颜色配置 (适配白色背景) ==========
@@ -139,28 +147,42 @@ def update_class_ids_callback(sender, app_data, user_data):
 # ================= 脚本管理逻辑 =================
 
 def update_script_state_callback(sender, app_data, user_data):
-    """处理脚本开关"""
+    """
+    sender: checkbox 的 ID
+    app_data: 当前 checkbox 的值 (True/False)
+    user_data: 脚本名称 (例如 "debug_system")
+    """
     script_name = user_data
     is_enabled = app_data
 
-    enabled_scripts = cfg.get_config("ENABLED_SCRIPTS", [])
-    if not isinstance(enabled_scripts, list): enabled_scripts = []
+    # 1. 获取当前已启用的脚本列表
+    current_enabled = cfg.get_config("ENABLED_SCRIPTS", [])
 
+    # 如果读取到的是字符串（为了兼容老配置），先转为列表
+    if isinstance(current_enabled, str):
+        current_enabled = [s.strip() for s in current_enabled.split(',') if s.strip()]
+
+    # 2. 根据勾选状态更新列表
     if is_enabled:
-        if script_name not in enabled_scripts:
-            enabled_scripts.append(script_name)
-            print(f"[GUI] 启用脚本: {script_name}")
+        if script_name not in current_enabled:
+            current_enabled.append(script_name)
     else:
-        if script_name in enabled_scripts:
-            enabled_scripts.remove(script_name)
-            print(f"[GUI] 禁用脚本: {script_name}")
+        if script_name in current_enabled:
+            current_enabled.remove(script_name)
 
-    cfg.set_config("ENABLED_SCRIPTS", enabled_scripts)
-    dpg.configure_item("status_text", default_value=f"[未保存] 脚本列表已更新", color=UIColors.WARNING_ORANGE)
+    # 3. 写回配置文件
+    # 建议保存为列表格式，这样 Python 处理起来最方便
+    cfg.set_config("ENABLED_SCRIPTS", current_enabled)
+
+    # 4. 刷新 UI 显示（可选，用于更新旁边的 "(已启用)" 文字）
     refresh_scripts_ui()
 
 
 def refresh_scripts_ui():
+
+    """扫描文件夹并重建脚本列表 UI"""
+    # 打印出当前 UI 正在尝试搜索的具体路径
+    print(f"[UI Debug] 正在扫描脚本目录: {os.path.abspath(SCRIPTS_DIR)}")
     """扫描文件夹并重建脚本列表 UI"""
     dpg.delete_item("script_list_container", children_only=True)
 
@@ -169,7 +191,12 @@ def refresh_scripts_ui():
 
     lua_files = glob.glob(os.path.join(SCRIPTS_DIR, "*.lua"))
     script_names = [os.path.splitext(os.path.basename(f))[0] for f in lua_files]
-    enabled_scripts = cfg.get_config("ENABLED_SCRIPTS", [])
+    enabled_config = cfg.get_config("ENABLED_SCRIPTS", [])
+    # 统一转换为列表，确保 name in enabled_scripts 判断准确
+    if isinstance(enabled_config, str):
+        enabled_scripts = [s.strip() for s in enabled_config.split(',') if s.strip()]
+    else:
+        enabled_scripts = enabled_config
 
     if not script_names:
         dpg.add_text("未找到脚本文件 (请在 scripts/ 文件夹放入 .lua)", parent="script_list_container",

@@ -19,9 +19,11 @@ class ScriptAPI:
         target_selector,
         yolo_detector,
         screen_capture,
-        key_monitor,  # ✅ 新增参数
+        key_monitor, 
+        command_sender, # ✅ 新增参数
         verbose=False
     ):
+        self.command_sender = command_sender
         self.verbose = verbose
         self.mouse = mouse_controller
         self.auto_fire = auto_fire_controller
@@ -60,6 +62,8 @@ class ScriptAPI:
         api.system = self._create_system_api(lua_runtime)
         api.log = self._create_log_api(lua_runtime)
         api.utils = self._create_utils_api(lua_runtime)
+
+        api.network = self._create_network_api(lua_runtime)
 
         api.storage = self._create_storage_api(lua_runtime)
         api.timer = self._create_timer_api(lua_runtime)
@@ -480,6 +484,38 @@ class ScriptAPI:
         storage_api.get_all = storage_get_all
 
         return storage_api
+
+    # ==================== 🌐 通用网络发包 API ====================
+
+    def _create_network_api(self, lua):
+        network_api = lua.table()
+
+        def send_packet(lua_table):
+            """
+            Lua 调用示例:
+            api.network.send_packet({ action = "aim", x = 10, y = 20 })
+            api.network.send_packet({ action = "capture", label = "boss" })
+            """
+            if not self.command_sender:
+                return False
+
+            # 每秒限制发包数量，防止 Lua 脚本死循环打死网络
+            if not self.rate_limiter.check("network_custom_send"):
+                return False
+
+            try:
+                # 将 Lua table 转换为 Python dict
+                py_dict = {}
+                for key in lua_table:
+                    py_dict[key] = lua_table[key]
+
+                return self.command_sender.send_custom(py_dict)
+            except Exception as e:
+                utils.log(f"[ScriptAPI] Lua 发包转换失败: {e}")
+                return False
+
+        network_api.send_packet = send_packet
+        return network_api
 
     # ==================== ⭐ 新增：定时器 API ====================
 

@@ -195,6 +195,7 @@ class CoreService:
     """
 
     def __init__(self):
+        self.command_sender = None
         self.target_selector = None
         self.capture_area = None
         self.screen_info = None
@@ -280,6 +281,16 @@ class CoreService:
             # 1. 加载配置
             load_config(force_reload=True)
             self.cached_config = CachedConfig()
+
+            try:
+                from network.command_sender import CommandSender
+                agent_ip = get_config("AGENT_IP", "127.0.0.1") # 从配置读取游戏机IP
+                cmd_port = get_config("COMMAND_PORT", 27016)   # 默认 27016
+                self.command_sender = CommandSender(target_host=agent_ip, target_port=cmd_port)
+                utils.log(f"🌐 网络指令发送器已就绪 -> {agent_ip}:{cmd_port}")
+            except Exception as e:
+                utils.log(f"⚠ 网络发送器初始化失败: {e}")
+                self.command_sender = None
 
             # 2. Makcu 硬件初始化
             use_makcu = get_config("USE_MAKCU", False)
@@ -398,6 +409,7 @@ class CoreService:
                             yolo_detector=self.model,
                             screen_capture=None,
                             key_monitor=self.key_monitor,
+                            command_sender=self.command_sender, # ✅ [修改] 注入网络发送器
                             verbose=get_config("SCRIPT_VERBOSE_LOGGING", False)
                         )
                         api.bind_app_state(self.app_state)
@@ -409,7 +421,14 @@ class CoreService:
                         scripts_dir="scripts"
                     )
                     self.script_manager.load_all_scripts()
-                    for script in get_config("ENABLED_SCRIPTS", []):
+                    enabled_config = get_config("ENABLED_SCRIPTS", [])
+                    if isinstance(enabled_config, str):
+                        scripts_to_enable = [s.strip() for s in enabled_config.split(',') if s.strip()]
+                    else:
+                        scripts_to_enable = enabled_config
+
+                    # 循环启用每一个脚本
+                    for script in scripts_to_enable:
                         self.script_manager.enable_script(script)
 
                     utils.log("✅ 脚本系统已加载")

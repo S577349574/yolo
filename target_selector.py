@@ -1,9 +1,9 @@
 # target_selector.py (完整修复版 - 支持真实准星位置)
 
 import math
-import numpy as np
-from collections import deque
 from typing import List, Dict, Optional, Tuple
+
+import numpy as np
 
 import utils
 from config_manager import get_config

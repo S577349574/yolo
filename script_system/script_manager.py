@@ -184,7 +184,6 @@ class ScriptManager:
                 utils.log(traceback.format_exc())
             return False
 
-    # ... 以下方法保持不变 ...
     def enable_script(self, script_name: str) -> bool:
         if script_name not in self.script_engines:
             utils.log(f"⚠️ 脚本未加载: {script_name}")
