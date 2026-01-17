@@ -284,7 +284,7 @@ class CoreService:
 
             try:
                 from network.command_sender import CommandSender
-                agent_ip = get_config("AGENT_IP", "127.0.0.1") # 从配置读取游戏机IP
+                agent_ip = get_config("AGENT_IP", "192.168.10.1") # 从配置读取游戏机IP
                 cmd_port = get_config("COMMAND_PORT", 27016)   # 默认 27016
                 self.command_sender = CommandSender(target_host=agent_ip, target_port=cmd_port)
                 utils.log(f"🌐 网络指令发送器已就绪 -> {agent_ip}:{cmd_port}")
