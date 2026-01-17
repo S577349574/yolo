@@ -25,39 +25,36 @@ function onInit()
 end
 
 function onFrame(targets, delta_time)
-    -- 1. 限制检测频率：每1秒才进入一次逻辑
-    if not api.timer.is_ready(CHECK_TIMER) then
-        return
-    end
+    -- 1. 频率限制
+    if not api.timer.is_ready(CHECK_TIMER) then return end
     api.timer.start(CHECK_TIMER, CHECK_INTERVAL)
 
-    -- 2. 检查是否有目标
     local target_count = api.len(targets)
     if target_count > 0 then
-        
-        -- 3. 遍历目标，寻找高置信度对象
-        local found_high_conf = false
+        -- 2. 遍历当前所有检测到的目标
         for i = 1, target_count do
-            if targets[i].confidence >= CONF_THRESHOLD then
-                found_high_conf = true
+            local t = targets[i]
+
+            -- 3. 如果满足高置信度条件，则按其类别保存
+            if t.confidence >= CONF_THRESHOLD and api.timer.is_ready(CAPTURE_TIMER) then
+
+                -- ⭐ 动态构造数据包
+                local cmd = {
+                    action = "capture",
+                    category = t.class_name,        -- 动态类别：如 "enemy", "teammate", "boss"
+                    label = "id_" .. t.class_id,    -- 文件名前缀
+                    width = 640,
+                    height = 640
+                }
+
+                local success = api.network.send_packet(cmd)
+                if success then
+                    api.log.info("[AutoCapture] 发现目标: " .. t.class_name .. "，已请求分类存储")
+                    api.timer.start(CAPTURE_TIMER, CAPTURE_INTERVAL)
+                end
+
+                -- 触发一次后跳出循环，避免同帧多次截图
                 break
-            end
-        end
-
-        -- 4. 如果找到目标且截图不在冷却中，则发送命令
-        if found_high_conf and api.timer.is_ready(CAPTURE_TIMER) then
-            local cmd = {
-                action = "capture",
-                width = 640,
-                height = 640,
-                label = "high_conf_target"
-            }
-
-            local success = api.network.send_packet(cmd)
-            if success then
-                api.log.info("[Network] 检测到高置信度目标，已发送截图请求")
-                -- 触发后进入 60 秒截图冷却，避免针对同一目标连续截图
-                api.timer.start(CAPTURE_TIMER, CAPTURE_INTERVAL)
             end
         end
     end
