@@ -1,3 +1,4 @@
+simplejpeg
 makcu
 watchdog
 pywin32

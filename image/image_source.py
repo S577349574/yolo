@@ -8,7 +8,7 @@ from typing import Optional
 import numpy as np
 
 import utils
-from image.frame_receiver import FrameReceiver
+from network.video_receiver import FrameReceiver
 
 
 class ImageSource(ABC):
