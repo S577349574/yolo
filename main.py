@@ -8,6 +8,7 @@ import time
 import traceback
 from threading import Event as ThreadEvent, Thread
 
+import config_manager
 # === 模块导入 ===
 import makcu_patch
 from crosshair.threaded_crosshair_detector import ThreadedCrosshairDetector
@@ -353,7 +354,14 @@ class CoreService:
                         valorant_config_code=get_config('CROSSHAIR_VALORANT_CONFIG', ''),
                         enable_detection=True,enable_smooth=False
                     )
-                    self.threaded_detector = ThreadedCrosshairDetector(self.crosshair_manager)
+                    crop_size = self.cached_config.crop_size
+                    img_shape = (crop_size, crop_size, config_manager.get_config("FRAME_CHANNELS"))  # BGRA = 4 通道
+
+                    # ✅ 传入 img_shape 参数
+                    self.threaded_detector = ThreadedCrosshairDetector(
+                        crosshair_manager=self.crosshair_manager,
+                        img_shape=img_shape
+                    )
                     self.threaded_detector.start()
                     utils.log("✅ 准星检测系统初始化完成")
                 except Exception as e:

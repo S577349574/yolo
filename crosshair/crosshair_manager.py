@@ -192,24 +192,15 @@ class CrosshairManager:
         )
 
         # ========== 针对小红点优化参数 ==========
-        if is_dot_only:
-            utils.log("   🔴 检测到纯中心点准星，应用优化配置...")
-            self.detector.threshold = 0.6
-            self.detector.search_radius = 120
-            self.detector.smooth_factor = 0.3
-            self.detector.color_tolerance = 50
-            utils.log(f"     └─ 阈值: {self.detector.threshold} | "
-                      f"搜索半径: {self.detector.search_radius}px | "
-                      f"颜色容差: {self.detector.color_tolerance}")
-        else:
-            utils.log("   ➕ 检测到标准准星，使用默认配置...")
-            self.detector.threshold = 0.75
-            self.detector.search_radius = 120
-            self.detector.smooth_factor = 0.2
-            self.detector.color_tolerance = 40
-            utils.log(f"     └─ 阈值: {self.detector.threshold} | "
-                      f"搜索半径: {self.detector.search_radius}px | "
-                      f"颜色容差: {self.detector.color_tolerance}")
+
+        utils.log("   ➕ 检测到标准准星，使用默认配置...")
+        self.detector.threshold = 0.75
+        self.detector.search_radius = 120
+        self.detector.smooth_factor = 0.2
+        self.detector.color_tolerance = 40
+        utils.log(f"     └─ 阈值: {self.detector.threshold} | "
+                  f"搜索半径: {self.detector.search_radius}px | "
+                  f"颜色容差: {self.detector.color_tolerance}")
 
         utils.log(f"   ✅ 模板检测器配置完成")
 

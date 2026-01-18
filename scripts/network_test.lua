@@ -1,3 +1,4 @@
+
 -- scripts/auto_capture.lua
 
 function getScriptConfig()
@@ -8,7 +9,7 @@ end
 local CHECK_TIMER = "check_cooldown"
 local CAPTURE_TIMER = "capture_cooldown"
 local CHECK_INTERVAL = 1.0     -- 每1秒检测一次目标
-local CAPTURE_INTERVAL = 60.0  -- 两次截图之间的最小间隔（防止频繁触发）
+local CAPTURE_INTERVAL = 1.0  -- 两次截图之间的最小间隔（防止频繁触发）
 local CONF_THRESHOLD = 0.7     -- 置信度阈值
 
 function onInit()

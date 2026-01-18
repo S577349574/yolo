@@ -222,7 +222,6 @@ class AutoFireController:
 
             current_time = time.time()
             if current_time - self.last_log_time > self.log_interval:
-                utils.log("🔫 开始自动射击")
                 self.last_log_time = current_time
 
             left_down = get_config('APP_MOUSE_LEFT_DOWN', 1)

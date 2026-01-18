@@ -517,7 +517,6 @@ class ScriptAPI:
                 py_dict = {}
                 for key in lua_table:
                     py_dict[key] = lua_table[key]
-
                 return self.command_sender.send_custom(py_dict)
             except Exception as e:
                 utils.log(f"[ScriptAPI] Lua 发包转换失败: {e}")

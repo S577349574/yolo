@@ -191,7 +191,7 @@ class MakcuMouseController(MouseControllerBase):
         """定期输出性能统计"""
         now = time.time()
         if now - self.last_stats_log > 10.0:  # 每10秒
-            utils.log(
+            utils.log_debug(
                 f"[MakcuQueue] 统计 - 已发送: {self.stats['sent']} | "
                 f"已丢弃: {self.stats['dropped']} | "
                 f"已合并: {self.stats['merged']} | "

@@ -241,6 +241,11 @@ class TargetSelector:
         """
 
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
+        target_class_ids = get_config('TARGET_CLASS_IDS', [0, 1])
+        candidate_targets = [
+            t for t in candidate_targets
+            if t.get('class_id') in target_class_ids
+        ]
 
         # ⭐ 确定参考点（准星位置）
         if reference_x is None or reference_y is None:

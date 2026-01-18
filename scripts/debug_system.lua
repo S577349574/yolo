@@ -11,7 +11,7 @@ local DEBUG_LEVELS = {
     TARGET = true,         -- 目标检测信息
     PERFORMANCE = true,    -- 性能监控（FPS、帧间隔）
     STATISTICS = true,     -- 统计分析（累计数据）
-    FIRE = true,           -- 射击状态
+    FIRE = false,           -- 射击状态
     MOVEMENT = false,      -- 鼠标移动详情
     DETAILED = false       -- 详细调试（每帧目标详情）
 }
