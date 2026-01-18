@@ -1,7 +1,3 @@
-
-以下是修改后的代码，已去除所有表情符号：
-
-```lua
 -- scripts/auto_capture.lua
 
 function getScriptConfig()

@@ -3,11 +3,15 @@ Lua 脚本 API 实现 - 优化版（使用共享状态）
 """
 
 import math
+import os
 import time
+
+import numpy as np
 
 import utils
 from config_manager import get_config, set_config, save_config
 from .rate_limiter import RateLimiter
+from .script_capture import ScriptScreenCapture
 from .shared_game_state import get_game_state
 
 
@@ -40,7 +44,11 @@ class ScriptAPI:
         # 启动时间
         self.start_time = time.time()
         self.last_frame_time = time.time()
-
+        try:
+            self.script_capture = ScriptScreenCapture(save_dir="collected_images")
+        except Exception as e:
+            utils.log(f"[ScriptAPI] 脚本截图器初始化失败: {e}")
+            self.script_capture = None
 
         self.script_storage = {}  # 用于存储跨帧数据
         self.script_timers = {}   # 用于存储定时器
@@ -67,6 +75,7 @@ class ScriptAPI:
 
         api.storage = self._create_storage_api(lua_runtime)
         api.timer = self._create_timer_api(lua_runtime)
+        api.capture = self._create_capture_api(lua_runtime)  # ⭐ 新增
         # 辅助函数
         api["getLength"] = lambda obj: len(obj) if hasattr(obj, '__len__') else 0
         api["len"] = api["getLength"]
@@ -518,7 +527,54 @@ class ScriptAPI:
         return network_api
 
     # ==================== ⭐ 新增：定时器 API ====================
+    # script_api.py (在 ScriptAPI 类中添加)
+    def _create_capture_api(self, lua):
+        """创建 Lua 截图 API"""
+        capture_api = lua.table()
 
+        def save_screenshot(category, label=None, width=640, height=640):
+            """保存截图"""
+            # ⭐ 检查速率限制
+            if not self.rate_limiter.check("local_capture"):
+                return False
+
+            # ⭐ 检查截图器是否可用
+            if self.script_capture is None:
+                utils.log("[Capture] 截图器未初始化")
+                return False
+
+            # ⭐ 调用独立截图器
+            return self.script_capture.save_screenshot(
+                category=category,
+                label=label,
+                width=int(width),
+                height=int(height)
+            )
+
+        def get_screen_info():
+            """获取屏幕信息"""
+            info = lua.table()
+            if self.script_capture:
+                screen_info = self.script_capture.get_screen_info()
+                info.width = screen_info['width']
+                info.height = screen_info['height']
+                info.capture_count = screen_info['capture_count']
+            else:
+                info.width = 0
+                info.height = 0
+                info.capture_count = 0
+            return info
+
+        # 注册函数
+        capture_api.save = save_screenshot
+        capture_api.get_info = get_screen_info
+
+        return capture_api
+
+    def cleanup(self):
+        """清理资源"""
+        if self.script_capture:
+            self.script_capture.cleanup()
     def _create_timer_api(self, lua):
         """创建定时器 API（用于冷却时间管理）"""
         timer_api = lua.table()

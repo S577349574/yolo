@@ -25,6 +25,9 @@ class ThreadedCrosshairDetector:
 
         self.last_report_time = time.time()
         self.frames_processed = 0
+        self.shared_img = mp.Array('B', int(np.prod(img_shape)))
+        self.img_shape = img_shape
+        self.img_lock = threading.Lock()
 
     def start(self):
         """启动检测线程"""
@@ -47,24 +50,22 @@ class ThreadedCrosshairDetector:
             self.detection_thread.join(timeout=1.0)
         print("⏹️ 准星检测线程已停止")
 
-    def submit_frame(self, img_bgra: np.ndarray, capture_area: dict, fallback_center: Tuple[int, int]):
-        """
-        提交新帧供检测（非阻塞）
+    def submit_frame(self, img_bgra, capture_area, fallback_center):
+        # 快速写入共享内存(无需复制)
+        with self.img_lock:
+            np.copyto(
+                np.frombuffer(self.shared_img.get_obj(), dtype=np.uint8).reshape(self.img_shape),
+                img_bgra
+            )
 
-        Args:
-            img_bgra: BGRA图像
-            capture_area: 捕获区域信息
-            fallback_center: 后备中心点
-        """
+        # 只传递元数据
         try:
-            # 非阻塞放入队列，如果队列满了就丢弃旧帧
             self.image_queue.put_nowait({
-                'img': img_bgra.copy(),  # ⚠️ 必须复制，避免数据竞争
                 'area': capture_area,
-                'fallback': fallback_center
+                'fallback': fallback_center,
+                'timestamp': time.time()
             })
         except queue.Full:
-            # 队列满了，丢弃当前帧（准星检测不需要每帧都检测）
             pass
 
     def get_position(self, fallback_center: Tuple[int, int]) -> Tuple[int, int]:
@@ -84,31 +85,28 @@ class ThreadedCrosshairDetector:
                 return fallback_center
 
     def _detection_loop(self):
-        """检测线程主循环"""
         while self.running:
             try:
-                # 阻塞获取新帧（最多等待0.1秒）
-                frame_data = self.image_queue.get(timeout=0.1)
+                meta = self.image_queue.get(timeout=0.1)
 
-                # 执行检测
-                self.detection_count += 1
+                # 从共享内存读取图像
+                with self.img_lock:
+                    img = np.frombuffer(
+                        self.shared_img.get_obj(),
+                        dtype=np.uint8
+                    ).reshape(self.img_shape).copy()  # 这里复制一次用于检测
 
                 position = self.crosshair_manager.detect(
-                    img=frame_data['img'],
-                    capture_area=frame_data['area'],
-                    fallback_center=frame_data['fallback']
+                    img=img,
+                    capture_area=meta['area'],
+                    fallback_center=meta['fallback']
                 )
 
-                # 更新最新位置（线程安全）
                 with self.position_lock:
-                    if position is not None:
-                        self.latest_position = position
-                        self.success_count += 1
+                    self.latest_position = position
+
             except queue.Empty:
-                # 队列空了，继续等待
                 continue
-            except Exception as e:
-                print(f"❌ 准星检测线程异常: {e}")
 
     def get_stats(self) -> dict:
         """获取统计信息"""
