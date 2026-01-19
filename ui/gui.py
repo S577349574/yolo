@@ -1,3 +1,4 @@
+import sys
 import threading
 import dearpygui.dearpygui as dpg
 import config_manager as cfg
@@ -5,6 +6,8 @@ import os
 import glob
 import cv2
 import numpy as np
+
+import utils
 
 # 1. 加载配置
 cfg.load_config()
@@ -14,15 +17,7 @@ _gui_exit_event = threading.Event()
 _gui_running = False
 
 # 脚本文件夹路径
-current_file = os.path.abspath(__file__)
 
-# 向上推导路径：
-# 第一层 dirname: D:\yolov8\ui
-# 第二层 dirname: D:\yolov8 (这才是真正的项目根目录)
-root_dir = os.path.dirname(os.path.dirname(current_file))
-
-# 重新定义脚本目录
-SCRIPTS_DIR = os.path.join(root_dir, "scripts")
 
 
 # ========== 🎨 UI 颜色配置 (适配白色背景) ==========
@@ -179,10 +174,10 @@ def update_script_state_callback(sender, app_data, user_data):
 
 
 def refresh_scripts_ui():
-
+    SCRIPTS_DIR = utils.get_scripts_dir()
     """扫描文件夹并重建脚本列表 UI"""
     # 打印出当前 UI 正在尝试搜索的具体路径
-    print(f"[UI Debug] 正在扫描脚本目录: {os.path.abspath(SCRIPTS_DIR)}")
+    print(f"[UI Debug] 正在扫描脚本目录: {SCRIPTS_DIR}")
     """扫描文件夹并重建脚本列表 UI"""
     dpg.delete_item("script_list_container", children_only=True)
 

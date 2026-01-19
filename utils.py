@@ -1,11 +1,56 @@
 # utils.py
 # -*- coding: utf-8 -*-
 
+import datetime
 import math
 import sys
-import datetime
+from pathlib import Path
+
 from config_manager import get_config  # ← 添加这一行
 
+_app_dir = None  # 缓存，避免重复计算
+
+
+def get_app_dir():
+    """获取应用程序根目录（兼容所有打包工具）"""
+    global _app_dir
+    if _app_dir is not None:
+        return _app_dir
+
+    # 检测是否为打包环境
+    argv0_path = Path(sys.argv[0]).resolve()
+    is_exe = argv0_path.suffix.lower() == '.exe'
+
+    try:
+        import __compiled__
+        is_nuitka = True
+    except ImportError:
+        is_nuitka = False
+
+    is_frozen = getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
+    is_packaged = is_exe or is_nuitka or is_frozen
+
+    # 确定工作目录
+    if is_packaged:
+        if is_exe and argv0_path.exists():
+            _app_dir = argv0_path.parent
+        else:
+            _app_dir = Path(sys.executable).resolve().parent
+    else:
+        # 开发环境：从当前文件往上找到项目根目录
+        # 假设 utils.py 在项目根目录
+        _app_dir = Path(__file__).parent.resolve()
+
+    return _app_dir
+
+
+def get_scripts_dir():
+    """获取脚本目录"""
+    return get_app_dir() / "scripts"
+
+def refresh_scripts_ui():
+    scripts_dir = get_scripts_dir()
+    print(f"[UI Debug] 正在扫描脚本目录: {scripts_dir}")
 def get_screen_info():
     """获取屏幕信息"""
     import mss

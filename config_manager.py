@@ -279,7 +279,7 @@ class ConfigManager:
             "AUTO_FIRE_DEBUG_MODE": False,
 
             # ========== 压枪模式 ==========
-            "ENABLE_MANUAL_RECOIL": True,
+            "ENABLE_MANUAL_RECOIL": False,
             "ENABLE_RECOIL_CONTROL": True,
             "MANUAL_RECOIL_TRIGGER_MODE": "left_only",
 
