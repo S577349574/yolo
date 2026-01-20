@@ -38,7 +38,7 @@ class PreviewWindow:
         self.show_all_classes = get_config('PREVIEW_SHOW_ALL_CLASSES', True)
         self.highlight_targets = get_config('PREVIEW_HIGHLIGHT_TARGETS', True)
         self.show_crosshair_detection = get_config('PREVIEW_SHOW_CROSSHAIR_DETECTION', True)
-
+        self.show_search_area = get_config('PREVIEW_SHOW_SEARCH_AREA', True)
         self.box_thickness = get_config('PREVIEW_BOX_THICKNESS', 2)
         self.text_scale = get_config('PREVIEW_TEXT_SCALE', 0.5)
         self.frame_skip = get_config('PREVIEW_FRAME_SKIP', 2)
@@ -57,6 +57,7 @@ class PreviewWindow:
             'crosshair': (0, 0, 255),  # 红色 - 真实准星位置
             'crosshair_detected': (0, 255, 255),  # 黄色 - 检测到的准星（调试用）
             'aim_point': (255, 0, 255),
+            'search_area': (128, 128, 128),
             'fps_good': (0, 255, 0),
             'fps_medium': (0, 165, 255),
             'fps_low': (0, 0, 255)
@@ -230,7 +231,8 @@ class PreviewWindow:
             self._draw_detections(
                 display_img, results, target_class_ids, is_locked, class_names
             )
-
+        if self.show_search_area and screen_center:
+            self._draw_search_area(display_img, screen_center, w, h)
         # ⭐⭐⭐ 修复：绘制真实准星位置（红色十字）⭐⭐⭐
         if self.show_crosshair and screen_center:
             self._draw_crosshair(display_img, screen_center, w, h)
@@ -521,6 +523,157 @@ class PreviewWindow:
         elif key == ord('c') or key == ord('C'):
             self.show_crosshair_detection = not self.show_crosshair_detection
             utils.log(f"准星检测显示: {'开' if self.show_crosshair_detection else '关'}")
+        elif key == ord('s') or key == ord('S'):
+            self.show_search_area = not self.show_search_area
+            utils.log(f"准星搜索区域: {'开' if self.show_search_area else '关'}")
+
+    def _draw_search_area(
+            self,
+            img: np.ndarray,
+            screen_center: Tuple[int, int],
+            img_width: int,
+            img_height: int
+    ):
+        """
+        ⭐ 绘制准星搜索区域（长方形框）
+
+        Args:
+            screen_center: 屏幕坐标系的准星位置
+            img_width: 捕获图像的宽度
+            img_height: 捕获图像的高度
+        """
+        # 获取搜索区域配置
+        from config_manager import get_config
+        bounds = get_config('CROSSHAIR_SEARCH_BOUNDS', {
+            'x_left': -30,
+            'x_right': 30,
+            'y_up': -150,
+            'y_down': 20
+        })
+
+        # 获取屏幕尺寸
+        from utils import get_screen_info
+        screen_info = get_screen_info()
+        screen_width = screen_info['width']
+        screen_height = screen_info['height']
+
+        # 计算捕获区域在屏幕上的位置（假设居中捕获）
+        capture_left = (screen_width - img_width) // 2
+        capture_top = (screen_height - img_height) // 2
+
+        # 将屏幕坐标转换为图像坐标
+        crosshair_x = screen_center[0] - capture_left
+        crosshair_y = screen_center[1] - capture_top
+
+        # 计算搜索区域的四个角点（相对于准星位置）
+        search_x1 = int(crosshair_x + bounds['x_left'])
+        search_x2 = int(crosshair_x + bounds['x_right'])
+        search_y1 = int(crosshair_y + bounds['y_up'])
+        search_y2 = int(crosshair_y + bounds['y_down'])
+
+        # 限制在图像范围内
+        search_x1 = max(0, min(img_width - 1, search_x1))
+        search_x2 = max(0, min(img_width - 1, search_x2))
+        search_y1 = max(0, min(img_height - 1, search_y1))
+        search_y2 = max(0, min(img_height - 1, search_y2))
+
+        # 绘制搜索区域矩形框（虚线风格）
+        color = self.special_colors['search_area']  # 灰色
+        thickness = 1
+
+        # 使用虚线绘制（模拟虚线效果）
+        self._draw_dashed_rectangle(
+            img,
+            (search_x1, search_y1),
+            (search_x2, search_y2),
+            color,
+            thickness,
+            dash_length=10
+        )
+
+    def _draw_dashed_rectangle(
+            self,
+            img: np.ndarray,
+            pt1: Tuple[int, int],
+            pt2: Tuple[int, int],
+            color: Tuple[int, int, int],
+            thickness: int = 1,
+            dash_length: int = 10
+    ):
+        """
+        绘制虚线矩形
+
+        Args:
+            pt1: 左上角坐标
+            pt2: 右下角坐标
+            color: 颜色
+            thickness: 线条粗细
+            dash_length: 虚线段长度
+        """
+        x1, y1 = pt1
+        x2, y2 = pt2
+
+        # 绘制四条边（虚线）
+        # 上边
+        self._draw_dashed_line(img, (x1, y1), (x2, y1), color, thickness, dash_length)
+        # 下边
+        self._draw_dashed_line(img, (x1, y2), (x2, y2), color, thickness, dash_length)
+        # 左边
+        self._draw_dashed_line(img, (x1, y1), (x1, y2), color, thickness, dash_length)
+        # 右边
+        self._draw_dashed_line(img, (x2, y1), (x2, y2), color, thickness, dash_length)
+
+    def _draw_dashed_line(
+            self,
+            img: np.ndarray,
+            pt1: Tuple[int, int],
+            pt2: Tuple[int, int],
+            color: Tuple[int, int, int],
+            thickness: int = 1,
+            dash_length: int = 10
+    ):
+        """
+        绘制虚线
+
+        Args:
+            pt1: 起点
+            pt2: 终点
+            color: 颜色
+            thickness: 线条粗细
+            dash_length: 虚线段长度
+        """
+        x1, y1 = pt1
+        x2, y2 = pt2
+
+        # 计算总长度和方向
+        dx = x2 - x1
+        dy = y2 - y1
+        length = np.sqrt(dx ** 2 + dy ** 2)
+
+        if length == 0:
+            return
+
+        # 单位方向向量
+        ux = dx / length
+        uy = dy / length
+
+        # 绘制虚线段
+        current_length = 0
+        is_dash = True
+
+        while current_length < length:
+            segment_length = min(dash_length, length - current_length)
+
+            if is_dash:
+                start_x = int(x1 + ux * current_length)
+                start_y = int(y1 + uy * current_length)
+                end_x = int(x1 + ux * (current_length + segment_length))
+                end_y = int(y1 + uy * (current_length + segment_length))
+
+                cv2.line(img, (start_x, start_y), (end_x, end_y), color, thickness, cv2.LINE_AA)
+
+            current_length += segment_length
+            is_dash = not is_dash
 
     def close(self):
         """关闭窗口"""

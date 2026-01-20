@@ -3,10 +3,7 @@ Lua 脚本 API 实现 - 优化版（使用共享状态）
 """
 
 import math
-import os
 import time
-
-import numpy as np
 
 import utils
 from config_manager import get_config, set_config, save_config

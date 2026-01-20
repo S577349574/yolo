@@ -166,6 +166,16 @@ class ConfigManager:
             "CROSSHAIR_USE_FALLBACK_CENTER": True,         # 检测失败时使用屏幕中心
             "CROSSHAIR_DEBUG_MODE": False,                 # 调试模式（显示详细日志）
             "CROSSHAIR_STATS_INTERVAL": 300,
+            "CROSSHAIR_SEARCH_BOUNDS": {
+                "x_left": -30,  # 向左搜索 30px
+                "x_right": 30,  # 向右搜索 30px
+                "y_up": -150,  # 向上搜索 150px（后坐力主要方向）
+                "y_down": 20  # 向下搜索 20px
+            },
+
+            # ⭐ 新增：准星平滑配置
+            "CROSSHAIR_SMOOTH_FACTOR": 0.3,  # 平滑系数 0~1
+            "CROSSHAIR_MAX_LOST_FRAMES": 5,
             # 预览窗口
             "ENABLE_PREVIEW_WINDOW": False,
             "PREVIEW_WINDOW_WIDTH": 800,
@@ -177,6 +187,7 @@ class ConfigManager:
             "PREVIEW_SHOW_FPS": True,
             "PREVIEW_SHOW_CROSSHAIR": True,
             "PREVIEW_SHOW_AIM_POINT": True,
+            "PREVIEW_SHOW_SEARCH_AREA": True,
             "PREVIEW_BOX_THICKNESS": 2,
             "PREVIEW_TEXT_SCALE": 0.5,
 
@@ -488,13 +499,51 @@ class ConfigManager:
             "RECOIL_REQUIRE_LOCK", "USE_KALMAN_FILTER", "ENABLE_LEAD_TARGET",
             "SCRIPT_AUTO_RELOAD", "SCRIPT_DEBUG_MODE",
             "USE_TENSORRT",      # ⭐ 新增
-            "NCNN_USE_FP16",     # ⭐ 新增
+            "NCNN_USE_FP16", "PREVIEW_SHOW_SEARCH_AREA"    # ⭐ 新增
         ]
         for key in bool_keys:
             if not isinstance(c.get(key), bool):
                 c[key] = self.get_default_config().get(key, False)
 
-        # ========== MODEL_PATH 路径处理 ==========
+
+        # ⭐ 新增：搜索区域边界验证
+        if "CROSSHAIR_SEARCH_BOUNDS" in c:
+            bounds = c.get("CROSSHAIR_SEARCH_BOUNDS", {})
+            if not isinstance(bounds, dict):
+                c["CROSSHAIR_SEARCH_BOUNDS"] = self.get_default_config()["CROSSHAIR_SEARCH_BOUNDS"]
+            else:
+                # 验证每个边界值
+                default_bounds = self.get_default_config()["CROSSHAIR_SEARCH_BOUNDS"]
+                for key in ["x_left", "x_right", "y_up", "y_down"]:
+                    if key not in bounds:
+                        bounds[key] = default_bounds[key]
+                    else:
+                        try:
+                            bounds[key] = int(bounds[key])
+                            # 限制范围：-500 到 500
+                            bounds[key] = max(-500, min(500, bounds[key]))
+                        except (ValueError, TypeError):
+                            bounds[key] = default_bounds[key]
+                c["CROSSHAIR_SEARCH_BOUNDS"] = bounds
+
+        # ⭐ 新增：平滑系数验证
+        smooth_factor = c.get("CROSSHAIR_SMOOTH_FACTOR", 0.3)
+        try:
+            smooth_factor = float(smooth_factor)
+            smooth_factor = max(0.0, min(1.0, smooth_factor))
+        except (ValueError, TypeError):
+            smooth_factor = 0.3
+        c["CROSSHAIR_SMOOTH_FACTOR"] = smooth_factor
+
+        # ⭐ 新增：最大丢失帧数验证
+        max_lost = c.get("CROSSHAIR_MAX_LOST_FRAMES", 5)
+        try:
+            max_lost = int(max_lost)
+            max_lost = max(1, min(60, max_lost))
+        except (ValueError, TypeError):
+            max_lost = 5
+        c["CROSSHAIR_MAX_LOST_FRAMES"] = max_lost
+
         model_path = c.get("MODEL_PATH", "320.onnx")
         if isinstance(model_path, str) and model_path.strip():
             p = Path(model_path)
@@ -649,7 +698,7 @@ class ConfigManager:
                 "PREVIEW_FRAME_SKIP", "ENABLE_PREVIEW_WINDOW", "PREVIEW_WINDOW_WIDTH", "PREVIEW_WINDOW_HEIGHT",
                 "PREVIEW_SHOW_BOXES", "PREVIEW_SHOW_LABELS", "PREVIEW_SHOW_CONFIDENCE",
                 "PREVIEW_SHOW_FPS", "PREVIEW_SHOW_CROSSHAIR", "PREVIEW_SHOW_AIM_POINT",
-                "PREVIEW_BOX_THICKNESS", "PREVIEW_TEXT_SCALE"
+                "PREVIEW_BOX_THICKNESS","PREVIEW_SHOW_SEARCH_AREA", "PREVIEW_TEXT_SCALE"
             ],
 
             "YOLO 检测": [
@@ -667,7 +716,10 @@ class ConfigManager:
                 "CROSSHAIR_TEMPLATE_PATH",
                 "CROSSHAIR_USE_FALLBACK_CENTER",
                 "CROSSHAIR_DEBUG_MODE",
-                "CROSSHAIR_STATS_INTERVAL"
+                "CROSSHAIR_STATS_INTERVAL",
+                "CROSSHAIR_SEARCH_BOUNDS",  # ⭐ 新增
+                "CROSSHAIR_SMOOTH_FACTOR",  # ⭐ 新增
+                "CROSSHAIR_MAX_LOST_FRAMES"  # ⭐ 新增
             ],
             "目标选择": [
                 "MIN_TARGET_LOCK_FRAMES", "TARGET_SWITCH_DISTANCE_THRESHOLD",

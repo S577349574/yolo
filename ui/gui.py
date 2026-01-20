@@ -553,6 +553,14 @@ def create_gui():
                     "crosshair_use_fallback",
                     "crosshair_debug_mode",
                     "crosshair_stats_interval"
+
+                    # ⭐ 新增：搜索区域相关控件
+                    "crosshair_search_x_left",
+                    "crosshair_search_x_right",
+                    "crosshair_search_y_up",
+                    "crosshair_search_y_down",
+                    "crosshair_smooth_factor",
+                    "crosshair_max_lost_frames"
                 ]
                 crosshair_enabled = cfg.get_config("ENABLE_CROSSHAIR_DETECTION", False)
                 dpg.add_checkbox(
@@ -595,6 +603,19 @@ def create_gui():
                 )
 
                 dpg.add_separator()
+                dpg.add_text("准星预览", color=UIColors.APPLE_BLUE)
+
+                # ⭐ 使用 child_window 包裹图像
+                with dpg.child_window(width=110, height=110, border=True):
+                    dpg.add_image(
+                        "crosshair_preview_texture",
+                        width=90,
+                        height=90,
+                        tag="crosshair_preview_image"
+                    )
+
+                dpg.add_text("准星描述: 未生成", tag="crosshair_preview_desc", color=UIColors.TEXT_GRAY)
+
                 dpg.add_text("外部模板配置", color=UIColors.SECTION_HEADER)
 
                 add_input_text_tagged(
@@ -627,20 +648,106 @@ def create_gui():
                     60, 1800,
                     "crosshair_stats_interval"
                 )
+                # ⭐⭐⭐ 新增：搜索区域配置 ⭐⭐⭐
+                dpg.add_separator()
+                dpg.add_text("搜索区域配置（长方形，针对后坐力优化）", color=UIColors.SECTION_HEADER)
+
+                dpg.add_text(
+                    "说明：准星在开枪时会因后坐力向上偏移，使用长方形搜索区域可提升检测效率",
+                    color=UIColors.TEXT_GRAY,
+                    wrap=400
+                )
+
+                # 获取当前配置
+                bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {
+                    "x_left": -30,
+                    "x_right": 30,
+                    "y_up": -150,
+                    "y_down": 20
+                })
+
+                # 水平方向
+                dpg.add_text("水平搜索范围 (X轴)", color=UIColors.TEXT_GRAY, indent=10)
+                dpg.add_input_int(
+                    label="向左搜索（负数）",
+                    default_value=bounds.get("x_left", -30),
+                    tag="crosshair_search_x_left",
+                    step=0,
+                    width=280,
+                    callback=lambda s, a: update_search_bounds("x_left", a)
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("从屏幕中心向左的搜索距离（像素）\n建议: -20 到 -50")
+
+                dpg.add_input_int(
+                    label="向右搜索（正数）",
+                    default_value=bounds.get("x_right", 30),
+                    tag="crosshair_search_x_right",
+                    step=0,
+                    width=280,
+                    callback=lambda s, a: update_search_bounds("x_right", a)
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("从屏幕中心向右的搜索距离（像素）\n建议: 20 到 50")
+
+                # 垂直方向
+                dpg.add_text("垂直搜索范围 (Y轴)", color=UIColors.TEXT_GRAY, indent=10)
+                dpg.add_input_int(
+                    label="向上搜索（负数）",
+                    default_value=bounds.get("y_up", -150),
+                    tag="crosshair_search_y_up",
+                    step=0,
+                    width=280,
+                    callback=lambda s, a: update_search_bounds("y_up", a)
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("从屏幕中心向上的搜索距离（像素）\n后坐力主要方向，建议: -100 到 -200")
+
+                dpg.add_input_int(
+                    label="向下搜索（正数）",
+                    default_value=bounds.get("y_down", 20),
+                    tag="crosshair_search_y_down",
+                    step=0,
+                    width=280,
+                    callback=lambda s, a: update_search_bounds("y_down", a)
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("从屏幕中心向下的搜索距离（像素）\n准星很少向下移动，建议: 10 到 30")
+
+                # 显示当前搜索区域大小
+                current_width = bounds.get("x_right", 30) - bounds.get("x_left", -30)
+                current_height = abs(bounds.get("y_up", -150)) + bounds.get("y_down", 20)
+                dpg.add_text(
+                    f"当前搜索区域: {current_width}×{current_height} 像素",
+                    tag="crosshair_search_area_display",
+                    color=UIColors.SUCCESS_GREEN,
+                    indent=10
+                )
+
+                # ⭐⭐⭐ 新增：平滑与容错配置 ⭐⭐⭐
+                dpg.add_separator()
+                dpg.add_text("平滑与容错配置", color=UIColors.SECTION_HEADER)
+
+                add_float_input_tagged(
+                    "CROSSHAIR_SMOOTH_FACTOR",
+                    "位置平滑系数 (0=无平滑, 1=最大平滑)",
+                    "crosshair_smooth_factor",
+                    format="%.2f"
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("值越大，准星位置变化越平滑\n建议: 0.2 - 0.5\n设为 0 可禁用平滑")
+
+                add_int_input_tagged(
+                    "CROSSHAIR_MAX_LOST_FRAMES",
+                    "最大丢失帧数（容错）",
+                    "crosshair_max_lost_frames"
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("连续检测失败多少帧后才使用屏幕中心\n建议: 3 - 10 帧")
 
                 dpg.add_separator()
-                dpg.add_text("准星预览", color=UIColors.APPLE_BLUE)
 
-                # ⭐ 使用 child_window 包裹图像
-                with dpg.child_window(width=110, height=110, border=True):
-                    dpg.add_image(
-                        "crosshair_preview_texture",
-                        width=90,
-                        height=90,
-                        tag="crosshair_preview_image"
-                    )
 
-                dpg.add_text("准星描述: 未生成", tag="crosshair_preview_desc", color=UIColors.TEXT_GRAY)
 
                 update_dependent_controls("ENABLE_CROSSHAIR_DETECTION", crosshair_deps, crosshair_enabled)
 
@@ -673,6 +780,7 @@ def create_gui():
                 add_bool_tagged("PREVIEW_SHOW_FPS", "显示 FPS 信息", "preview_show_fps")
                 add_bool_tagged("PREVIEW_SHOW_CROSSHAIR", "显示准心十字线", "preview_show_cross")
                 add_bool_tagged("PREVIEW_SHOW_AIM_POINT", "显示瞄准点", "preview_show_aim")
+                add_bool_tagged("PREVIEW_SHOW_SEARCH_AREA", "显示准星搜索区域", "preview_show_search")
 
                 dpg.add_separator()
                 dpg.add_text("视觉样式", color=UIColors.SECTION_HEADER)
@@ -1195,6 +1303,40 @@ def add_combo_tagged(key, label, items, tag=None):
     )
 
 
+def update_search_bounds(key, value):
+    """更新搜索区域配置并实时显示"""
+    # 获取当前配置
+    bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {
+        "x_left": -30,
+        "x_right": 30,
+        "y_up": -150,
+        "y_down": 20
+    })
+
+    # 更新对应的值
+    bounds[key] = value
+
+    # 限制范围（-500 到 500）
+    bounds[key] = max(-500, min(500, bounds[key]))
+
+    # 写回配置
+    cfg.set_config("CROSSHAIR_SEARCH_BOUNDS", bounds)
+
+    # 更新状态提示
+    dpg.configure_item(
+        "status_text",
+        default_value=f"[未保存] 已修改搜索区域: {key}",
+        color=UIColors.WARNING_ORANGE
+    )
+
+    # 更新显示的搜索区域大小
+    if dpg.does_item_exist("crosshair_search_area_display"):
+        width = bounds["x_right"] - bounds["x_left"]
+        height = abs(bounds["y_up"]) + bounds["y_down"]
+        dpg.configure_item(
+            "crosshair_search_area_display",
+            default_value=f"当前搜索区域: {width}×{height} 像素"
+        )
 def _handle_preview_drag(sender, app_data):
     """处理预览框内的鼠标拖拽/点击事件"""
     if not dpg.does_item_exist("aim_preview_drawlist"):

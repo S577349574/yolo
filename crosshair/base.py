@@ -13,7 +13,12 @@ class CrosshairDetector(ABC):
 
     def __init__(self):
         self.enabled = get_config('ENABLE_CROSSHAIR_DETECTION', False)
-        self.search_radius = get_config('CROSSHAIR_SEARCH_RADIUS', 80)
+        self.search_bounds = get_config('CROSSHAIR_SEARCH_BOUNDS', {
+            'x_left': -80,
+            'x_right': 80,
+            'y_up': -80,
+            'y_down': 80
+        })
         self.smooth_factor = get_config('CROSSHAIR_SMOOTH_FACTOR', 0.3)
 
         # 缓存上次位置
@@ -58,11 +63,11 @@ class CrosshairDetector(ABC):
         h, w = img.shape[:2]
         center_x, center_y = w // 2, h // 2
 
-        # 1. 裁剪搜索区域
-        x1 = max(0, center_x - self.search_radius)
-        y1 = max(0, center_y - self.search_radius)
-        x2 = min(w, center_x + self.search_radius)
-        y2 = min(h, center_y + self.search_radius)
+        # 1. 裁剪搜索区域（统一使用 search_bounds）
+        x1 = max(0, center_x + self.search_bounds['x_left'])
+        x2 = min(w, center_x + self.search_bounds['x_right'])
+        y1 = max(0, center_y + self.search_bounds['y_up'])
+        y2 = min(h, center_y + self.search_bounds['y_down'])
 
         roi = img[y1:y2, x1:x2]
 
@@ -93,9 +98,4 @@ class CrosshairDetector(ABC):
 
         self.last_pos = (screen_x, screen_y)
         self.last_valid_count = self.max_lost_frames
-        return (screen_x, screen_y)
-
-    def reset(self):
-        """重置缓存"""
-        self.last_pos = None
-        self.last_valid_count = 0
+        return screen_x, screen_y

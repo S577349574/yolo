@@ -191,18 +191,22 @@ class CrosshairManager:
             target_color_name=target_color_name
         )
 
-        # ========== 针对小红点优化参数 ==========
-
-        utils.log("   ➕ 检测到标准准星，使用默认配置...")
+        # ========== 配置检测参数 ==========
         self.detector.threshold = 0.75
-        self.detector.search_radius = 120
         self.detector.smooth_factor = 0.2
         self.detector.color_tolerance = 40
-        utils.log(f"     └─ 阈值: {self.detector.threshold} | "
-                  f"搜索半径: {self.detector.search_radius}px | "
-                  f"颜色容差: {self.detector.color_tolerance}")
 
-        utils.log(f"   ✅ 模板检测器配置完成")
+        # ========== 打印配置信息 ==========
+        bounds = self.detector.search_bounds
+        search_width = bounds['x_right'] - bounds['x_left']
+        search_height = abs(bounds['y_up']) + bounds['y_down']
+
+        utils.log(f"   ✅ 检测器配置完成:")
+        utils.log(f"     • 阈值: {self.detector.threshold}")
+        utils.log(f"     • 颜色容差: {self.detector.color_tolerance}")
+        utils.log(f"     • 搜索区域: {search_width}×{search_height}px")
+        utils.log(f"       └─ 水平: [{bounds['x_left']}, +{bounds['x_right']}]px")
+        utils.log(f"       └─ 垂直: [{bounds['y_up']}, +{bounds['y_down']}]px")
 
     def _generate_valorant_template(self, config_code: str):
         """
