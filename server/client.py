@@ -630,7 +630,7 @@ if __name__ == "__main__":
     elif mode == "3":
         scenario_3()
     elif mode == "4":
-        test_scenario_4()
+        scenario_4()
     elif mode == "5":
         scenario_5()
     elif mode == "6":
