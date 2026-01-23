@@ -8,7 +8,7 @@ import time
 import traceback
 from threading import Event as ThreadEvent, Thread
 
-import config_manager
+
 # === 模块导入 ===
 import makcu_patch
 from crosshair.threaded_crosshair_detector import ThreadedCrosshairDetector
@@ -19,11 +19,12 @@ makcu_patch.apply()
 
 import utils
 from auto_fire_controller import AutoFireController
+import config_manager
 from config_manager import get_config, load_config
-import config_manager as cfg  # 引入 config_manager 用于获取事件
+import config_manager as cfg
 from driver_loader import ensure_driver_loaded, unload_driver
 from image.image_source import create_image_source
-from key_monitor import create_key_monitor
+import traceback
 from license_auth import LicenseAuthenticator  # ⭐ 新增：许可证验证
 from mouse import create_mouse_controller
 from script_system import ScriptAPI, ScriptManager, EventSystem
@@ -293,7 +294,7 @@ class CoreService:
                 utils.log(f"⚠ 网络发送器初始化失败: {e}")
                 self.command_sender = None
 
-            # 2. Makcu 硬件初始化
+            # ========== 1. Makcu 硬件初始化 ==========
             use_makcu = get_config("USE_MAKCU", False)
             self.shared_makcu_controller = None
             if use_makcu:
@@ -307,20 +308,70 @@ class CoreService:
                     )
                     time.sleep(0.5)
                     if self.shared_makcu_controller.is_connected():
-                        utils.log(f"✅ Makcu 设备已连接")
+                        utils.log("✅ Makcu 设备已连接")
                     else:
-                        utils.log("⚠ Makcu 连接失败，降级到软件模式")
+                        utils.log("⚠ Makcu 连接失败，将降级到软件模式")
                         self.shared_makcu_controller = None
                         use_makcu = False
                 except Exception as e:
                     utils.log(f"❌ Makcu 初始化失败: {e}")
                     use_makcu = False
 
-            # 3. 按键监控
+            # ========== 2. MTKmbox 硬件初始化 ⭐ ==========
+            use_mtkmbox = get_config("USE_MTKMBOX", False)
+            self.shared_mtkmbox_device = None
+            if use_mtkmbox:
+                try:
+                    from mtkmbox import MTKMBOX
+                    utils.log("🔌 初始化 MTKmbox 硬件...")
+
+                    port = get_config("MTKMBOX_PORT", "COM6")
+                    vid = get_config("MTKMBOX_VID", 0x0416)
+                    pid = get_config("MTKMBOX_PID", 0x5020)
+                    debug = get_config("MTKMBOX_DEBUG_MODE", False)
+
+                    self.shared_mtkmbox_device = MTKMBOX(
+                        port=port,
+                        vid=vid,
+                        pid=pid,
+                        debug=debug
+                    )
+                    time.sleep(0.3)
+
+                    if self.shared_mtkmbox_device.is_connected():
+                        utils.log(f"✅ MTKmbox 设备已连接 (端口: {port})")
+                    else:
+                        utils.log("⚠ MTKmbox 连接失败，将降级到软件模式")
+                        self.shared_mtkmbox_device = None
+                        use_mtkmbox = False
+                except Exception as e:
+                    utils.log(f"❌ MTKmbox 初始化失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    use_mtkmbox = False
+
+            # ========== 3. 硬件互斥性检查 ⭐ 新增 ==========
+            if use_makcu and use_mtkmbox:
+                utils.log("⚠️ 检测到同时启用 Makcu 和 MTKmbox，应用优先级规则...")
+                utils.log("  优先级: MTKmbox > Makcu")
+                utils.log("  ✅ 保留 MTKmbox，禁用 Makcu")
+                use_makcu = False
+                if self.shared_makcu_controller:
+                    try:
+                        self.shared_makcu_controller.close()
+                    except Exception:
+                        pass
+                    self.shared_makcu_controller = None
+
+            # ========== 4. 按键监控初始化 ⭐ 更新 ==========
+            from key_monitor import create_key_monitor
+
             self.key_monitor = create_key_monitor(
                 app_state=self.app_state,
                 use_makcu=use_makcu,
+                use_mtkmbox=use_mtkmbox,
                 shared_controller=self.shared_makcu_controller,
+                shared_serial=self.shared_mtkmbox_device,
                 enable_left=get_config('ENABLE_LEFT_MOUSE_MONITOR', False),
                 enable_right=get_config('ENABLE_RIGHT_MOUSE_MONITOR', True),
                 enable_mouse4=get_config('ENABLE_MOUSE4_MONITOR', False),
@@ -328,6 +379,10 @@ class CoreService:
                 enable_auto_fire=self.cached_config.enable_auto_fire,
                 poll_interval=get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
             )
+
+            if not self.key_monitor or not self.key_monitor.start():
+                raise RuntimeError("按键监控器启动失败")
+
             if not self.key_monitor or not self.key_monitor.start():
                 raise RuntimeError("按键监控器启动失败")
 
@@ -372,10 +427,15 @@ class CoreService:
 
             # 7. 鼠标控制器
             self.mouse_controller = create_mouse_controller(
-                use_driver=use_driver_mode,
                 use_makcu=use_makcu,
-                shared_controller=self.shared_makcu_controller
+                use_mtkmbox=use_mtkmbox,
+                use_driver=get_config("USE_DRIVER_MODE", False),
+                shared_makcu_controller=self.shared_makcu_controller,  # ⭐ 传递共享控制器
+                shared_mtkmbox_device=self.shared_mtkmbox_device
             )
+
+            if not self.mouse_controller:
+                raise RuntimeError("鼠标控制器创建失败")
 
             # 8. 目标选择与屏幕参数
             self.screen_info = get_screen_info()
