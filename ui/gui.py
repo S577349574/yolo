@@ -831,7 +831,7 @@ def create_gui():
                 add_int_tagged("HEAD_CLASS_ID", "头部 ID 定义", 0, 10, "head_class_id")
                 add_int_tagged("HEAD_PRIORITY_RANGE", "头部优先距离范围 (像素)", 0, 500, "head_priority_range")
 
-                dpg.add_text("说明：在目标组内，头部可以比最近检测框远多少像素",
+                dpg.add_text("说明:在目标组内,头部可以比最近检测框远多少像素",
                              color=UIColors.TEXT_GRAY)
 
                 dpg.add_separator()
@@ -849,9 +849,9 @@ def create_gui():
                 add_int_tagged("SMALL_TARGET_AREA_THRESHOLD", "小目标尺寸阈值 (像素)", 10, 1000,
                                "small_target_threshold")
 
-                dpg.add_text("说明：当检测框宽度或高度 < 此值时，忽略头部类别",
+                dpg.add_text("说明:当检测框宽度或高度 < 此值时,忽略头部类别",
                              color=UIColors.TEXT_GRAY)
-                dpg.add_text("适用场景：远距离目标 / 头部抖动严重时",
+                dpg.add_text("适用场景:远距离目标 / 头部抖动严重时",
                              color=UIColors.TEXT_GRAY)
 
                 update_dependent_controls("ENABLE_HEAD_PRIORITY", head_priority_deps, head_priority_enabled)
