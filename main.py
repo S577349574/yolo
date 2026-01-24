@@ -1,13 +1,10 @@
-# main.py (CoreService 重构版 - 集成许可证验证系统)
 
 import atexit
 import math
 import os
 import threading
 import time
-import traceback
 from threading import Event as ThreadEvent, Thread
-
 
 # === 模块导入 ===
 import makcu_patch
@@ -866,7 +863,7 @@ class CoreService:
 def start_app():
     """程序入口"""
     # 导入 GUI (延迟导入，避免循环依赖)
-    from ui.gui import create_gui
+    from gui.gui import create_gui
 
     # 1. 创建核心服务
     core = CoreService()

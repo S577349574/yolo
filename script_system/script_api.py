@@ -21,7 +21,7 @@ class ScriptAPI:
         yolo_detector,
         screen_capture,
         key_monitor, 
-        command_sender, # ✅ 新增参数
+        command_sender,
         verbose=False
     ):
         self.command_sender = command_sender
@@ -31,8 +31,7 @@ class ScriptAPI:
         self.target_selector = target_selector
         self.yolo = yolo_detector
         self.capture = screen_capture
-        self.key_monitor = key_monitor  # ✅ 保存引用
-        # 🔥 核心优化：使用全局游戏状态
+        self.key_monitor = key_monitor
         self.game_state = get_game_state()
 
         self._app_state_getter = None
@@ -59,7 +58,7 @@ class ScriptAPI:
         api = lua_runtime.table()
 
         # 注册各个子模块
-        api.state = self._create_state_api(lua_runtime)  # 🔥 新增：游戏状态 API
+        api.state = self._create_state_api(lua_runtime)
         api.config = self._create_config_api(lua_runtime)
         api.mouse = self._create_mouse_api(lua_runtime)
         api.input = self._create_input_api(lua_runtime)
@@ -72,14 +71,13 @@ class ScriptAPI:
 
         api.storage = self._create_storage_api(lua_runtime)
         api.timer = self._create_timer_api(lua_runtime)
-        api.capture = self._create_capture_api(lua_runtime)  # ⭐ 新增
+        api.capture = self._create_capture_api(lua_runtime)
         # 辅助函数
         api["getLength"] = lambda obj: len(obj) if hasattr(obj, '__len__') else 0
         api["len"] = api["getLength"]
 
         return api
 
-    # ==================== 🔥 新增：游戏状态 API ====================
 
     def _create_state_api(self, lua):
         """创建游戏状态 API（零拷贝访问）"""
@@ -274,8 +272,8 @@ class ScriptAPI:
                 "left": self.mouse.BUTTON_LEFT_DOWN,
                 "right": self.mouse.BUTTON_RIGHT_DOWN,
                 "middle": self.mouse.BUTTON_MIDDLE_DOWN,
-                "mouse4": self.mouse.BUTTON_4_DOWN,  # ⭐ 新增
-                "mouse5": self.mouse.BUTTON_5_DOWN,  # ⭐ 新增
+                "mouse4": self.mouse.BUTTON_4_DOWN,
+                "mouse5": self.mouse.BUTTON_5_DOWN,
                 # 别名支持
                 "side4": self.mouse.BUTTON_4_DOWN,
                 "side5": self.mouse.BUTTON_5_DOWN,
@@ -288,8 +286,8 @@ class ScriptAPI:
                 "left": self.mouse.BUTTON_LEFT_DOWN,
                 "right": self.mouse.BUTTON_RIGHT_DOWN,
                 "middle": self.mouse.BUTTON_MIDDLE_DOWN,
-                "mouse4": self.mouse.BUTTON_4_DOWN,  # ⭐ 新增
-                "mouse5": self.mouse.BUTTON_5_DOWN,  # ⭐ 新增
+                "mouse4": self.mouse.BUTTON_4_DOWN,
+                "mouse5": self.mouse.BUTTON_5_DOWN,
             }
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_DOWN)
             return self.mouse.mouse_down(button_flag)
@@ -299,8 +297,8 @@ class ScriptAPI:
                 "left": self.mouse.BUTTON_LEFT_UP,
                 "right": self.mouse.BUTTON_RIGHT_UP,
                 "middle": self.mouse.BUTTON_MIDDLE_UP,
-                "mouse4": self.mouse.BUTTON_4_UP,  # ⭐ 新增
-                "mouse5": self.mouse.BUTTON_5_UP,  # ⭐ 新增
+                "mouse4": self.mouse.BUTTON_4_UP,
+                "mouse5": self.mouse.BUTTON_5_UP,
             }
             button_flag = button_map.get(button, self.mouse.BUTTON_LEFT_UP)
             return self.mouse.mouse_up(button_flag)
@@ -323,7 +321,6 @@ class ScriptAPI:
         """创建 input API（重构版 - 使用统一接口）"""
         input_api = lua.table()
 
-        # ✅ 使用 key_monitor 的统一接口
         def is_key_down(key):
             """检查按键是否按下（使用统一接口）"""
             if not self.key_monitor:
@@ -338,8 +335,8 @@ class ScriptAPI:
                 "left": "left",
                 "right": "right",
                 "middle": "middle",
-                "mouse4": "mouse4",  # ⭐ 新增
-                "mouse5": "mouse5",  # ⭐ 新增
+                "mouse4": "mouse4",
+                "mouse5": "mouse5",
             }
 
             mapped_button = button_name_map.get(button.lower(), "left")
@@ -351,7 +348,6 @@ class ScriptAPI:
                 return {}
             return self.key_monitor.get_button_states()
 
-        # ✅ 通过 app_state 获取瞄准状态（保持兼容）
         def is_aim_active():
             state = self._app_state_getter()
             return state.is_mouse_active() if state else False
@@ -372,8 +368,6 @@ class ScriptAPI:
         input_api.is_left_pressed = is_left_pressed
         input_api.is_right_pressed = is_right_pressed
 
-        # ⚠️ 移除 key_down/key_up/key_press（安全考虑）
-        # 或者保留但使用 rate limiter 限流
 
         return input_api
 
@@ -491,7 +485,7 @@ class ScriptAPI:
 
         return storage_api
 
-    # ==================== 🌐 通用网络发包 API ====================
+    # ====================网络发包 API ====================
 
     def _create_network_api(self, lua):
         network_api = lua.table()
@@ -522,7 +516,6 @@ class ScriptAPI:
         network_api.send_packet = send_packet
         return network_api
 
-    # ==================== ⭐ 新增：定时器 API ====================
     # script_api.py (在 ScriptAPI 类中添加)
     def _create_capture_api(self, lua):
         """创建 Lua 截图 API"""
@@ -614,7 +607,6 @@ class ScriptAPI:
 
         return timer_api
     # ==================== 工具函数 API ====================
-
     @staticmethod
     def _create_utils_api(lua):
         """创建 utils API"""

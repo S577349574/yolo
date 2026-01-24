@@ -166,7 +166,7 @@ def get_default_config() -> Dict[str, Any]:
         "LICENSE_KEY": "",
 
         # ========== 推理后端配置 ==========
-        "FORCE_BACKEND": None,  # 强制使用的后端: tensorrt/cuda/dml/ncnn_vulkan/ncnn_cpu/None(自动)
+        "FORCE_BACKEND": "dml",  # 强制使用的后端: tensorrt/cuda/dml/ncnn_vulkan/ncnn_cpu/None(自动)
 
         # ONNX Runtime 配置
         "USE_TENSORRT": True,  # 是否启用TensorRT加速

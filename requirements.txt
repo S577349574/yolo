@@ -1,3 +1,4 @@
+dearpygui
 simplejpeg
 makcu
 watchdog
