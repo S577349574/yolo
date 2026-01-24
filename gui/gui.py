@@ -270,22 +270,39 @@ def generate_crosshair_preview_callback(sender, app_data, user_data):
 # ================= 字体设置 =================
 
 def setup_chinese_font():
+    """配置中文字体支持"""
     with dpg.font_registry():
-        font_path = r"C:\Windows\Fonts\msyh.ttc"
-        if not os.path.exists(font_path):
-            font_path = r"C:\Windows\Fonts\simhei.ttf"
+        # 尝试多个字体路径
+        font_paths = [
+            r"C:\Windows\Fonts\msyh.ttc",  # 微软雅黑
+            r"C:\Windows\Fonts\simhei.ttf",  # 黑体
+            r"C:\Windows\Fonts\simsun.ttc",  # 宋体
+        ]
 
-        if os.path.exists(font_path):
-            # 加大字体一点点，配合 Apple 风格
+        font_path = None
+        for path in font_paths:
+            if os.path.exists(path):
+                font_path = path
+                break
+
+        if font_path:
+            # ✅ 修复：使用 add_font() 而不是 with dpg.font()
             with dpg.font(font_path, 18) as font_cn:
-                dpg.add_font_range(0x0020, 0x00FF)
-                dpg.add_font_range(0x4E00, 0x9FA5)
+                # ✅ 添加字符范围提示（关键修复）
+                dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
+                dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
+
+                # 手动添加常用字符范围
+                dpg.add_font_range(0x0020, 0x00FF)  # 基本拉丁字母
+                dpg.add_font_range(0x4E00, 0x9FFF)  # 中日韩统一表意文字（扩大范围）
+                dpg.add_font_range(0x3000, 0x303F)  # 中日韩符号和标点
+
             dpg.bind_font(font_cn)
+            print(f"[GUI] ✅ 已加载中文字体: {font_path}")
         else:
-            print("[GUI] ⚠ 未找到中文字体")
+            print("[GUI] ⚠️ 未找到中文字体，部分中文可能显示为问号")
 
 
-# ================= 🎨 Apple 风格主题设置 =================
 # ================= 🎨 Apple 风格主题设置 (优化版) =================
 def setup_apple_theme():
     with dpg.theme() as global_theme:
@@ -407,7 +424,7 @@ def create_gui():
             tag="crosshair_preview_texture"
         )
 
-    with dpg.window(tag="Primary Window", label="AI Config Ultimate v6.0 (Apple UI Edition)"):
+    with dpg.window(tag="Primary Window", label="test-v1.0"):
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
@@ -624,7 +641,7 @@ def create_gui():
                     "crosshair_template_path"
                 )
 
-                dpg.add_text("说明: 用于 template 模式，支持相对/绝对路径",
+                dpg.add_text("说明:用于 template 模式,支持相对/绝对路径",
                              color=UIColors.TEXT_GRAY, indent=20)
 
                 dpg.add_separator()
@@ -1031,7 +1048,7 @@ def create_gui():
             # ================= TAB 10: 驱动与按键 =================
             with dpg.tab(label="驱动 & 按键"):
                 dpg.add_text("硬件模式选择", color=UIColors.APPLE_BLUE)
-                dpg.add_text("Makcu\MTKmbox\传统驱动只能选一个", color=UIColors.ERROR_RED)
+                dpg.add_text(r"Makcu\MTKmbox\传统驱动只能选一个", color=UIColors.ERROR_RED)
 
                 # ========== Makcu 硬件模式 ==========
                 dpg.add_separator()
@@ -1161,7 +1178,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title="AI Configurator", width=900, height=800)
+    dpg.create_viewport(title="test-v1.0", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()

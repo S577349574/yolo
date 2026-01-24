@@ -1,4 +1,4 @@
-# preview_window.py (完整修复版 - 准星跟随检测位置)
+# preview_window.py (完整修复版 - 准星跟随检测位置 + 搜索区域固定)
 
 import time
 import cv2
@@ -114,6 +114,7 @@ class PreviewWindow:
             self,
             img: np.ndarray,
             results: List[Dict],
+            capture_area: Dict[str, int],  # ✅ 新增参数
             target_class_ids: Optional[List[int]] = None,
             best_target: Optional[Tuple[int, int]] = None,
             is_locked: bool = False,
@@ -141,6 +142,7 @@ class PreviewWindow:
                 self._frame_queue.put_nowait({
                     'img': img,
                     'results': results,
+                    'capture_area': capture_area,  # ✅ 传递
                     'target_class_ids': target_class_ids,
                     'best_target': best_target,
                     'is_locked': is_locked,
@@ -155,9 +157,9 @@ class PreviewWindow:
             return self.enabled
         else:
             return self._render_frame(
-                img, results, target_class_ids,
-                best_target, is_locked, screen_center,
-                class_names, inference_fps,
+                img, results, capture_area,  # ✅ 传递
+                target_class_ids, best_target, is_locked,
+                screen_center, class_names, inference_fps,
                 crosshair_position
             )
 
@@ -173,6 +175,7 @@ class PreviewWindow:
                 continue_preview = self._render_frame(
                     frame_data['img'],
                     frame_data['results'],
+                    frame_data['capture_area'],  # ✅ 传递
                     frame_data['target_class_ids'],
                     frame_data['best_target'],
                     frame_data['is_locked'],
@@ -209,6 +212,7 @@ class PreviewWindow:
             self,
             img: np.ndarray,
             results: List[Dict],
+            capture_area: Dict[str, int],  # ✅ 新增参数
             target_class_ids: Optional[List[int]],
             best_target: Optional[Tuple[int, int]],
             is_locked: bool,
@@ -231,26 +235,27 @@ class PreviewWindow:
             self._draw_detections(
                 display_img, results, target_class_ids, is_locked, class_names
             )
-        if self.show_search_area and screen_center:
-            self._draw_search_area(display_img, screen_center, w, h)
-        # ⭐⭐⭐ 修复：绘制真实准星位置（红色十字）⭐⭐⭐
+
+        # ✅ 绘制搜索区域（固定在图像中心）
+        if self.show_search_area:
+            self._draw_search_area(display_img, w, h)
+
+        # ✅ 绘制真实准星位置（红色十字）
         if self.show_crosshair and screen_center:
-            self._draw_crosshair(display_img, screen_center, w, h)
+            self._draw_crosshair(display_img, screen_center, capture_area)
 
         # 绘制瞄准点
         if self.show_aim_point and best_target and screen_center:
-            self._draw_aim_point(display_img, best_target, screen_center, w, h)
+            self._draw_aim_point(display_img, best_target, screen_center, capture_area)
 
         # ⭐ 调试模式：显示检测到的准星原始位置（黄色）
         if crosshair_position and screen_center and self.show_crosshair_detection:
-            # 判断是否与真实准星位置不同（表示准星有偏移）
             offset_x = abs(crosshair_position[0] - screen_center[0])
             offset_y = abs(crosshair_position[1] - screen_center[1])
 
-            # 仅当偏移量大于5像素时才显示（避免无意义的重叠）
             if offset_x > 5 or offset_y > 5:
                 self._draw_crosshair_detection(
-                    display_img, crosshair_position, screen_center, w, h
+                    display_img, crosshair_position, capture_area
                 )
 
         # 绘制统计信息
@@ -325,48 +330,32 @@ class PreviewWindow:
     def _draw_crosshair(
             self,
             img: np.ndarray,
-            screen_center: Tuple[int, int],  # 屏幕坐标系的准星位置
-            img_width: int,
-            img_height: int
+            screen_center: Tuple[int, int],
+            capture_area: Dict[str, int]  # ✅ 使用传入的 capture_area
     ):
         """
         绘制真实准星位置（红色十字）
 
         Args:
-            screen_center: main.py传入的真实准星位置（屏幕坐标）
-            img_width: 捕获图像的宽度
-            img_height: 捕获图像的高度
+            screen_center: 屏幕坐标系的准星位置
+            capture_area: 捕获区域信息
         """
-        # ⭐⭐⭐ 关键修复：计算准星在图像中的相对位置 ⭐⭐⭐
+        # ✅ 屏幕坐标 → 图像坐标
+        crosshair_x = screen_center[0] - capture_area['left']
+        crosshair_y = screen_center[1] - capture_area['top']
 
-        # 获取屏幕尺寸
-        from utils import get_screen_info
-        screen_info = get_screen_info()
-        screen_width = screen_info['width']
-        screen_height = screen_info['height']
-
-        # 计算捕获区域在屏幕上的位置（假设居中捕获）
-        capture_left = (screen_width - img_width) // 2
-        capture_top = (screen_height - img_height) // 2
-
-        # 将屏幕坐标转换为图像坐标
-        crosshair_x = screen_center[0] - capture_left
-        crosshair_y = screen_center[1] - capture_top
-
-        # 确保坐标在图像范围内
-        if not (0 <= crosshair_x < img_width and 0 <= crosshair_y < img_height):
-            # 准星在捕获区域外，绘制在边界上
-            crosshair_x = max(0, min(img_width - 1, crosshair_x))
-            crosshair_y = max(0, min(img_height - 1, crosshair_y))
+        # 边界检查
+        h, w = img.shape[:2]
+        if not (0 <= crosshair_x < w and 0 <= crosshair_y < h):
+            return
 
         # 绘制十字线
-        line_len = 0  # 十字线长度（原来是20，改小了）
-        gap = 1  # 中心空隙（原来是5，改小了）
-        thickness = 1  # 线条粗细（原来是2，改成1更细）
-        center_size = 1  # 中心点大小（原来是2）
+        line_len = 20
+        gap = 5
+        thickness = 2
+        center_size = 2
         color = self.special_colors['locked']  # 红色
 
-        # 绘制十字线
         cv2.line(img, (crosshair_x - line_len, crosshair_y),
                  (crosshair_x - gap, crosshair_y), color, thickness)
         cv2.line(img, (crosshair_x + gap, crosshair_y),
@@ -383,67 +372,60 @@ class PreviewWindow:
             img: np.ndarray,
             best_target: Tuple[int, int],
             screen_center: Tuple[int, int],
-            img_width: int,
-            img_height: int
+            capture_area: Dict[str, int]  # ✅ 使用传入的 capture_area
     ):
-        """绘制瞄准点（洋红色）- 完整修复版"""
-        from utils import calculate_capture_area, get_config
-
-        crop_size = get_config('CROP_SIZE', 640)
-        capture_area = calculate_capture_area(crop_size)
-
-        # ⭐ 目标点坐标转换
+        """绘制瞄准点（洋红色）"""
+        # ✅ 目标点坐标转换
         aim_x = best_target[0] - capture_area['left']
         aim_y = best_target[1] - capture_area['top']
 
-        # 确保在图像范围内
-        if 0 <= aim_x < img_width and 0 <= aim_y < img_height:
-            color = self.special_colors['aim_point']
+        # 边界检查
+        h, w = img.shape[:2]
+        if not (0 <= aim_x < w and 0 <= aim_y < h):
+            return
 
-            # 绘制外圈和中心点
-            cv2.circle(img, (int(aim_x), int(aim_y)), 6, color, 2)
-            cv2.circle(img, (int(aim_x), int(aim_y)), 2, color, -1)
+        color = self.special_colors['aim_point']
 
-            # ⭐ 准星位置坐标转换（用于绘制连线）
-            crosshair_x = screen_center[0] - capture_area['left']
-            crosshair_y = screen_center[1] - capture_area['top']
+        # 绘制外圈和中心点
+        cv2.circle(img, (int(aim_x), int(aim_y)), 6, color, 2)
+        cv2.circle(img, (int(aim_x), int(aim_y)), 2, color, -1)
 
-            # 绘制从准星到目标的连线
-            cv2.line(
-                img,
-                (int(crosshair_x), int(crosshair_y)),
-                (int(aim_x), int(aim_y)),
-                color,
-                1,
-                cv2.LINE_AA
-            )
+        # ✅ 准星位置坐标转换（用于绘制连线）
+        crosshair_x = screen_center[0] - capture_area['left']
+        crosshair_y = screen_center[1] - capture_area['top']
+
+        # 绘制从准星到目标的连线
+        cv2.line(
+            img,
+            (int(crosshair_x), int(crosshair_y)),
+            (int(aim_x), int(aim_y)),
+            color,
+            1,
+            cv2.LINE_AA
+        )
 
     def _draw_crosshair_detection(
             self,
             img: np.ndarray,
             crosshair_pos: Tuple[int, int],
-            screen_center: Tuple[int, int],
-            img_width: int,
-            img_height: int
+            capture_area: Dict[str, int]  # ✅ 使用传入的 capture_area
     ):
         """
-        ⭐ 调试模式：绘制检测到的准星原始位置（黄色标记）
+        ⭐ 调试模式:绘制检测到的准星原始位置（黄色标记）
         仅在准星有偏移时显示，用于验证检测结果
         """
-        # 转换为图像坐标
-        img_center_x = img_width // 2
-        img_center_y = img_height // 2
+        # ✅ 屏幕坐标 → 图像坐标
+        crosshair_x = crosshair_pos[0] - capture_area['left']
+        crosshair_y = crosshair_pos[1] - capture_area['top']
 
-        crosshair_x = crosshair_pos[0] - (screen_center[0] - img_center_x)
-        crosshair_y = crosshair_pos[1] - (screen_center[1] - img_center_y)
-
-        # 确保坐标在图像范围内
-        if not (0 <= crosshair_x < img_width and 0 <= crosshair_y < img_height):
+        # 边界检查
+        h, w = img.shape[:2]
+        if not (0 <= crosshair_x < w and 0 <= crosshair_y < h):
             return
 
         color = self.special_colors['crosshair_detected']  # 黄色
 
-        # 绘制小十字标记（比红色准星小）
+        # 绘制小十字标记
         cv2.drawMarker(
             img,
             (int(crosshair_x), int(crosshair_y)),
@@ -461,6 +443,55 @@ class PreviewWindow:
 
         cv2.putText(
             img, label, (label_x, label_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+            color, 1, cv2.LINE_AA
+        )
+
+    def _draw_search_area(
+            self,
+            img: np.ndarray,
+            img_width: int,
+            img_height: int
+    ):
+        """
+        ✅ 绘制准星搜索区域（固定在图像中心）
+
+        注意：此区域表示检测器实际的搜索范围，不会跟随准星移动
+        """
+        from config_manager import get_config
+        bounds = get_config('CROSSHAIR_SEARCH_BOUNDS', {
+            'x_left': -30,
+            'x_right': 30,
+            'y_up': -150,
+            'y_down': 20
+        })
+
+        # ✅ 固定使用图像中心
+        center_x = img_width // 2
+        center_y = img_height // 2
+
+        # 计算搜索区域边界
+        search_x1 = max(0, center_x + bounds['x_left'])
+        search_x2 = min(img_width - 1, center_x + bounds['x_right'])
+        search_y1 = max(0, center_y + bounds['y_up'])
+        search_y2 = min(img_height - 1, center_y + bounds['y_down'])
+
+        # 绘制虚线矩形
+        color = self.special_colors['search_area']  # 灰色
+        self._draw_dashed_rectangle(
+            img,
+            (search_x1, search_y1),
+            (search_x2, search_y2),
+            color,
+            thickness=1,
+            dash_length=10
+        )
+
+        # 添加标签说明
+        label = "Search Area"
+        label_pos = (search_x1 + 5, search_y1 - 5)
+        cv2.putText(
+            img, label, label_pos,
             cv2.FONT_HERSHEY_SIMPLEX, 0.4,
             color, 1, cv2.LINE_AA
         )
@@ -527,70 +558,6 @@ class PreviewWindow:
             self.show_search_area = not self.show_search_area
             utils.log(f"准星搜索区域: {'开' if self.show_search_area else '关'}")
 
-    def _draw_search_area(
-            self,
-            img: np.ndarray,
-            screen_center: Tuple[int, int],
-            img_width: int,
-            img_height: int
-    ):
-        """
-        ⭐ 绘制准星搜索区域（长方形框）
-
-        Args:
-            screen_center: 屏幕坐标系的准星位置
-            img_width: 捕获图像的宽度
-            img_height: 捕获图像的高度
-        """
-        # 获取搜索区域配置
-        from config_manager import get_config
-        bounds = get_config('CROSSHAIR_SEARCH_BOUNDS', {
-            'x_left': -30,
-            'x_right': 30,
-            'y_up': -150,
-            'y_down': 20
-        })
-
-        # 获取屏幕尺寸
-        from utils import get_screen_info
-        screen_info = get_screen_info()
-        screen_width = screen_info['width']
-        screen_height = screen_info['height']
-
-        # 计算捕获区域在屏幕上的位置（假设居中捕获）
-        capture_left = (screen_width - img_width) // 2
-        capture_top = (screen_height - img_height) // 2
-
-        # 将屏幕坐标转换为图像坐标
-        crosshair_x = screen_center[0] - capture_left
-        crosshair_y = screen_center[1] - capture_top
-
-        # 计算搜索区域的四个角点（相对于准星位置）
-        search_x1 = int(crosshair_x + bounds['x_left'])
-        search_x2 = int(crosshair_x + bounds['x_right'])
-        search_y1 = int(crosshair_y + bounds['y_up'])
-        search_y2 = int(crosshair_y + bounds['y_down'])
-
-        # 限制在图像范围内
-        search_x1 = max(0, min(img_width - 1, search_x1))
-        search_x2 = max(0, min(img_width - 1, search_x2))
-        search_y1 = max(0, min(img_height - 1, search_y1))
-        search_y2 = max(0, min(img_height - 1, search_y2))
-
-        # 绘制搜索区域矩形框（虚线风格）
-        color = self.special_colors['search_area']  # 灰色
-        thickness = 1
-
-        # 使用虚线绘制（模拟虚线效果）
-        self._draw_dashed_rectangle(
-            img,
-            (search_x1, search_y1),
-            (search_x2, search_y2),
-            color,
-            thickness,
-            dash_length=10
-        )
-
     def _draw_dashed_rectangle(
             self,
             img: np.ndarray,
@@ -600,27 +567,14 @@ class PreviewWindow:
             thickness: int = 1,
             dash_length: int = 10
     ):
-        """
-        绘制虚线矩形
-
-        Args:
-            pt1: 左上角坐标
-            pt2: 右下角坐标
-            color: 颜色
-            thickness: 线条粗细
-            dash_length: 虚线段长度
-        """
+        """绘制虚线矩形"""
         x1, y1 = pt1
         x2, y2 = pt2
 
         # 绘制四条边（虚线）
-        # 上边
         self._draw_dashed_line(img, (x1, y1), (x2, y1), color, thickness, dash_length)
-        # 下边
         self._draw_dashed_line(img, (x1, y2), (x2, y2), color, thickness, dash_length)
-        # 左边
         self._draw_dashed_line(img, (x1, y1), (x1, y2), color, thickness, dash_length)
-        # 右边
         self._draw_dashed_line(img, (x2, y1), (x2, y2), color, thickness, dash_length)
 
     def _draw_dashed_line(
@@ -632,20 +586,10 @@ class PreviewWindow:
             thickness: int = 1,
             dash_length: int = 10
     ):
-        """
-        绘制虚线
-
-        Args:
-            pt1: 起点
-            pt2: 终点
-            color: 颜色
-            thickness: 线条粗细
-            dash_length: 虚线段长度
-        """
+        """绘制虚线"""
         x1, y1 = pt1
         x2, y2 = pt2
 
-        # 计算总长度和方向
         dx = x2 - x1
         dy = y2 - y1
         length = np.sqrt(dx ** 2 + dy ** 2)
@@ -653,11 +597,9 @@ class PreviewWindow:
         if length == 0:
             return
 
-        # 单位方向向量
         ux = dx / length
         uy = dy / length
 
-        # 绘制虚线段
         current_length = 0
         is_dash = True
 

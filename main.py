@@ -822,6 +822,7 @@ class CoreService:
                         self.preview_window.update(
                             img=img_bgra,
                             results=results,
+                            capture_area=self.capture_area,
                             target_class_ids=target_class_ids,
                             best_target=(best_x, best_y) if best_x else None,
                             is_locked=self.target_selector.is_locked,

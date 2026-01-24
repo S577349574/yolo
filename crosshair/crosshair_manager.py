@@ -1,13 +1,5 @@
 # crosshair/crosshair_manager.py
-"""
-准星检测管理器（改进版 v2.0）
-- ✅ 修复模板加载逻辑
-- ✅ 优化小红点准星支持
-- ✅ 改进错误处理和日志
-- ⭐ 新增位置缓存机制（解决抖动问题）
-- ⭐ 新增平滑过渡选项
-- ⭐ 增强初始化日志输出
-"""
+
 import cv2
 import numpy as np
 import os
