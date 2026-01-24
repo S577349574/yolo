@@ -116,7 +116,7 @@ class ConfigManager:
 
             # 配置文件不存在，创建默认配置
             if not self.config_file.exists():
-                self._log(f"⚠ 未找到配置文件，创建默认配置: {self.config_file}")
+                self._log(f"未找到配置文件，创建默认配置: {self.config_file}")
                 default = self._validator.validate(get_default_config())
                 self._write_config(default)
                 self.config = default
@@ -149,18 +149,18 @@ class ConfigManager:
 
                 # 如果有更新，重新保存
                 if updated:
-                    self._log("✅ 检测到新配置项，已自动补全")
+                    self._log("检测到新配置项，已自动补全")
                     self._write_config(new_config)
 
                 # 通知变更
                 if changes:
                     self._callback_manager.notify_batch(changes)
 
-                self._log(f"✅ 已加载配置: {self.config_file}")
+                self._log(f"已加载配置: {self.config_file}")
                 return self.config
 
             except json.JSONDecodeError as e:
-                self._log(f"❌ 配置文件格式错误: {e}")
+                self._log(f"配置文件格式错误: {e}")
                 self._backup_broken_config()
                 default = self._validator.validate(get_default_config())
                 self._write_config(default)
@@ -169,7 +169,7 @@ class ConfigManager:
                 return self.config
 
             except Exception as e:
-                self._log(f"❌ 加载配置失败: {e}")
+                self._log(f"加载配置失败: {e}")
                 default = self._validator.validate(get_default_config())
                 self.config = default
                 self._cache.clear()
@@ -215,7 +215,7 @@ class ConfigManager:
         """
         with self._rw_lock:
             if self._write_config(self.config):
-                self._log(f"✅ 配置已保存: {self.config_file}")
+                self._log(f"配置已保存: {self.config_file}")
                 try:
                     self.last_modified_time = os.path.getmtime(self.config_file)
                 except OSError:
@@ -232,7 +232,7 @@ class ConfigManager:
                 f.write(formatted)
             return True
         except Exception as e:
-            self._log(f"❌ 写入配置失败: {e}")
+            self._log(f"写入配置失败: {e}")
             return False
 
     def _format_with_comments(self, config: Dict[str, Any]) -> str:
@@ -322,14 +322,14 @@ class ConfigManager:
             interval_sec: 检查间隔（秒），None 则使用配置中的值
         """
         if self._monitor_thread is not None and self._monitor_thread.is_alive():
-            self._log("⚠ 配置监控线程已在运行")
+            self._log("配置监控线程已在运行")
             return
 
         if interval_sec is None:
             interval_sec = self.get("CONFIG_MONITOR_INTERVAL_SEC", 5)
 
         def monitor_loop():
-            self._log(f"✅ 配置自动重载已启动 (间隔: {interval_sec}秒)")
+            self._log(f"配置自动重载已启动 (间隔: {interval_sec}秒)")
 
             # 关键参数列表（用于日志）
             critical_keys = [
@@ -357,7 +357,7 @@ class ConfigManager:
                     # 检测关键参数变化
                     changed = [k for k in critical_keys if old_config.get(k) != self.config.get(k)]
                     if changed:
-                        self._log(f"🔥 关键参数变化: {', '.join(changed)}")
+                        self._log(f"关键参数变化: {', '.join(changed)}")
 
         self._stop_monitor = False
         self._monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
@@ -368,4 +368,4 @@ class ConfigManager:
         self._stop_monitor = True
         if self._monitor_thread:
             self._monitor_thread.join(timeout=2)
-            self._log("⏹ 配置自动重载已停止")
+            self._log("配置自动重载已停止")

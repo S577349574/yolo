@@ -167,7 +167,7 @@ def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState, stop_event
     """
     heartbeat_interval = 30
 
-    utils.log("💓 心跳线程已启动")
+    utils.log("心跳线程已启动")
 
     while auth.is_valid() and not stop_event.is_set():
         # 等待心跳间隔或停止信号
@@ -179,13 +179,13 @@ def heartbeat_worker(auth: LicenseAuthenticator, app_state: AppState, stop_event
 
         # 发送心跳
         if not auth.send_heartbeat():
-            utils.log("❌ 心跳验证失败！")
+            utils.log("心跳验证失败！")
             utils.log("程序将在3秒后自动退出。")
             time.sleep(3)
             app_state.request_exit()
             break
 
-    utils.log("💓 心跳线程已停止")
+    utils.log("心跳线程已停止")
 
 
 class CoreService:
@@ -232,7 +232,7 @@ class CoreService:
             bool: 验证是否成功
         """
         print("\n" + "=" * 60)
-        print("🔐 正在进行许可证验证...")
+        print("正在进行许可证验证...")
         print("=" * 60)
 
         # 1. 读取卡密
@@ -240,7 +240,7 @@ class CoreService:
 
         if not card_key:
             utils.log("\n" + "=" * 60)
-            utils.log("❌ 许可证密钥 (LICENSE_KEY) 为空！")
+            utils.log("许可证密钥 (LICENSE_KEY) 为空！")
             utils.log("请打开程序目录下的 config.json 文件，")
             utils.log("在 \"LICENSE_KEY\" 字段中填入您的卡密。")
             utils.log("=" * 60)
@@ -251,13 +251,13 @@ class CoreService:
         success, message = self.auth.verify(card_key)
 
         if not success:
-            utils.log(f"❌ 许可证验证失败: {message}")
+            utils.log(f"许可证验证失败: {message}")
             utils.log("请检查卡密是否正确、网络是否通畅或联系管理员。")
             self.auth = None
             return False
 
-        utils.log(f"✅ 验证成功: {message}")
-        utils.log(f"📅 过期时间: {self.auth.expire_date}")
+        utils.log(f"验证成功: {message}")
+        utils.log(f"过期时间: {self.auth.expire_date}")
 
         # 3. 启动心跳线程
         self.heartbeat_thread = Thread(
@@ -267,7 +267,7 @@ class CoreService:
             name="HeartbeatThread"
         )
         self.heartbeat_thread.start()
-        utils.log("✅ 后台心跳已启动")
+        utils.log("后台心跳已启动")
 
         return True
 
@@ -286,9 +286,9 @@ class CoreService:
                 agent_ip = get_config("AGENT_IP", "192.168.10.1") # 从配置读取游戏机IP
                 cmd_port = get_config("COMMAND_PORT", 27016)   # 默认 27016
                 self.command_sender = CommandSender(target_host=agent_ip, target_port=cmd_port)
-                utils.log(f"🌐 网络指令发送器已就绪 -> {agent_ip}:{cmd_port}")
+                utils.log(f"网络指令发送器已就绪 -> {agent_ip}:{cmd_port}")
             except Exception as e:
-                utils.log(f"⚠ 网络发送器初始化失败: {e}")
+                utils.log(f"网络发送器初始化失败: {e}")
                 self.command_sender = None
 
             # ========== 1. Makcu 硬件初始化 ==========
@@ -305,13 +305,13 @@ class CoreService:
                     )
                     time.sleep(0.5)
                     if self.shared_makcu_controller.is_connected():
-                        utils.log("✅ Makcu 设备已连接")
+                        utils.log("Makcu 设备已连接")
                     else:
-                        utils.log("⚠ Makcu 连接失败，将降级到软件模式")
+                        utils.log("Makcu 连接失败，将降级到软件模式")
                         self.shared_makcu_controller = None
                         use_makcu = False
                 except Exception as e:
-                    utils.log(f"❌ Makcu 初始化失败: {e}")
+                    utils.log(f"Makcu 初始化失败: {e}")
                     use_makcu = False
 
             # ========== 2. MTKmbox 硬件初始化 ⭐ ==========
@@ -336,22 +336,22 @@ class CoreService:
                     time.sleep(0.3)
 
                     if self.shared_mtkmbox_device.is_connected():
-                        utils.log(f"✅ MTKmbox 设备已连接 (端口: {port})")
+                        utils.log(f"MTKmbox 设备已连接 (端口: {port})")
                     else:
-                        utils.log("⚠ MTKmbox 连接失败，将降级到软件模式")
+                        utils.log("MTKmbox 连接失败，将降级到软件模式")
                         self.shared_mtkmbox_device = None
                         use_mtkmbox = False
                 except Exception as e:
-                    utils.log(f"❌ MTKmbox 初始化失败: {e}")
+                    utils.log(f"MTKmbox 初始化失败: {e}")
                     import traceback
                     traceback.print_exc()
                     use_mtkmbox = False
 
             # ========== 3. 硬件互斥性检查 ⭐ 新增 ==========
             if use_makcu and use_mtkmbox:
-                utils.log("⚠️ 检测到同时启用 Makcu 和 MTKmbox，应用优先级规则...")
+                utils.log("⚠检测到同时启用 Makcu 和 MTKmbox，应用优先级规则...")
                 utils.log("  优先级: MTKmbox > Makcu")
-                utils.log("  ✅ 保留 MTKmbox，禁用 Makcu")
+                utils.log("  保留 MTKmbox，禁用 Makcu")
                 use_makcu = False
                 if self.shared_makcu_controller:
                     try:
@@ -393,10 +393,16 @@ class CoreService:
                     utils.log("⚠ 驱动加载失败，切换到 WinAPI 模式")
                     use_driver_mode = False
                 else:
-                    utils.log("✅ 驱动已就绪")
+                    utils.log("驱动已就绪")
 
             # 5. YOLO 模型
-            self.model = YOLOv8Detector()
+            if self.model is None:
+                # 首次加载:创建单例
+                self.model = YOLOv8Detector()
+            else:
+                # 重载时:显式调用 reload()
+                utils.log("[推理] 重新加载模型配置...")
+                self.model.reload()  # ⭐ 关键修改
 
             # 6. 准星检测
             if get_config('ENABLE_CROSSHAIR_DETECTION', False):
@@ -415,9 +421,9 @@ class CoreService:
                         img_shape=img_shape
                     )
                     self.threaded_detector.start()
-                    utils.log("✅ 准星检测系统初始化完成")
+                    utils.log("准星检测系统初始化完成")
                 except Exception as e:
-                    utils.log(f"❌ 准星检测初始化失败: {e}")
+                    utils.log(f"准星检测初始化失败: {e}")
             else:
                 self.crosshair_manager = None
                 self.threaded_detector = None
@@ -496,18 +502,18 @@ class CoreService:
                     for script in scripts_to_enable:
                         self.script_manager.enable_script(script)
 
-                    utils.log("✅ 脚本系统已加载")
+                    utils.log("脚本系统已加载")
                 except Exception as e:
-                    utils.log(f"⚠ 脚本初始化失败: {e}")
+                    utils.log(f"脚本初始化失败: {e}")
             else:
                 self.script_manager = None
-                utils.log("ℹ️ 脚本系统已禁用")
+                utils.log("ℹ脚本系统已禁用")
 
-            print("[Core] ✅ 所有资源加载完成")
+            print("[Core] 所有资源加载完成")
             return True
 
         except Exception as e:
-            print(f"[Core] ❌ 资源加载严重错误: {e}")
+            print(f"[Core] 资源加载严重错误: {e}")
             traceback.print_exc()
             return False
 
@@ -589,19 +595,19 @@ class CoreService:
     def logout_license(self):
         """⭐ 注销许可证"""
         if self.auth and self.auth.is_valid():
-            utils.log("🔐 正在注销许可证...")
+            utils.log("正在注销许可证...")
             try:
                 self.auth.logout()
-                utils.log("✅ 许可证已注销")
+                utils.log("许可证已注销")
             except Exception as e:
-                utils.log(f"⚠️ 注销许可证时出错: {e}")
+                utils.log(f"⚠注销许可证时出错: {e}")
 
         # 等待心跳线程退出
         if self.heartbeat_thread and self.heartbeat_thread.is_alive():
-            utils.log("⏳ 等待心跳线程退出...")
+            utils.log("等待心跳线程退出...")
             self.heartbeat_thread.join(timeout=2.0)
             if self.heartbeat_thread.is_alive():
-                utils.log("⚠️ 心跳线程未在超时内退出")
+                utils.log("⚠心跳线程未在超时内退出")
 
     def run(self):
         """核心服务线程入口 - 修复版"""
@@ -609,7 +615,7 @@ class CoreService:
 
         # ⭐ 首先进行许可证验证
         if not self.verify_license():
-            utils.log("[Core] ❌ 许可证验证失败，服务无法启动")
+            utils.log("[Core] 许可证验证失败，服务无法启动")
             self.stop_event.set()
             return
 
@@ -618,15 +624,15 @@ class CoreService:
 
             # 1. 加载资源
             if not self.load_resources():
-                utils.log("[Core] ⚠️ 资源加载失败，等待配置修复...")
-                utils.log("[Core] 💡 请在 GUI 中修改配置后点击「保存」再点击「重载」按钮")
+                utils.log("[Core] 资源加载失败，等待配置修复...")
+                utils.log("[Core] 请在 GUI 中修改配置后点击「保存」再点击「重载」按钮")
 
                 # ✅ 修复：使用超时等待，定期检查 stop_event
                 while not self.stop_event.is_set():
                     # 每 2 秒检查一次 reload_event
                     if self.reload_event.wait(timeout=2.0):
                         self.reload_event.clear()
-                        utils.log("[Core] 🔄 收到重载信号，尝试重新加载...")
+                        utils.log("[Core] 收到重载信号，尝试重新加载...")
                         break
                     # 超时后继续循环，可以响应 stop_event
 
@@ -637,7 +643,7 @@ class CoreService:
             self.reload_event.clear()
 
             if not self.resume_event.is_set():
-                utils.log("[Core] ✅ 资源就绪，等待 GUI 启动信号...")
+                utils.log("[Core] 资源就绪，等待 GUI 启动信号...")
 
             # === 预计算不变量 ===
             screen_center_x = self.screen_info['width'] // 2
@@ -837,7 +843,7 @@ class CoreService:
                             time.sleep(sleep_time)
 
                 except Exception as e:
-                    print(f"[Core] ⚠️ 循环异常: {e}")
+                    print(f"[Core] 循环异常: {e}")
                     traceback.print_exc()
                     time.sleep(1)
 
@@ -852,7 +858,7 @@ class CoreService:
                 break
 
             if self.reload_event.is_set():
-                print("[Core] 🔁 正在执行热重载...")
+                print("[Core] 正在执行热重载...")
 
         # ⭐ 退出时注销许可证
         self.logout_license()
@@ -890,19 +896,6 @@ def start_app():
                 pass
 
         unload_driver(delete_service=False)
-
-        # ⭐ 打印准星检测统计（如果有）
-        if core.crosshair_manager and hasattr(core.crosshair_manager, 'get_stats'):
-            try:
-                print("\n" + "=" * 60)
-                print("📊 准星检测最终统计")
-                stats = core.crosshair_manager.get_stats()
-                print(f"  总检测帧数: {stats.get('total', 'N/A')}")
-                print(f"  成功帧数: {stats.get('success', 'N/A')}")
-                print(f"  成功率: {stats.get('success_rate', 'N/A')}")
-                print("=" * 60 + "\n")
-            except:
-                pass
 
         print("[Main] 程序已彻底退出")
         os._exit(0)
