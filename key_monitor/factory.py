@@ -6,7 +6,7 @@ from config_manager import get_config
 from .base import KeyMonitorBase
 from .winapi_monitor import WinAPIKeyMonitor
 from .makcu_monitor import MakcuKeyMonitor
-from .mtkmbox_monitor import MTKmboxKeyMonitor  # ⭐ 新增
+from .mtkmbox_monitor import MTKmboxKeyMonitor
 
 
 def get_monitored_keys() -> List[str]:
