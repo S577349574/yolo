@@ -775,43 +775,77 @@ class CoreService:
                             self.mouse_controller.move_to_target(best_x, best_y)
 
                     # J. 自动开火/压枪
-                    if _feature_auto_fire or _feature_manual_recoil:
-                        if best_x is not None:
-                            offset_dist = math.sqrt((best_x - aim_ref_x) ** 2 + (best_y - aim_ref_y) ** 2)
+                    # ==================== 优化版本 ====================
 
+                    # 1️⃣ 提前计算目标信息
+                    has_target = best_x is not None
+                    offset_dist = None
+                    target_too_far = False
+
+                    if has_target:
+                        offset_dist = math.sqrt((best_x - aim_ref_x) ** 2 + (best_y - aim_ref_y) ** 2)
+
+                        # ⭐ 距离预检查
+                        max_effective_distance = get_config('MAX_EFFECTIVE_DISTANCE', 150.0)
+                        target_too_far = offset_dist > max_effective_distance
+
+                    # 2️⃣ 更新目标状态（仅在需要时）
+                    if _feature_auto_fire or _feature_manual_recoil:
+                        if has_target and not target_too_far:
                             self.auto_fire.update_target_status(
                                 detected=True,
                                 locked=self.target_selector.is_locked,
                                 lock_frames=self.target_selector.target_lock_frames,
                                 distance=offset_dist
                             )
-
-                            # 自动开火触发检查
-                            if _feature_auto_fire:
-                                enabled_keys = get_monitored_keys()
-                                trigger_pressed = any(self.key_monitor.is_key_pressed(k) for k in enabled_keys)
-
-                                if trigger_pressed:
-                                    acc = self.auto_fire.update_accuracy(offset_dist)
-                                    if self.auto_fire.should_auto_fire(
-                                            target_locked=self.target_selector.is_locked,
-                                            lock_frames=self.target_selector.target_lock_frames,
-                                            current_accuracy=acc,
-                                            error_distance=offset_dist
-                                    ):
-                                        if not self.auto_fire.is_firing:
-                                            self.auto_fire.start_firing()
-                                        self.auto_fire.apply_recoil_control()
-                                    else:
-                                        if self.auto_fire.is_firing:
-                                            self.auto_fire.stop_firing()
-                                else:
-                                    if self.auto_fire.is_firing:
-                                        self.auto_fire.stop_firing()
                         else:
-                            self.auto_fire.update_target_status(detected=False)
-                            if _feature_auto_fire and self.auto_fire.is_firing:
+                            # ⭐ 仅在状态变化时更新
+                            if self.auto_fire._target_detected:
+                                self.auto_fire.update_target_status(detected=False)
+
+                    # 3️⃣ 自动开火逻辑（独立处理）
+                    if _feature_auto_fire and has_target and not target_too_far:
+                        # ⭐ 缓存按键检查结果
+                        current_time = time.time()
+                        if not hasattr(self, '_last_key_check_time'):
+                            self._last_key_check_time = 0.0
+                            self._cached_trigger_pressed = False
+
+                        # 每 50ms 检查一次按键（降低频率）
+                        if current_time - self._last_key_check_time > 0.05:
+                            enabled_keys = get_monitored_keys()
+                            self._cached_trigger_pressed = any(
+                                self.key_monitor.is_key_pressed(k) for k in enabled_keys
+                            )
+                            self._last_key_check_time = current_time
+
+                        trigger_pressed = self._cached_trigger_pressed
+
+                        if trigger_pressed:
+                            # ⭐ 仅在按键按下时计算准确率
+                            acc = self.auto_fire.update_accuracy(offset_dist)
+
+                            if self.auto_fire.should_auto_fire(
+                                    target_locked=self.target_selector.is_locked,
+                                    lock_frames=self.target_selector.target_lock_frames,
+                                    current_accuracy=acc,
+                                    error_distance=offset_dist
+                            ):
+                                if not self.auto_fire.is_firing:
+                                    self.auto_fire.start_firing()
+                                self.auto_fire.apply_recoil_control()
+                            else:
+                                if self.auto_fire.is_firing:
+                                    self.auto_fire.stop_firing()
+                        else:
+                            # 按键释放，停止开火
+                            if self.auto_fire.is_firing:
                                 self.auto_fire.stop_firing()
+
+                    elif _feature_auto_fire:
+                        # 目标丢失或过远，停止开火
+                        if self.auto_fire.is_firing:
+                            self.auto_fire.stop_firing()
 
                     # K. 预览窗口
                     current_time = time.perf_counter()

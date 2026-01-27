@@ -5,7 +5,8 @@ import uuid
 from typing import Optional, Tuple
 import requests
 import platform
-import socket
+import subprocess
+import os
 
 
 class LicenseAuthenticator:
@@ -36,30 +37,222 @@ class LicenseAuthenticator:
         self.expire_date: Optional[str] = None
         self.max_devices: Optional[int] = None
 
+    def _get_hardware_info_windows(self) -> dict:
+        """获取 Windows 硬件信息 - 使用多种方法"""
+        hardware_info = {
+            'disk_id': '',
+            'motherboard_serial': '',
+            'cpu_id': ''
+        }
+
+        # 获取硬盘序列号
+        try:
+            result = subprocess.check_output(
+                'wmic diskdrive get serialnumber',
+                shell=True,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            ).decode('utf-8', errors='ignore').strip()
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            if len(lines) > 1 and lines[1]:
+                hardware_info['disk_id'] = lines[1]
+        except:
+            # PowerShell 备用方案
+            try:
+                ps_command = "Get-PhysicalDisk | Select-Object -First 1 -ExpandProperty SerialNumber"
+                result = subprocess.check_output(
+                    ['powershell', '-Command', ps_command],
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                ).decode('utf-8', errors='ignore').strip()
+                if result:
+                    hardware_info['disk_id'] = result
+            except:
+                pass
+
+        # 获取主板序列号
+        try:
+            result = subprocess.check_output(
+                'wmic baseboard get serialnumber',
+                shell=True,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            ).decode('utf-8', errors='ignore').strip()
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            if len(lines) > 1 and lines[1]:
+                hardware_info['motherboard_serial'] = lines[1]
+        except:
+            # PowerShell 备用方案
+            try:
+                ps_command = "Get-CimInstance Win32_BaseBoard | Select-Object -ExpandProperty SerialNumber"
+                result = subprocess.check_output(
+                    ['powershell', '-Command', ps_command],
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                ).decode('utf-8', errors='ignore').strip()
+                if result:
+                    hardware_info['motherboard_serial'] = result
+            except:
+                pass
+
+        # 获取CPU信息
+        try:
+            result = subprocess.check_output(
+                'wmic cpu get processorid',
+                shell=True,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            ).decode('utf-8', errors='ignore').strip()
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            if len(lines) > 1 and lines[1]:
+                hardware_info['cpu_id'] = lines[1]
+        except:
+            # PowerShell 备用方案 - 获取CPU名称
+            try:
+                ps_command = "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name"
+                result = subprocess.check_output(
+                    ['powershell', '-Command', ps_command],
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                ).decode('utf-8', errors='ignore').strip()
+                if result:
+                    hardware_info['cpu_id'] = result
+            except:
+                # 最后的备用方案
+                try:
+                    cpu_info = f"{platform.processor()}_{os.cpu_count()}"
+                    hardware_info['cpu_id'] = cpu_info
+                except:
+                    pass
+
+        return hardware_info
+
+    def _get_hardware_info_linux(self) -> dict:
+        """获取 Linux 硬件信息"""
+        hardware_info = {
+            'disk_id': '',
+            'motherboard_serial': '',
+            'cpu_id': ''
+        }
+
+        # 获取硬盘序列号
+        try:
+            result = subprocess.check_output(
+                "lsblk -d -o serial | grep -v SERIAL | head -n 1",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            hardware_info['disk_id'] = result
+        except:
+            pass
+
+        # 获取主板序列号
+        try:
+            result = subprocess.check_output(
+                "cat /sys/class/dmi/id/board_serial 2>/dev/null || sudo dmidecode -s baseboard-serial-number 2>/dev/null",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            hardware_info['motherboard_serial'] = result
+        except:
+            pass
+
+        # 获取CPU信息
+        try:
+            result = subprocess.check_output(
+                "cat /proc/cpuinfo | grep 'model name' | head -n 1 | cut -d ':' -f 2",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            hardware_info['cpu_id'] = result
+        except:
+            pass
+
+        return hardware_info
+
+    def _get_hardware_info_macos(self) -> dict:
+        """获取 macOS 硬件信息"""
+        hardware_info = {
+            'disk_id': '',
+            'motherboard_serial': '',
+            'cpu_id': ''
+        }
+
+        # 获取硬盘序列号
+        try:
+            result = subprocess.check_output(
+                "system_profiler SPSerialATADataType | grep 'Serial Number' | head -n 1",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            if ':' in result:
+                hardware_info['disk_id'] = result.split(':')[1].strip()
+        except:
+            pass
+
+        # 获取主板序列号
+        try:
+            result = subprocess.check_output(
+                "system_profiler SPHardwareDataType | grep 'Serial Number'",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            if ':' in result:
+                hardware_info['motherboard_serial'] = result.split(':')[1].strip()
+        except:
+            pass
+
+        # 获取CPU信息
+        try:
+            result = subprocess.check_output(
+                "sysctl -n machdep.cpu.brand_string",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            hardware_info['cpu_id'] = result
+        except:
+            pass
+
+        return hardware_info
+
+    def _get_hardware_info(self) -> dict:
+        """
+        获取硬件信息
+        返回: {disk_id, motherboard_serial, cpu_id}
+        """
+        system = platform.system()
+
+        if system == "Windows":
+            return self._get_hardware_info_windows()
+        elif system == "Linux":
+            return self._get_hardware_info_linux()
+        elif system == "Darwin":
+            return self._get_hardware_info_macos()
+        else:
+            return {'disk_id': '', 'motherboard_serial': '', 'cpu_id': ''}
+
     def _generate_machine_code(self) -> str:
         """
         生成机器码 - 基于硬件信息
-        包含: 计算机名称 + MAC地址 + 操作系统
+        包含: 硬盘ID + 主板序列号 + CPU序列号
         """
         try:
-            # 获取计算机名称
-            hostname = socket.gethostname()
+            # 获取硬件信息
+            hardware_info = self._get_hardware_info()
 
-            # 获取MAC地址
-            mac_address = ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
-                                    for elements in range(0, 2 * 6, 8)][::-1])
+            # 组合硬件信息
+            machine_info = f"{hardware_info['disk_id']}|{hardware_info['motherboard_serial']}|{hardware_info['cpu_id']}"
 
-            # 获取操作系统信息
-            system = platform.system()
+            # 如果所有硬件信息都为空，使用UUID作为后备方案
+            if not any(hardware_info.values()):
+                print("[LicenseAuth] 警告: 无法获取硬件信息，使用UUID作为机器码")
+                machine_code = str(uuid.uuid4())
+            else:
+                # 生成机器码哈希
+                machine_code = hashlib.sha256(machine_info.encode()).hexdigest()
 
-            # 组合信息
-            machine_info = f"{hostname}|{mac_address}|{system}"
-
-            # 生成机器码哈希
-            machine_code = hashlib.sha256(machine_info.encode()).hexdigest()
-
-            # 修改：显示完整机器码，不再截断
             print(f"[LicenseAuth] 机器码已生成: {machine_code}")
+
             return machine_code
 
         except Exception as e:
@@ -95,7 +288,6 @@ class LicenseAuthenticator:
             (是否成功, 消息)
         """
         timestamp = self._get_timestamp()
-        # 签名数据中使用machine_code而不是device_id
         data = f"{card_key}|{self.machine_code}"
         signature = self._generate_signature(data, timestamp)
 
@@ -202,3 +394,5 @@ class LicenseAuthenticator:
     def is_valid(self) -> bool:
         """检查当前是否已验证"""
         return self.is_authenticated
+
+

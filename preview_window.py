@@ -350,10 +350,10 @@ class PreviewWindow:
             return
 
         # 绘制十字线
-        line_len = 20
-        gap = 5
-        thickness = 2
-        center_size = 2
+        line_len = 0  # 十字线长度（原来是20，改小了）
+        gap = 1  # 中心空隙（原来是5，改小了）
+        thickness = 1  # 线条粗细（原来是2，改成1更细）
+        center_size = 1  # 中心点大小（原来是2）
         color = self.special_colors['locked']  # 红色
 
         cv2.line(img, (crosshair_x - line_len, crosshair_y),

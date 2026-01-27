@@ -89,22 +89,57 @@ class MTKMBOXMouseController(SerialMouseControllerBase):
             dy -= step_dy
 
     def _hardware_button(self, button_flags: int):
-        """发送按键指令到 MTKmbox 硬件"""
+        """
+        发送按键指令到 MTKmbox 硬件
+
+        Args:
+            button_flags: 按键标志（来自 MouseControllerBase）
+        """
         if not self.controller:
             raise RuntimeError("MTKmbox 设备未初始化")
 
-        # MTKmbox 的按键映射
-        button_map = {
-            0x01: 'left',
-            0x02: 'right',
-            0x04: 'middle'
+        # ⭐ 修复：使用正确的按键映射
+        button_action_map = {
+            # 左键
+            self.BUTTON_LEFT_DOWN: ('left', 'press'),
+            self.BUTTON_LEFT_UP: ('left', 'release'),
+
+            # 右键
+            self.BUTTON_RIGHT_DOWN: ('right', 'press'),
+            self.BUTTON_RIGHT_UP: ('right', 'release'),
+
+            # 中键
+            self.BUTTON_MIDDLE_DOWN: ('middle', 'press'),
+            self.BUTTON_MIDDLE_UP: ('middle', 'release'),
+
+            # 侧键4（如果 MTKmbox 支持）
+            self.BUTTON_4_DOWN: ('x1', 'press'),
+            self.BUTTON_4_UP: ('x1', 'release'),
+
+            # 侧键5（如果 MTKmbox 支持）
+            self.BUTTON_5_DOWN: ('x2', 'press'),
+            self.BUTTON_5_UP: ('x2', 'release'),
         }
 
-        for flag, button_name in button_map.items():
-            if button_flags & flag:
-                self.controller.click(button_name, press=True)
+        if button_flags not in button_action_map:
+            self._log(f"⚠️ 未知按钮标志: {button_flags}")
+            return
+
+        button_name, action = button_action_map[button_flags]
+
+        try:
+            # ✅ 正确调用：使用 press() 或 release()
+            if action == 'press':
+                result = self.controller.press(button_name)
             else:
-                self.controller.click(button_name, press=False)
+                result = self.controller.release(button_name)
+
+            if self.debug:
+                self._log(f"按钮操作: {button_name} {action} -> {result}")
+
+        except Exception as e:
+            self._log(f"❌ 按键操作失败 ({button_name} {action}): {e}")
+            raise
 
     def _disconnect_device(self):
         """断开 MTKmbox 设备连接"""
