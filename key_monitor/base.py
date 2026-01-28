@@ -112,14 +112,14 @@ class KeyMonitorBase(ABC):
             callback: 回调函数（无参数）
         """
         if event not in self._callbacks:
-            utils.log(f"[KeyMonitor] ⚠️ 未知事件: {event}")
+            utils.log(f"[KeyMonitor] 未知事件: {event}")
             return
 
         if callback not in self._callbacks[event]:
             self._callbacks[event].append(callback)
-            utils.log(f"[KeyMonitor] 📌 注册回调: {event}")
+            utils.log(f"[KeyMonitor] 注册回调: {event}")
         else:
-            utils.log(f"[KeyMonitor] ⚠️ 回调已存在: {event}")
+            utils.log(f"[KeyMonitor] 回调已存在: {event}")
 
     def unregister_callback(self, event: str, callback: Callable):
         """
@@ -131,7 +131,7 @@ class KeyMonitorBase(ABC):
         """
         if event in self._callbacks and callback in self._callbacks[event]:
             self._callbacks[event].remove(callback)
-            utils.log(f"[KeyMonitor] 📌 取消回调: {event}")
+            utils.log(f"[KeyMonitor] 取消回调: {event}")
 
     def clear_callbacks(self, event: str = None):
         """
@@ -143,11 +143,11 @@ class KeyMonitorBase(ABC):
         if event:
             if event in self._callbacks:
                 self._callbacks[event].clear()
-                utils.log(f"[KeyMonitor] 🧹 清空回调: {event}")
+                utils.log(f"[KeyMonitor] 清空回调: {event}")
         else:
             for key in self._callbacks:
                 self._callbacks[key].clear()
-            utils.log("[KeyMonitor] 🧹 清空所有回调")
+            utils.log("[KeyMonitor] 清空所有回调")
 
     # ==================== 生命周期管理 ====================
 
@@ -158,7 +158,7 @@ class KeyMonitorBase(ABC):
             return True
 
         if not self._initialize():
-            utils.log("[KeyMonitor] ❌ 初始化失败")
+            utils.log("[KeyMonitor] 初始化失败")
             return False
 
         self._stop_event.clear()
@@ -170,7 +170,7 @@ class KeyMonitorBase(ABC):
         self._monitor_thread.start()
         self._is_running = True
 
-        utils.log("[KeyMonitor] ✅ 监控已启动（监听所有按键）")
+        utils.log("[KeyMonitor] 监控已启动（监听所有按键）")
         utils.log("  F12: 退出程序")
         utils.log("  其他按键: 由业务层回调处理")
         return True
@@ -180,17 +180,17 @@ class KeyMonitorBase(ABC):
         if not self._is_running:
             return
 
-        utils.log("[KeyMonitor] ⏳ 正在停止监控...")
+        utils.log("[KeyMonitor] 正在停止监控...")
         self._stop_event.set()
 
         if self._monitor_thread and self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=1.0)
             if self._monitor_thread.is_alive():
-                utils.log("[KeyMonitor] ⚠️ 监控线程未在超时内退出")
+                utils.log("[KeyMonitor] 监控线程未在超时内退出")
 
         self._cleanup()
         self._is_running = False
-        utils.log("[KeyMonitor] ✅ 监控已停止")
+        utils.log("[KeyMonitor] 监控已停止")
 
     def is_running(self) -> bool:
         """检查监控是否运行中"""
@@ -200,7 +200,7 @@ class KeyMonitorBase(ABC):
 
     def _monitor_loop(self):
         """监控循环 - 无差别监听所有按键"""
-        utils.log("\n[KeyMonitor] 🎮 开始监听所有按键...")
+        utils.log("\n[KeyMonitor] 开始监听所有按键...")
         utils.log("  - 左键、右键、侧键4、侧键5")
         utils.log("  - 业务逻辑由回调处理")
 
@@ -226,7 +226,7 @@ class KeyMonitorBase(ABC):
                 time.sleep(self.poll_interval)
 
             except Exception as e:
-                utils.log(f"[KeyMonitor] ❌ 监控错误: {e}")
+                utils.log(f"[KeyMonitor] 监控错误: {e}")
                 import traceback
                 traceback.print_exc()
                 break
@@ -247,7 +247,7 @@ class KeyMonitorBase(ABC):
             try:
                 callback()
             except Exception as e:
-                utils.log(f"[KeyMonitor] ⚠️ 回调执行失败 ({event}): {e}")
+                utils.log(f"[KeyMonitor] 回调执行失败 ({event}): {e}")
                 import traceback
                 traceback.print_exc()
 

@@ -72,7 +72,7 @@ instance/
 docs/_build/
 
 # PyBuilder
-target/
+target_manager/
 
 # Jupyter Notebook
 .ipynb_checkpoints

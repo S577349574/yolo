@@ -26,7 +26,7 @@ from license_auth import LicenseAuthenticator  # ⭐ 新增：许可证验证
 from mouse import create_mouse_controller
 from script_system import ScriptAPI, ScriptManager, EventSystem
 from script_system.shared_game_state import get_game_state
-from target_selector import TargetSelector
+from target_manager.target_selector import TargetSelector
 from utils import get_screen_info, calculate_capture_area
 from crosshair.crosshair_manager import CrosshairManager
 

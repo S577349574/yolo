@@ -1,3 +1,5 @@
+"""客户端许可证验证器 - 仅保留验证功能"""
+
 import hashlib
 import hmac
 import time
@@ -8,18 +10,24 @@ import platform
 import subprocess
 import os
 
+# ==================== 配置区域 ====================
+SERVER_URL = "http://1.14.184.43:45000"
+SECRET_KEY = "your_secret_key_change_this"
+APP_NAME = "MyApp"
+# =================================================
+
 
 class LicenseAuthenticator:
-    """许可证验证器 - 集成到你的应用中"""
+    """许可证验证器 - 客户端版本（无管理功能）"""
 
-    def __init__(self, server_url: str, secret_key: str, app_name: str = "MyApp"):
+    def __init__(self, server_url: str = SERVER_URL, secret_key: str = SECRET_KEY, app_name: str = APP_NAME):
         """
         初始化验证器
 
         Args:
-            server_url: 服务器地址，例如 "http://1.14.184.43:45000"
+            server_url: 服务器地址
             secret_key: 与服务器约定的密钥
-            app_name: 应用名称（可选）
+            app_name: 应用名称
         """
         self.server_url = server_url.rstrip('/')
         self.secret_key = secret_key
@@ -38,7 +46,7 @@ class LicenseAuthenticator:
         self.max_devices: Optional[int] = None
 
     def _get_hardware_info_windows(self) -> dict:
-        """获取 Windows 硬件信息 - 使用多种方法"""
+        """获取 Windows 硬件信息"""
         hardware_info = {
             'disk_id': '',
             'motherboard_serial': '',
@@ -57,7 +65,6 @@ class LicenseAuthenticator:
             if len(lines) > 1 and lines[1]:
                 hardware_info['disk_id'] = lines[1]
         except:
-            # PowerShell 备用方案
             try:
                 ps_command = "Get-PhysicalDisk | Select-Object -First 1 -ExpandProperty SerialNumber"
                 result = subprocess.check_output(
@@ -82,7 +89,6 @@ class LicenseAuthenticator:
             if len(lines) > 1 and lines[1]:
                 hardware_info['motherboard_serial'] = lines[1]
         except:
-            # PowerShell 备用方案
             try:
                 ps_command = "Get-CimInstance Win32_BaseBoard | Select-Object -ExpandProperty SerialNumber"
                 result = subprocess.check_output(
@@ -107,7 +113,6 @@ class LicenseAuthenticator:
             if len(lines) > 1 and lines[1]:
                 hardware_info['cpu_id'] = lines[1]
         except:
-            # PowerShell 备用方案 - 获取CPU名称
             try:
                 ps_command = "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name"
                 result = subprocess.check_output(
@@ -118,7 +123,6 @@ class LicenseAuthenticator:
                 if result:
                     hardware_info['cpu_id'] = result
             except:
-                # 最后的备用方案
                 try:
                     cpu_info = f"{platform.processor()}_{os.cpu_count()}"
                     hardware_info['cpu_id'] = cpu_info
@@ -135,7 +139,6 @@ class LicenseAuthenticator:
             'cpu_id': ''
         }
 
-        # 获取硬盘序列号
         try:
             result = subprocess.check_output(
                 "lsblk -d -o serial | grep -v SERIAL | head -n 1",
@@ -146,7 +149,6 @@ class LicenseAuthenticator:
         except:
             pass
 
-        # 获取主板序列号
         try:
             result = subprocess.check_output(
                 "cat /sys/class/dmi/id/board_serial 2>/dev/null || sudo dmidecode -s baseboard-serial-number 2>/dev/null",
@@ -157,7 +159,6 @@ class LicenseAuthenticator:
         except:
             pass
 
-        # 获取CPU信息
         try:
             result = subprocess.check_output(
                 "cat /proc/cpuinfo | grep 'model name' | head -n 1 | cut -d ':' -f 2",
@@ -178,7 +179,6 @@ class LicenseAuthenticator:
             'cpu_id': ''
         }
 
-        # 获取硬盘序列号
         try:
             result = subprocess.check_output(
                 "system_profiler SPSerialATADataType | grep 'Serial Number' | head -n 1",
@@ -190,7 +190,6 @@ class LicenseAuthenticator:
         except:
             pass
 
-        # 获取主板序列号
         try:
             result = subprocess.check_output(
                 "system_profiler SPHardwareDataType | grep 'Serial Number'",
@@ -202,7 +201,6 @@ class LicenseAuthenticator:
         except:
             pass
 
-        # 获取CPU信息
         try:
             result = subprocess.check_output(
                 "sysctl -n machdep.cpu.brand_string",
@@ -216,10 +214,7 @@ class LicenseAuthenticator:
         return hardware_info
 
     def _get_hardware_info(self) -> dict:
-        """
-        获取硬件信息
-        返回: {disk_id, motherboard_serial, cpu_id}
-        """
+        """获取硬件信息"""
         system = platform.system()
 
         if system == "Windows":
@@ -232,26 +227,16 @@ class LicenseAuthenticator:
             return {'disk_id': '', 'motherboard_serial': '', 'cpu_id': ''}
 
     def _generate_machine_code(self) -> str:
-        """
-        生成机器码 - 基于硬件信息
-        包含: 硬盘ID + 主板序列号 + CPU序列号
-        """
+        """生成机器码"""
         try:
-            # 获取硬件信息
             hardware_info = self._get_hardware_info()
-
-            # 组合硬件信息
             machine_info = f"{hardware_info['disk_id']}|{hardware_info['motherboard_serial']}|{hardware_info['cpu_id']}"
 
-            # 如果所有硬件信息都为空，使用UUID作为后备方案
             if not any(hardware_info.values()):
                 print("[LicenseAuth] 警告: 无法获取硬件信息，使用UUID作为机器码")
                 machine_code = str(uuid.uuid4())
             else:
-                # 生成机器码哈希
                 machine_code = hashlib.sha256(machine_info.encode()).hexdigest()
-
-            print(f"[LicenseAuth] 机器码已生成: {machine_code}")
 
             return machine_code
 
@@ -305,13 +290,11 @@ class LicenseAuthenticator:
             if response.status_code == 200:
                 result = response.json()
 
-                # 保存验证信息
                 self.card_key = card_key
                 self.is_authenticated = True
                 self.expire_date = result.get('expire_date')
                 self.max_devices = result.get('max_devices')
 
-                # 同步服务器时间
                 if 'server_time' in result:
                     self._sync_server_time(result['server_time'])
 
@@ -331,12 +314,7 @@ class LicenseAuthenticator:
             return False, f"验证错误: {str(e)}"
 
     def send_heartbeat(self) -> bool:
-        """
-        发送心跳保持在线状态
-
-        Returns:
-            是否成功
-        """
+        """发送心跳保持在线状态"""
         if not self.is_authenticated or not self.card_key:
             return False
 
@@ -395,4 +373,6 @@ class LicenseAuthenticator:
         """检查当前是否已验证"""
         return self.is_authenticated
 
-
+    def get_machine_code(self) -> str:
+        """获取机器码（用于显示给用户）"""
+        return self.machine_code

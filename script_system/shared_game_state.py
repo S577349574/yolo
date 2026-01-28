@@ -46,7 +46,7 @@ class Target:
         self.is_locked = is_locked
         self.lock_frames = lock_frames
 
-    def copy(self) -> 'Target':
+    def copy(self) -> 'target_manager':
         """深拷贝目标对象"""
         return Target(
             x=self.x,

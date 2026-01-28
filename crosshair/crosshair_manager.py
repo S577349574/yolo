@@ -55,7 +55,7 @@ class CrosshairManager:
         self._print_init_header()
 
         if not enable_detection:
-            utils.log("⚠️ 准星检测已禁用")
+            utils.log("准星检测已禁用")
             self.detector = None
             return
 
@@ -68,27 +68,27 @@ class CrosshairManager:
     def _print_init_header(self):
         """打印初始化配置头部信息"""
         utils.log("\n" + "=" * 60)
-        utils.log("🎯 准星管理器初始化")
+        utils.log("准星管理器初始化")
         utils.log("=" * 60)
-        utils.log(f"📋 配置参数:")
+        utils.log(f"配置参数:")
         utils.log(f"   • 检测器类型: {self.detector_type}")
-        utils.log(f"   • 检测启用状态: {'✅ 启用' if self.enabled else '❌ 禁用'}")
-        utils.log(f"   • 位置平滑: {'✅ 启用' if self._enable_smooth else '❌ 禁用'}")
+        utils.log(f"   • 检测启用状态: {'启用' if self.enabled else '禁用'}")
+        utils.log(f"   • 位置平滑: {'启用' if self._enable_smooth else '禁用'}")
 
         if self._enable_smooth:
             utils.log(f"     └─ 平滑系数: {self._smooth_factor:.2f} (0=无平滑, 1=最大平滑)")
 
         utils.log(f"   • 容错机制: 连续失败 {self._max_consecutive_misses} 次后回退中心")
-        utils.log(f"   • 调试模式: {'✅ 启用' if self.enable_debug else '❌ 禁用'}")
+        utils.log(f"   • 调试模式: {'启用' if self.enable_debug else '禁用'}")
 
     def _print_init_summary(self):
         """打印初始化完成总结"""
         utils.log("\n" + "-" * 60)
-        utils.log("✅ 准星管理器初始化完成")
+        utils.log("准星管理器初始化完成")
         utils.log("-" * 60)
 
         if self.detector:
-            utils.log(f"🔧 检测器详情:")
+            utils.log(f"检测器详情:")
             utils.log(f"   • 名称: {self.detector.get_name()}")
 
             if hasattr(self.detector, 'threshold'):
@@ -103,7 +103,7 @@ class CrosshairManager:
             if hasattr(self.detector, 'color_tolerance'):
                 utils.log(f"   • 颜色容差: {self.detector.color_tolerance}")
 
-        utils.log(f"\n📊 运行策略:")
+        utils.log(f"\n运行策略:")
         utils.log(f"   • 位置平滑: {'开启' if self._enable_smooth else '关闭'}")
 
         if self._enable_smooth:
@@ -128,29 +128,29 @@ class CrosshairManager:
             self._init_red_dot_detector()
 
         else:
-            utils.log(f"❌ 未知的检测器类型: {detector_type}，回退到颜色检测")
+            utils.log(f"未知的检测器类型: {detector_type}，回退到颜色检测")
             self._init_color_detector()
 
     def _init_color_detector(self):
         """初始化颜色检测器"""
         from crosshair.detectors.color_detector import ColorCrosshairDetector
 
-        utils.log("\n🎨 初始化颜色检测器...")
+        utils.log("\n初始化颜色检测器...")
         self.detector = ColorCrosshairDetector()
-        utils.log("   ✅ 颜色检测器加载完成")
+        utils.log("   颜色检测器加载完成")
 
     def _init_red_dot_detector(self):
         """初始化红点准星检测器"""
-        utils.log("\n🔴 初始化红点检测器...")
+        utils.log("\n初始化红点检测器...")
         from crosshair.detectors.red_dot_detector import SimpleRedDotDetector
         self.detector = SimpleRedDotDetector()
-        utils.log("   ✅ 增强版红点检测器加载完成")
+        utils.log("   增强版红点检测器加载完成")
 
     def _init_template_detector(self, valorant_config_code: Optional[str]):
         """初始化模板检测器（传递颜色信息）"""
         from crosshair.detectors.template_detector import TemplateCrosshairDetector
 
-        utils.log("\n🖼️ 初始化模板匹配检测器...")
+        utils.log("\n初始化模板匹配检测器...")
 
         template_bgr = None
         is_dot_only = False
@@ -159,24 +159,24 @@ class CrosshairManager:
 
         # ========== 方式1：从 Valorant 配置代码生成 ==========
         if valorant_config_code:
-            utils.log("   📝 从Valorant配置代码生成模板...")
+            utils.log("   从Valorant配置代码生成模板...")
             result = self._generate_valorant_template(valorant_config_code)
             if result:
                 template_bgr, is_dot_only, target_color_bgr, target_color_name = result
 
         # ========== 方式2：从外部文件加载 ==========
         if template_bgr is None:
-            utils.log("   📂 尝试从外部文件加载模板...")
+            utils.log("   尝试从外部文件加载模板...")
             template_bgr = self._load_external_template()
 
         # ========== 检查是否成功获取模板 ==========
         if template_bgr is None:
-            utils.log("   ❌ 无可用模板，回退到颜色检测模式")
+            utils.log("   无可用模板，回退到颜色检测模式")
             self._init_color_detector()
             return
 
         # ========== 创建模板检测器（传递颜色信息）==========
-        utils.log("   🔧 配置检测器参数...")
+        utils.log("   配置检测器参数...")
         self.detector = TemplateCrosshairDetector(
             template_img=template_bgr,
             target_color_bgr=target_color_bgr,
@@ -193,7 +193,7 @@ class CrosshairManager:
         search_width = bounds['x_right'] - bounds['x_left']
         search_height = abs(bounds['y_up']) + bounds['y_down']
 
-        utils.log(f"   ✅ 检测器配置完成:")
+        utils.log(f"   检测器配置完成:")
         utils.log(f"     • 阈值: {self.detector.threshold}")
         utils.log(f"     • 颜色容差: {self.detector.color_tolerance}")
         utils.log(f"     • 搜索区域: {search_width}×{search_height}px")
@@ -214,7 +214,7 @@ class CrosshairManager:
             utils.log(f"     └─ 准星配置: {desc}")
 
             if self.enable_debug:
-                print(f"\n     🔍 配置详情:")
+                print(f"\n     配置详情:")
                 print(f"        • 颜色: {config['color_name']} ({config['color_hex']}) - BGR: {config['color_bgr']}")
                 print(f"        • 描边: {'启用' if config['outline']['enabled'] else '禁用'}")
                 print(f"        • 中心点: {'启用' if config['center_dot']['enabled'] else '禁用'}")
@@ -249,15 +249,15 @@ class CrosshairManager:
                 pil_img = Image.fromarray(img_rgba, 'RGBA')
                 pil_img.save("crosshair.png", 'PNG')
                 utils.log(
-                    f"     ✅ 模板已保存: crosshair.png (透明背景, {template_img.shape[1]}x{template_img.shape[0]})")
+                    f"     模板已保存: crosshair.png (透明背景, {template_img.shape[1]}x{template_img.shape[0]})")
             else:
                 cv2.imwrite("crosshair.png", template_img)
-                utils.log(f"     ✅ 模板已保存: crosshair.png ({template_img.shape[1]}x{template_img.shape[0]})")
+                utils.log(f"     模板已保存: crosshair.png ({template_img.shape[1]}x{template_img.shape[0]})")
 
             return (template_img, is_dot_only, target_color_bgr, target_color_name)
 
         except Exception as e:
-            utils.log(f"     ❌ Valorant配置解析失败: {e}")
+            utils.log(f"     Valorant配置解析失败: {e}")
             if self.enable_debug:
                 import traceback
                 traceback.print_exc()
@@ -273,17 +273,17 @@ class CrosshairManager:
         template_path = "templates/crosshair.png"
 
         if not os.path.exists(template_path):
-            utils.log(f"     ⚠️ 外部模板不存在: {template_path}")
+            utils.log(f"     外部模板不存在: {template_path}")
             return None
 
-        utils.log(f"     📂 加载外部模板: {template_path}")
+        utils.log(f"     加载外部模板: {template_path}")
         template_bgr = cv2.imread(template_path)
 
         if template_bgr is None:
-            utils.log(f"     ❌ 模板加载失败（文件损坏或格式错误）")
+            utils.log(f"     模板加载失败（文件损坏或格式错误）")
             return None
 
-        utils.log(f"     ✅ 模板加载成功: {template_bgr.shape[1]}x{template_bgr.shape[0]}px")
+        utils.log(f"     模板加载成功: {template_bgr.shape[1]}x{template_bgr.shape[0]}px")
         return template_bgr
 
     def _init_cross_shape_detector(self):
@@ -291,12 +291,12 @@ class CrosshairManager:
         try:
             from crosshair.detectors.cross_shape_detector import CrossShapeDetector
 
-            utils.log("\n➕ 初始化十字形状检测器...")
+            utils.log("\n初始化十字形状检测器...")
             self.detector = CrossShapeDetector()
-            utils.log("   ✅ 十字形状检测器加载完成")
+            utils.log("   十字形状检测器加载完成")
 
         except ImportError:
-            utils.log("   ❌ 十字形状检测器不可用，回退到颜色检测")
+            utils.log("   十字形状检测器不可用，回退到颜色检测")
             self._init_color_detector()
 
     def _smooth_position(self, new_pos: Tuple[int, int]) -> Tuple[int, int]:
@@ -369,7 +369,7 @@ class CrosshairManager:
                 else:
                     # 长期失败：使用回退中心，并重置缓存
                     if self.enable_debug:
-                        utils.log(f"⚠️ 连续{self._consecutive_misses}次检测失败，使用回退中心")
+                        utils.log(f"连续{self._consecutive_misses}次检测失败，使用回退中心")
                     self._last_valid_position = None
                     return fallback_center
 
@@ -413,7 +413,7 @@ class CrosshairManager:
         if self.detector and hasattr(self.detector, 'reset'):
             self.detector.reset()
 
-        utils.log("📊 准星检测统计已重置")
+        utils.log("准星检测统计已重置")
 
     def set_threshold(self, threshold: float):
         """
@@ -425,9 +425,9 @@ class CrosshairManager:
         if self.detector and hasattr(self.detector, 'threshold'):
             old_threshold = self.detector.threshold
             self.detector.threshold = max(0.0, min(1.0, threshold))
-            utils.log(f"🔧 阈值调整: {old_threshold:.2f} → {self.detector.threshold:.2f}")
+            utils.log(f"阈值调整: {old_threshold:.2f} → {self.detector.threshold:.2f}")
         else:
-            utils.log("⚠️ 当前检测器不支持阈值调整")
+            utils.log("当前检测器不支持阈值调整")
 
     def set_smooth_factor(self, factor: float):
         """
@@ -438,7 +438,7 @@ class CrosshairManager:
         """
         old_factor = self._smooth_factor
         self._smooth_factor = max(0.0, min(1.0, factor))
-        utils.log(f"🔧 平滑系数调整: {old_factor:.2f} → {self._smooth_factor:.2f}")
+        utils.log(f"平滑系数调整: {old_factor:.2f} → {self._smooth_factor:.2f}")
 
     def set_max_consecutive_misses(self, count: int):
         """
@@ -449,27 +449,27 @@ class CrosshairManager:
         """
         old_count = self._max_consecutive_misses
         self._max_consecutive_misses = max(1, count)
-        utils.log(f"🔧 最大连续失败次数调整: {old_count} → {self._max_consecutive_misses}")
+        utils.log(f"最大连续失败次数调整: {old_count} → {self._max_consecutive_misses}")
 
     def enable(self):
         """启用检测"""
         self.enabled = True
-        utils.log("✅ 准星检测已启用")
+        utils.log("准星检测已启用")
 
     def disable(self):
         """禁用检测"""
         self.enabled = False
-        utils.log("⏸️ 准星检测已禁用")
+        utils.log("⏸准星检测已禁用")
 
     def enable_smooth(self):
         """启用平滑"""
         self._enable_smooth = True
-        utils.log("✅ 位置平滑已启用")
+        utils.log("位置平滑已启用")
 
     def disable_smooth(self):
         """禁用平滑"""
         self._enable_smooth = False
-        utils.log("⏸️ 位置平滑已禁用")
+        utils.log("位置平滑已禁用")
 
     def get_detector_info(self) -> str:
         """获取检测器信息"""

@@ -298,9 +298,9 @@ def setup_chinese_font():
                 dpg.add_font_range(0x3000, 0x303F)  # 中日韩符号和标点
 
             dpg.bind_font(font_cn)
-            print(f"[GUI] ✅ 已加载中文字体: {font_path}")
+            print(f"[GUI] 已加载中文字体: {font_path}")
         else:
-            print("[GUI] ⚠️ 未找到中文字体，部分中文可能显示为问号")
+            print("[GUI] 未找到中文字体，部分中文可能显示为问号")
 
 
 # ================= 🎨 Apple 风格主题设置 (优化版) =================
@@ -452,7 +452,6 @@ def create_gui():
         with dpg.tab_bar():
 
             # ================= TAB 1: 基础设置 =================
-            # ================= TAB 1: 基础设置 =================
             with dpg.tab(label="基础 & 系统"):
                 # ========== 原有配置（保持不变） ==========
                 dpg.add_text("许可证配置", color=UIColors.APPLE_BLUE)
@@ -531,10 +530,6 @@ def create_gui():
                         dpg.add_text("示例: models/names.txt\n留空则从模型目录自动加载 names.txt")
 
                 dpg.add_separator()
-
-
-
-                dpg.add_separator()
                 dpg.add_text("系统性能", color=UIColors.APPLE_BLUE)
                 add_bool("ENABLE_LOGGING", "启用日志记录")
                 add_combo("LOG_LEVEL", "日志等级", ["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -592,7 +587,7 @@ def create_gui():
                 add_combo_tagged(
                     "CROSSHAIR_DETECTOR_TYPE",
                     "检测器类型",
-                    ["color", "template", "cross_shape","red_dot"],
+                    ["color", "template", "cross_shape","red_dot(适配三角洲红点)"],
                     "crosshair_detector_type"
                 )
 
