@@ -67,7 +67,7 @@ class LocalScreenSource(ImageSource):
             return
 
         utils.log("\n📸 启动本地屏幕捕获...")
-        from shared_capture import start_capture_process
+        from image.shared_capture import start_capture_process
 
         self.frame_buffer, self.capture_process, self.stop_event = \
             start_capture_process(crop_size=self.crop_size)

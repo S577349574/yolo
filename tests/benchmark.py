@@ -3,15 +3,12 @@
 性能基准测试 - 多后端版本
 支持测试: ONNX Runtime / ncnn
 """
-
 import time
 import numpy as np
 import mss
 import cv2
 
 from config_manager import get_config
-
-
 def get_detector(backend='ncnn'):
     """
     获取指定后端的检测器

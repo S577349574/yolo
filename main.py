@@ -15,7 +15,7 @@ from key_monitor.factory import get_monitored_keys
 makcu_patch.apply()
 
 import utils
-from auto_fire_controller import AutoFireController
+from mouse.auto_fire_controller import AutoFireController
 import config_manager
 from config_manager import get_config, load_config
 import config_manager as cfg
@@ -460,7 +460,7 @@ class CoreService:
 
             # 11. 预览窗口
             if get_config('ENABLE_PREVIEW_WINDOW', False):
-                from preview_window import PreviewWindow
+                from gui.preview_window import PreviewWindow
                 self.preview_window = PreviewWindow(
                     window_name="YOLO Preview",
                     width=get_config('PREVIEW_WINDOW_WIDTH', 800),
