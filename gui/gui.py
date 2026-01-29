@@ -424,10 +424,13 @@ def create_gui():
             tag="crosshair_preview_texture"
         )
 
+
+
     with dpg.window(tag="Primary Window", label="test-v1.0"):
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
+            # dpg.add_text("--黄、不了", color=UIColors.APPLE_BLUE)
             dpg.add_button(
                 tag="ai_toggle_btn",
                 label="初始化中...",
@@ -1173,7 +1176,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title="Prism Vision", width=900, height=800)
+    dpg.create_viewport(title="Prism Vision-v1.0", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()
