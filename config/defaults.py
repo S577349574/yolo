@@ -10,6 +10,7 @@ CONFIG_GROUPS = {
     "模型配置": [
         # 通用模型配置
         "MODEL_PATH",
+        "MODEL_TYPE",
         "CLASS_NAMES_PATH",
 
         # 后端选择
@@ -225,6 +226,7 @@ def get_default_config() -> Dict[str, Any]:
 
         # ========== YOLO 检测 ==========
         "MODEL_PATH": "320.onnx",
+        "MODEL_TYPE": "v8",  #
         "CONF_THRESHOLD": 0.60,
         "IOU_THRESHOLD": 0.45,
         "TARGET_CLASS_IDS": [0, 1],

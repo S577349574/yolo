@@ -463,6 +463,11 @@ def create_gui():
                 dpg.add_text("核心模型配置", color=UIColors.APPLE_BLUE)
 
                 add_input_text("MODEL_PATH", "YOLO 模型路径 (.onnx)")
+                add_combo(
+                    "MODEL_TYPE",
+                    "YOLO 模型类型",
+                    ["v5", "v8", "v10", "v11"]
+                )
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text("示例: models/yolov8n.onnx\n支持相对/绝对路径")
 

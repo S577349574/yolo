@@ -31,7 +31,7 @@ class ONNXDetector(BaseDetector):
         """加载ONNX模型"""
         model_path = get_config('MODEL_PATH')
 
-        # 路径验证(你原来的逻辑)
+        # 路径验证
         if not model_path or not isinstance(model_path, str):
             raise ModelLoadError("MODEL_PATH 配置为空")
 
@@ -69,6 +69,9 @@ class ONNXDetector(BaseDetector):
         self.names = self._load_names_from_metadata()
         if self.names:
             utils.log(f"[ONNX] 类别数量: {len(self.names)}")
+
+        # ✅ 从配置获取模型类型
+        self.model_type = self._get_model_type()
 
     def _get_providers(self, preferred: str) -> List:
         """获取Provider优先级列表"""
@@ -144,6 +147,25 @@ class ONNXDetector(BaseDetector):
             utils.log(f"[ONNX] 加载类别名称失败: {e}")
         return {}
 
+    def _get_model_type(self) -> str:
+        """
+        从配置获取模型类型
+
+        Returns:
+            'v5' | 'v8' | 'v10' | 'v11'
+        """
+        model_type = get_config('MODEL_TYPE', 'v8').lower()
+
+        # 验证配置值
+        valid_types = ['v5', 'v8', 'v10', 'v11']
+        if model_type not in valid_types:
+            utils.log(f"⚠️ 无效的 MODEL_TYPE: '{model_type}'，使用默认值 'v8'")
+            utils.log(f"   有效值: {', '.join(valid_types)}")
+            return 'v8'
+
+        utils.log(f"[ONNX] 模型类型: YOLO{model_type}")
+        return model_type
+
     def _warmup(self, iterations: int = 10):
         """预热模型"""
         utils.log("[ONNX] 正在预热模型...")
@@ -164,6 +186,9 @@ class ONNXDetector(BaseDetector):
                 if self._output_needs_squeeze:
                     predictions = predictions[0]
                 self._output_needs_transpose = predictions.shape[0] < predictions.shape[1]
+
+                # 输出调试信息
+                utils.log(f"[DEBUG] 输出形状: {predictions.shape}")
             else:
                 self.predict(dummy)
 
@@ -185,7 +210,7 @@ class ONNXDetector(BaseDetector):
         )
 
     def postprocess(self, output, conf_threshold, iou_threshold) -> List[Dict[str, Any]]:
-        """后处理(修复版)"""
+        """后处理（支持YOLOv5/v8/v10/v11）"""
         predictions = output[0]
 
         if self._output_needs_squeeze:
@@ -194,10 +219,18 @@ class ONNXDetector(BaseDetector):
             predictions = predictions.T
 
         boxes = predictions[:, :4]
-        scores = predictions[:, 4:]
+
+        # ✅ 根据模型类型处理分数
+        if self.model_type == 'v5':
+            objectness = predictions[:, 4:5]
+            class_scores = predictions[:, 5:]
+            scores = objectness * class_scores  # objectness * class_score
+        else:
+            # YOLOv8/v10/v11: [x,y,w,h, class1, class2, ...]
+            scores = predictions[:, 4:]
 
         max_scores = scores.max(axis=1)
-        mask = np.asarray(max_scores > conf_threshold)  # ← 显式转换
+        mask = np.asarray(max_scores > conf_threshold)
 
         if not mask.any():
             return []
@@ -226,7 +259,7 @@ class ONNXDetector(BaseDetector):
             if len(indices) == 0:
                 continue
 
-            # === 修复：统一处理索引格式 ===
+            # 统一处理索引格式
             if isinstance(indices, tuple):
                 # OpenCV 4.5.x: tuple of arrays
                 indices = [i[0] if isinstance(i, (list, np.ndarray)) else i for i in indices]
@@ -234,10 +267,8 @@ class ONNXDetector(BaseDetector):
                 # OpenCV 4.6+: 可能是二维或一维
                 if indices.ndim == 2:
                     indices = indices.flatten()
-                # 确保是整数列表
                 indices = indices.tolist()
 
-            # 现在 indices 是纯 Python 整数列表
             original_indices = np.where(class_mask)[0]
 
             for idx in indices:
@@ -251,6 +282,7 @@ class ONNXDetector(BaseDetector):
 
     @staticmethod
     def _xywh2xyxy(boxes):
+        """中心点格式转左上右下格式"""
         xy = boxes[:, :2]
         wh = boxes[:, 2:4]
         half_wh = wh * 0.5
@@ -271,13 +303,16 @@ class ONNXDetector(BaseDetector):
         self._iou_threshold = get_config('IOU_THRESHOLD', 0.45)
 
     def get_class_name(self, class_id: int) -> str:
+        """获取类别名称"""
         return self.names.get(class_id, f"class_{class_id}")
 
     @property
     def backend_name(self) -> str:
+        """获取后端名称"""
         return f"ONNX-{self._active_provider}"
 
     def __del__(self):
+        """清理资源"""
         try:
             if hasattr(self, 'session'):
                 del self.session
