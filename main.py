@@ -119,8 +119,20 @@ class CachedConfig:
         self.feature_preview = False
         self.feature_scripts = False
         self.feature_game_state = False
+        self._model_ref = None
 
-        self.refresh()
+    def set_model_reference(self, model):
+        """
+        设置模型引用（在模型加载后调用）
+
+        Args:
+            model: YOLOv8Detector 实例
+        """
+        self._model_ref = model
+        # 立即更新 crop_size
+        if model and hasattr(model, 'img_size'):
+            self.crop_size = model.img_size
+            utils.log(f"[CachedConfig] 从模型更新 crop_size: {self.crop_size}")
 
     def refresh(self):
         """刷新所有配置（恢复运行或热重载时调用）"""
@@ -128,7 +140,17 @@ class CachedConfig:
         self.auto_fire_accuracy_threshold = get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75)
         self.auto_fire_distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
         self.recoil_vertical_speed = get_config('RECOIL_VERTICAL_SPEED', 150.0)
-        self.crop_size = get_config('CROP_SIZE', 640)
+
+        # ⭐ 优先从模型获取 crop_size
+        if self._model_ref and hasattr(self._model_ref, 'img_size'):
+            self.crop_size = self._model_ref.img_size
+        else:
+            # 兜底：从配置文件读取（仅在模型未加载时）
+            self.crop_size = get_config('CROP_SIZE', 640)
+            utils.log(f"⚠️ [CachedConfig] 模型未加载，使用配置文件 crop_size: {self.crop_size}")
+
+
+
         self.config_ids = get_config('TARGET_CLASS_IDS', [])
         self.config_names = get_config('TARGET_CLASS_NAMES', [])
         self.enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
@@ -404,6 +426,10 @@ class CoreService:
                 utils.log("[推理] 重新加载模型配置...")
                 self.model.reload()  # ⭐ 关键修改
 
+            self.cached_config.set_model_reference(self.model)
+            model_input_size = self.cached_config.crop_size  # 或 self.model.input_size
+            print(f"[Core] 使用模型输入尺寸: {model_input_size}x{model_input_size}")
+
             # 6. 准星检测
             if get_config('ENABLE_CROSSHAIR_DETECTION', False):
                 try:
@@ -412,8 +438,7 @@ class CoreService:
                         valorant_config_code=get_config('CROSSHAIR_VALORANT_CONFIG', ''),
                         enable_detection=True,enable_smooth=False
                     )
-                    crop_size = self.cached_config.crop_size
-                    img_shape = (crop_size, crop_size, config_manager.get_config("FRAME_CHANNELS"))  # BGRA = 4 通道
+                    img_shape = (model_input_size, model_input_size, config_manager.get_config("FRAME_CHANNELS", 3)) # BGRA = 4 通道
 
                     # ✅ 传入 img_shape 参数
                     self.threaded_detector = ThreadedCrosshairDetector(
@@ -455,7 +480,7 @@ class CoreService:
                     self.cached_config.enable_auto_fire = False
 
             # 10. 图像源
-            self.image_source = create_image_source()
+            self.image_source = create_image_source(target_size=model_input_size)
             self.image_source.start()
 
             # 11. 预览窗口
@@ -673,6 +698,9 @@ class CoreService:
 
                 # B. 刷新功能标志
                 if _need_refresh_flags:
+
+                    if self.cached_config._model_ref is None and self.model is not None:
+                        self.cached_config.set_model_reference(self.model)
                     self.cached_config.refresh()
 
                     _feature_crosshair = (

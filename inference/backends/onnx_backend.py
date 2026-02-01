@@ -128,7 +128,7 @@ class ONNXDetector(BaseDetector):
 
     def _load_config(self):
         """加载配置"""
-        self.img_size = get_config('CROP_SIZE', 640)
+        self.img_size = self._detect_input_size()
         self._conf_threshold = get_config('CONF_THRESHOLD', 0.5)
         self._iou_threshold = get_config('IOU_THRESHOLD', 0.45)
 
@@ -296,6 +296,42 @@ class ONNXDetector(BaseDetector):
         input_data = self.preprocess(img_bgr)
         outputs = self.session.run(self.output_names, {self.input_name: input_data})
         return self.postprocess(outputs, conf, iou)
+
+    def _detect_input_size(self) -> int:
+        """
+        从模型输入形状自动检测图像尺寸
+
+        Returns:
+            int: 输入尺寸（如 640）
+        """
+        try:
+            # 获取模型输入形状
+            input_shape = self.session.get_inputs()[0].shape
+
+            # 常见格式: [batch, channels, height, width] 或 [batch, height, width, channels]
+            # ONNX 通常是 NCHW: [1, 3, 640, 640]
+            if len(input_shape) == 4:
+                # 假设是 NCHW 格式
+                if input_shape[1] == 3:  # channels = 3
+                    height, width = input_shape[2], input_shape[3]
+                # 或者是 NHWC 格式
+                elif input_shape[3] == 3:
+                    height, width = input_shape[1], input_shape[2]
+                else:
+                    raise ValueError(f"无法识别的输入形状: {input_shape}")
+
+                # 验证是否为正方形输入
+                if height != width:
+                    utils.log(f"⚠️ 模型输入非正方形: {height}x{width}，使用较小值")
+                    size = min(height, width)
+                else:
+                    size = height
+
+                utils.log(f"[ONNX] 从模型自动检测输入尺寸: {size}x{size}")
+                return int(size)
+
+        except Exception as e:
+            utils.log(f"⚠️ 自动检测输入尺寸失败: {e}")
 
     def update_thresholds(self):
         """更新阈值"""

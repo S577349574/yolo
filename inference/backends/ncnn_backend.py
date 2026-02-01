@@ -160,12 +160,66 @@ class NCNNDetector(BaseDetector):
 
     def _load_config(self):
         """加载配置"""
-        self.img_size = get_config('CROP_SIZE', 640)
+        # ✅ 优先从模型自动检测
+        self.img_size = self._detect_input_size()
+
         self._conf_threshold = get_config('CONF_THRESHOLD', 0.5)
         self._iou_threshold = get_config('IOU_THRESHOLD', 0.45)
 
         utils.log(f"[ncnn] 输入尺寸: {self.img_size}x{self.img_size}")
         utils.log(f"[ncnn] 阈值: conf={self._conf_threshold}, iou={self._iou_threshold}")
+
+    def _detect_input_size(self) -> int:
+        """
+        从 ncnn 模型的 .param 文件自动检测输入尺寸
+
+        Returns:
+            int: 输入尺寸（如 640）
+        """
+        try:
+            # 获取 .param 文件路径
+            onnx_path = get_config('MODEL_PATH')
+            param_path = get_config('NCNN_PARAM_PATH', None)
+
+            if param_path is None:
+                base_path = os.path.splitext(onnx_path)[0]
+                param_path = base_path + '.param'
+
+            if not os.path.exists(param_path):
+                raise FileNotFoundError(f"找不到 .param 文件: {param_path}")
+
+            # 解析 .param 文件
+            with open(param_path, 'r') as f:
+                lines = f.readlines()
+
+            # 查找 Input 层的形状信息
+            # 格式示例: "Input in0 0 1 in0 0=640 1=640 2=3"
+            for line in lines:
+                if line.strip().startswith('Input'):
+                    parts = line.split()
+
+                    # 查找 0=height 1=width 2=channels
+                    height, width = None, None
+                    for part in parts:
+                        if part.startswith('0='):
+                            height = int(part.split('=')[1])
+                        elif part.startswith('1='):
+                            width = int(part.split('=')[1])
+
+                    if height and width:
+                        if height != width:
+                            utils.log(f"⚠️ ncnn模型输入非正方形: {height}x{width}，使用较小值")
+                            size = min(height, width)
+                        else:
+                            size = height
+
+                        utils.log(f"[ncnn] 从 .param 自动检测输入尺寸: {size}x{size}")
+                        return size
+
+            utils.log("⚠️ 未能从 .param 解析输入尺寸")
+
+        except Exception as e:
+            utils.log(f"⚠️ ncnn 自动检测输入尺寸失败: {e}")
 
     def _warmup(self, iterations: int = 5):
         """预热模型"""

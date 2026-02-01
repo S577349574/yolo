@@ -129,8 +129,8 @@ class NetworkSource(ImageSource):
     def __init__(
             self,
             listen_port: int = 27015,
-            frame_width: int = 320,  # ✅ 改成320（匹配发送端）
-            frame_height: int = 320,  # ✅ 改成320
+            frame_width: int = 320,
+            frame_height: int = 320,
     ):
         self.receiver = FrameReceiver(
             listen_port=listen_port,
@@ -190,9 +190,14 @@ class NetworkSource(ImageSource):
 # 工厂函数
 # ============================================================
 
-def create_image_source() -> ImageSource:
+def create_image_source(target_size: Optional[int] = None) -> ImageSource:
     """
     从配置文件创建图像源（自动读取配置）
+
+    Args:
+        target_size: 目标图像尺寸（优先级高于配置文件）
+                    - 对于 local 模式：设置 crop_size
+                    - 对于 network 模式：设置 frame_width 和 frame_height
 
     Returns:
         ImageSource 实例
@@ -202,14 +207,21 @@ def create_image_source() -> ImageSource:
     source_type = get_config('IMAGE_SOURCE_TYPE', 'local')
 
     if source_type == 'local':
-        crop_size = get_config('CROP_SIZE', 640)
+        # ✅ 优先使用传入的 target_size，否则使用配置文件
+        crop_size = target_size
         utils.log(f"🖼️ 图像源: 本地屏幕捕获 ({crop_size}x{crop_size})")
         return LocalScreenSource(crop_size=crop_size)
 
     elif source_type == 'network':
         frame_port = get_config('FRAME_PORT', 27015)
-        frame_width = get_config('FRAME_WIDTH', 320)  # ✅ 改成320
-        frame_height = get_config('FRAME_HEIGHT', 320)  # ✅ 改成320
+
+        # ✅ 优先使用传入的 target_size，否则使用配置文件
+        if target_size is not None:
+            frame_width = target_size
+            frame_height = target_size
+        else:
+            frame_width = get_config('FRAME_WIDTH', 320)
+            frame_height = get_config('FRAME_HEIGHT', 320)
 
         utils.log(f"🖼️ 图像源: UDP网络接收 (simplejpeg)")
         utils.log(f"   监听端口: {frame_port}")

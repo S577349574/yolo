@@ -463,13 +463,24 @@ def create_gui():
                 dpg.add_text("核心模型配置", color=UIColors.APPLE_BLUE)
 
                 add_input_text("MODEL_PATH", "YOLO 模型路径 (.onnx)")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "此目录是绝对路径，你模型存放的文件在哪里，就直接复制路径填入输入框，模型名字要包含.onnx\n"
+                        "比如我模型放的目录是在，C盘模型文件夹下面叫320.onnx的话\n"
+                        "那路径就是C:\\模型\\320.onnx"
+                    )
                 add_combo(
                     "MODEL_TYPE",
                     "YOLO 模型类型",
                     ["v5", "v8", "v10", "v11"]
                 )
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("示例: models/yolov8n.onnx\n支持相对/绝对路径")
+                    dpg.add_text("根据不同模型训练方式选择不同的类型，一般模型名字上都会标注出是v5或者v8\n"
+                        "比如我有一个模型名叫：0923lqm320v5s.onnx\n"
+                        "0923是训练日期、lqm是作者的名字、320是模型的尺寸、v5s就是模型的类型\n"
+                        "如果要使用这个模型，那么此处就要选择V5\n"
+                        "如果你无法判断模型是V几的，优先选择v8，打开预览窗口后如果发现花屏，在尝试V5\n"
+                    )
 
                 add_combo(
                     "FORCE_BACKEND",
@@ -486,8 +497,6 @@ def create_gui():
                         "cpu = 纯CPU模式"
                     )
 
-                add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
-                add_float("IOU_THRESHOLD", "重叠剔除 (IOU)", 0.1, 0.99)
 
                 dpg.add_separator()
 
@@ -543,8 +552,18 @@ def create_gui():
                 add_combo("LOG_LEVEL", "日志等级", ["DEBUG", "INFO", "WARNING", "ERROR"])
                 add_bool("DEBUG_MODE", "调试模式 (显示画框)")
                 add_bool("MAKCU_DEBUG_MODE", "Makcu调试模式")
+
                 add_int("CAPTURE_FPS", "截图帧率限制", 1, 500)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("截图帧数限制，这个设置要超过你屏幕刷新率\n"
+                        "在右键显示设置-高级显示设置中可以看到屏幕刷新率\n"
+                    )
                 add_int("INFERENCE_FPS", "推理帧率限制", 1, 500)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("推理帧数可以设置的很高，因为在游戏环境中，GPU会优先把资源给游戏，程序的AI推理只能吃剩下的\n"
+                        "如果你发现推理很低，那么你就需要限制一下游戏的fps或者画质，让程序推理有资源可吃\n"
+                        "如果想要实现精准的锁抢，那么你推理的速度一定要比你游戏fps速度高。比如游戏120fps的，推理就需要130fps\n"
+                    )
                 add_int("CONFIG_MONITOR_INTERVAL_SEC", "配置热重载间隔 (秒)", 1, 60)
 
             # ================= TAB 2: 图像源配置 =================
@@ -552,15 +571,78 @@ def create_gui():
                 dpg.add_text("画面来源模式(需要重启启动)", color=UIColors.APPLE_BLUE)
                 add_combo("IMAGE_SOURCE_TYPE", "图像源类型", ["local", "network"])
                 add_int("CROP_SIZE", "推理区域大小 (Crop)", 64, 1280)
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("在v1.2版本以后，此参数可以忽略，程序将优先从onnx模型文件中提取需要的截图尺寸。\n"
+                                 "此参数在v1.2以后为兜底参数可以不调整\n"
+                    )
                 dpg.add_separator()
                 dpg.add_text("网络画面接收配置(需要重启启动) (仅network模式生效)", color=UIColors.SECTION_HEADER)
                 add_int("FRAME_PORT", "接收端口", 1024, 65535)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("填写游戏机agent配置中的FRAME_PORT参数\n"
+                                 "图片来源选择网络，游戏机和推理机必须在一个局域网环境下才可以\n"
+                    )
                 add_int("FRAME_WIDTH", "画面宽度 (像素)", 64, 1920)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("填写游戏机agent配置中的width参数\n"
+                                 "此参数要和onnx模型尺寸同步\n"
+                    )
                 add_int("FRAME_HEIGHT", "画面高度 (像素)", 64, 1080)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("填写游戏机agent配置中的height参数\n"
+                                 "此参数要和onnx模型尺寸同步\n"
+                    )
                 add_int("FRAME_CHANNELS", "通道数 (RGB=3, RGBA=4)", 3, 4)
 
-            # ================= TAB 3: 准星检测 =================
+
+
+            # ================= TAB 3: 预览窗口 =================
+            with dpg.tab(label="预览窗口"):
+                dpg.add_text("窗口基础设置", color=UIColors.APPLE_BLUE)
+
+                preview_deps = [
+                    "preview_width", "preview_height", "preview_skip",
+                    "preview_show_boxes", "preview_show_labels", "preview_show_conf",
+                    "preview_show_fps", "preview_show_cross", "preview_show_aim",
+                    "preview_box_thick", "preview_text_scale"
+                ]
+                preview_enabled = cfg.get_config("ENABLE_PREVIEW_WINDOW", False)
+                dpg.add_checkbox(
+                    label="启用预览窗口",
+                    default_value=preview_enabled,
+                    callback=create_master_switch_callback("ENABLE_PREVIEW_WINDOW", preview_deps)
+                )
+
+                add_int_tagged("PREVIEW_WINDOW_WIDTH", "窗口宽度", 400, 1920, "preview_width")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("尺寸可以不和onnx模型一样，可以自定义大小\n"
+                    )
+
+                add_int_tagged("PREVIEW_WINDOW_HEIGHT", "窗口高度", 400, 1080, "preview_height")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("尺寸可以不和onnx模型一样，可以自定义大小\n"
+                    )
+                add_int_tagged("PREVIEW_FRAME_SKIP", "跳帧数 (0=不跳帧)", 0, 10, "preview_skip")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("设置0就是在预览窗口显示所有的截图，设置1就是2张截图只显示1张。\n"
+                        "比如，你的fps是120，如果设置1，预览窗口就变成60fps\n"
+                        "此预览窗口是异步画面，不影响程序性能，也不会造成真是推理帧数降低。\n"
+                    )
+
+                dpg.add_separator()
+                dpg.add_text("显示选项", color=UIColors.SECTION_HEADER)
+                add_bool_tagged("PREVIEW_SHOW_BOXES", "显示检测框", "preview_show_boxes")
+                add_bool_tagged("PREVIEW_SHOW_LABELS", "显示类别标签", "preview_show_labels")
+                add_bool_tagged("PREVIEW_SHOW_CONFIDENCE", "显示置信度", "preview_show_conf")
+                add_bool_tagged("PREVIEW_SHOW_FPS", "显示 FPS 信息", "preview_show_fps")
+                add_bool_tagged("PREVIEW_SHOW_CROSSHAIR", "显示准心十字线", "preview_show_cross")
+                add_bool_tagged("PREVIEW_SHOW_AIM_POINT", "显示瞄准点", "preview_show_aim")
+                add_bool_tagged("PREVIEW_SHOW_SEARCH_AREA", "显示准星搜索区域", "preview_show_search")
+
+                dpg.add_separator()
+                dpg.add_text("视觉样式", color=UIColors.SECTION_HEADER)
+                add_int_tagged("PREVIEW_BOX_THICKNESS", "检测框线宽", 1, 5, "preview_box_thick")
+            # ================= TAB 4: 准星检测 =================
             with dpg.tab(label="准星检测"):
                 dpg.add_text("准星检测系统", color=UIColors.APPLE_BLUE)
 
@@ -595,10 +677,14 @@ def create_gui():
                 add_combo_tagged(
                     "CROSSHAIR_DETECTOR_TYPE",
                     "检测器类型",
-                    ["color", "template", "cross_shape","red_dot(适配三角洲红点)"],
+                    ["color", "template", "cross_shape","red_dot"],
                     "crosshair_detector_type"
                 )
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("如果你是三角洲用户，就点击下拉框选择red_dot\n"
+                        "如果使用red_dot的话，那你的激光不可以同样使用红色的，会对准星锁造成干扰\n"
+                        "其他模式较为复杂，我后面会出详细的使用方法。\n"
+                    )
                 dpg.add_text("说明: color=颜色匹配 | template=模板匹配 | cross_shape=十字形状检测",
                              color=UIColors.TEXT_GRAY, indent=20)
 
@@ -771,40 +857,7 @@ def create_gui():
 
                 update_dependent_controls("ENABLE_CROSSHAIR_DETECTION", crosshair_deps, crosshair_enabled)
 
-            # ================= TAB 4: 预览窗口 =================
-            with dpg.tab(label="预览窗口"):
-                dpg.add_text("窗口基础设置", color=UIColors.APPLE_BLUE)
 
-                preview_deps = [
-                    "preview_width", "preview_height", "preview_skip",
-                    "preview_show_boxes", "preview_show_labels", "preview_show_conf",
-                    "preview_show_fps", "preview_show_cross", "preview_show_aim",
-                    "preview_box_thick", "preview_text_scale"
-                ]
-                preview_enabled = cfg.get_config("ENABLE_PREVIEW_WINDOW", False)
-                dpg.add_checkbox(
-                    label="启用预览窗口",
-                    default_value=preview_enabled,
-                    callback=create_master_switch_callback("ENABLE_PREVIEW_WINDOW", preview_deps)
-                )
-
-                add_int_tagged("PREVIEW_WINDOW_WIDTH", "窗口宽度", 400, 1920, "preview_width")
-                add_int_tagged("PREVIEW_WINDOW_HEIGHT", "窗口高度", 400, 1080, "preview_height")
-                add_int_tagged("PREVIEW_FRAME_SKIP", "跳帧数 (0=不跳帧)", 0, 10, "preview_skip")
-
-                dpg.add_separator()
-                dpg.add_text("显示选项", color=UIColors.SECTION_HEADER)
-                add_bool_tagged("PREVIEW_SHOW_BOXES", "显示检测框", "preview_show_boxes")
-                add_bool_tagged("PREVIEW_SHOW_LABELS", "显示类别标签", "preview_show_labels")
-                add_bool_tagged("PREVIEW_SHOW_CONFIDENCE", "显示置信度", "preview_show_conf")
-                add_bool_tagged("PREVIEW_SHOW_FPS", "显示 FPS 信息", "preview_show_fps")
-                add_bool_tagged("PREVIEW_SHOW_CROSSHAIR", "显示准心十字线", "preview_show_cross")
-                add_bool_tagged("PREVIEW_SHOW_AIM_POINT", "显示瞄准点", "preview_show_aim")
-                add_bool_tagged("PREVIEW_SHOW_SEARCH_AREA", "显示准星搜索区域", "preview_show_search")
-
-                dpg.add_separator()
-                dpg.add_text("视觉样式", color=UIColors.SECTION_HEADER)
-                add_int_tagged("PREVIEW_BOX_THICKNESS", "检测框线宽", 1, 5, "preview_box_thick")
                 add_float_tagged("PREVIEW_TEXT_SCALE", "文字大小缩放", 0.3, 1.5, "preview_text_scale")
 
                 update_dependent_controls("ENABLE_PREVIEW_WINDOW", preview_deps, preview_enabled)
@@ -813,8 +866,15 @@ def create_gui():
             with dpg.tab(label="视觉识别"):
                 dpg.add_text("检测参数", color=UIColors.APPLE_BLUE)
                 add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("置信度越高，程序越‘挑剔’。如果发现准星经常锁定在墙壁、草地等非目标物体上（锁环境），请调高此值。\n"
+                        "如果调的很高比如0.6还是锁环境，那就说明你使用的onnx模型比较垃圾换一个。\n"
+                    )
                 add_float("IOU_THRESHOLD", "重叠剔除 (IOU)", 0.1, 0.99)
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("如果你发现准星经常在同一个目标身上反复横跳，可以尝试稍微调低一点点（如 0.45）\n"
+                        "如果你发现两个敌人走在一起时，其中一个人的框经常消失，可以尝试稍微调高一点点（如 0.55）\n"
+                    )
                 dpg.add_separator()
                 dpg.add_text("目标 ID 选择", color=UIColors.APPLE_BLUE)
 
@@ -913,19 +973,35 @@ def create_gui():
                 dpg.add_separator()
                 dpg.add_text("PID 参数 (X 横向)", color=UIColors.SECTION_HEADER)
                 add_float("PID_KP_X", "P (比例-速度)", 0.0, 5.0, speed=0.01)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "横向吸力\n控制准星左右移动的爆发力。\n数值越大，左右锁人的瞬移感越强。\n如果你觉得准星跟不上左右跑的人，就调大它。")
                 add_float("PID_KI_X", "I (积分-误差)", 0.0, 2.0, speed=0.001)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "横向修正\n如果你的枪线总是追着目标屁股跑，那就增加这个值每次增加0.01。\n调大此值会导致准星左右乱飞。")
                 add_float("PID_KD_X", "D (微分-阻尼)", 0.0, 1.0, speed=0.001)
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "横向减震\n消除准星左右锁定时的‘颤抖’。\n如果准星吸到人后左右高频抖动，就调大这个值。")
                 dpg.add_separator()
                 dpg.add_text("PID 参数 (Y 纵向)", color=UIColors.SECTION_HEADER)
                 add_float("PID_KP_Y", "P (比例-速度)", 0.0, 5.0, speed=0.01)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "纵向吸力\n控制准星上下移动的爆发力。\n如果你觉得准星‘压不住’或者‘抬不起来’，调大它。")
                 add_float("PID_KI_Y", "I (积分-误差)", 0.0, 2.0, speed=0.001)
                 add_float("PID_KD_Y", "D (微分-阻尼)", 0.0, 1.0, speed=0.001)
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "纵向减震\n防止准星在敌人头顶和脚底之间来回跳动。\n配合压枪使用时，较大的 D 能让下压过程更平滑。")
                 dpg.add_separator()
                 dpg.add_text("限制与死区", color=UIColors.SECTION_HEADER)
                 add_int("MAX_SINGLE_MOVE_PX", "单帧最大移动像素", 1, 2000)
                 add_int("PRECISION_DEAD_ZONE", "瞄准死区 (像素)", 0, 50)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("在这个像素范围内，准星不会再微调。\n"
+                                 "设为 2 到 5 可以有效消除准星在锁定目标时的‘微颤’感。")
                 add_int("DEFAULT_DELAY_MS_PER_STEP", "每步延迟 (ms)", 0, 50)
 
             # ================= TAB 7: 目标追踪 =================
@@ -940,9 +1016,47 @@ def create_gui():
                 dpg.add_separator()
                 dpg.add_text("目标选择与锁定", color=UIColors.SECTION_HEADER)
                 add_int("MIN_TARGET_LOCK_FRAMES", "最小锁定帧数", 1, 100)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "锁定一个目标后,至少要追踪这么多帧才允许切换到其他目标。\n"
+                        "作用: 防止准星在两个敌人之间来回横跳。\n"
+                        "例子:\n"
+                        "设为 10: 锁定后会稳定追踪至少 10 帧(约 0.16 秒)。\n"
+                        "设为 30: 更稳定,但如果旁边突然出现更近的敌人,反应会慢一点。\n"
+                        "设为 1: 几乎不锁定,准星会疯狂在多个目标间跳动。"
+                    )
                 add_int("TARGET_SWITCH_DISTANCE_THRESHOLD", "切换距离阈值 (像素)", 10, 500)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "当前锁定的目标和新目标的距离差要超过这个值,才会考虑切换。\n"
+                        "例子:\n"
+                        "  设为 50: 只有新目标比当前目标近 50 像素以上,才会切换。\n"
+                        "  设为 10: 非常敏感,稍微有更近的目标就会切换。\n"
+                        "  设为 200: 非常保守,除非新目标明显更近,否则不切换。\n"
+                        "建议: 配合'最小锁定帧数'一起调,两者共同决定锁定的稳定性。"
+                    )
+
                 add_int("TARGET_IDENTITY_DISTANCE", "同目标判定距离 (像素)", 10, 500)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "如果这一帧的目标和上一帧的目标距离小于这个值,就认为是同一个人。\n"
+                        "作用: 防止敌人移动时被当成'新目标',导致锁定重置。\n"
+                        "例子:\n"
+                        "  设为 100: 适合大部分情况,敌人正常移动不会丢失追踪。\n"
+                        "  设为 50: 如果敌人移动速度很快(比如滑铲、冲刺),可能会被当成新目标。\n"
+                        "  设为 200: 即使敌人瞬移也能保持追踪,但可能把两个不同的人当成同一个。"
+                    )
                 add_int("MAX_LOST_FRAMES", "丢失目标容忍帧", 1, 300)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "当目标消失(比如躲到掩体后)时,程序会继续'记住'这个目标多少帧。\n"
+                        "作用: 防止敌人短暂消失后,准星就完全重置了。\n"
+                        "例子:\n"
+                        "  设为 30: 目标消失 0.5 秒内重新出现,准星会继续锁定。\n"
+                        "  设为 60: 目标消失 1 秒内重新出现,准星会继续锁定。\n"
+                        "  设为 5: 目标稍微被遮挡就会丢失,需要重新锁定。\n"
+                        "建议: 30-60 帧(0.5-1 秒)"
+                    )
 
                 dpg.add_separator()
                 dpg.add_text("卡尔曼滤波 (Kalman)", color=UIColors.SECTION_HEADER)
@@ -954,10 +1068,42 @@ def create_gui():
                     default_value=kalman_enabled,
                     callback=create_master_switch_callback("USE_KALMAN_FILTER", kalman_deps)
                 )
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "卡尔曼滤波是一种'预测算法',能让准星更平滑地追踪移动目标。\n"
+                        "作用:\n"
+                        "  1. 消除检测框的抖动(模型识别不稳定时)。\n"
+                        "  2. 预测目标的移动方向,提前瞄准。\n"
+                        "  3. 当目标短暂消失时,继续预测位置。\n"
+                        "建议: 保持开启(默认)"
+                    )
                 add_float_tagged("KALMAN_PROCESS_NOISE", "过程噪声", 0.01, 10.0, "kalman_process")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "数值越大,卡尔曼越相信'目标会突然变向',追踪会更灵活但也更抖。\n"
+                        "例子:\n"
+                        "  0.1: 适合匀速移动的目标(比如走路的敌人)。\n"
+                        "  0.5: 适合经常变向的目标(比如左右晃动的敌人)。\n"
+                        "  5.0: 目标移动非常不规律,但准星会变得不稳定。\n"
+                    )
                 add_float_tagged("KALMAN_MEASUREMENT_NOISE", "测量噪声", 0.1, 50.0, "kalman_measure")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "数值越大,卡尔曼越不相信模型给出的位置,会更依赖自己的预测。\n"
+                        "例子:\n"
+                        "  1.0: 非常相信模型,准星会紧跟检测框(可能会抖)。\n"
+                        "  5.0: 适度平滑,既跟得上又不抖。\n"
+                        "  20.0: 非常平滑,但如果目标突然变向,准星反应会慢。\n"
+                    )
                 add_int_tagged("KALMAN_MAX_PREDICT_FRAMES", "最大预测帧数", 0, 60, "kalman_predict")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "当目标消失时,卡尔曼最多预测多少帧的位置。\n"
+                        "例子:\n"
+                        "  3: 目标消失 0.05 秒内,准星会继续预测移动。\n"
+                        "  10: 目标消失 0.16 秒内,准星会继续预测移动。\n"
+                        "  0: 目标一消失,准星立刻停止移动。\n"
+                    )
 
                 update_dependent_controls("USE_KALMAN_FILTER", kalman_deps, kalman_enabled)
 
@@ -967,6 +1113,16 @@ def create_gui():
 
                 dpg.add_separator()
                 dpg.add_text("移动预判", color=UIColors.SECTION_HEADER)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "【简易平滑】\n"
+                        "当你关闭卡尔曼滤波时,这个参数会生效。\n"
+                        "作用: 让准星不要直接跳到目标位置,而是'滑'过去。\n"
+                        "例子:\n"
+                        "  0.1: 非常平滑,但准星会明显'拖尾'。\n"
+                        "  0.5: 平衡,既平滑又不会太慢。\n"
+                        "  1.0: 不平滑,准星直接跳到目标位置(会抖)。\n"
+                    )
 
                 lead_deps = ["lead_frames"]
                 lead_enabled = cfg.get_config("ENABLE_LEAD_TARGET", False)
@@ -975,8 +1131,18 @@ def create_gui():
                     default_value=lead_enabled,
                     callback=create_master_switch_callback("ENABLE_LEAD_TARGET", lead_deps)
                 )
-
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "根据目标的移动速度,预测他未来的位置,提前瞄准。\n"
+                    )
                 add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 30, "lead_frames")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "根据目标当前速度,预测他 N 帧后的位置。\n"
+                        "  2: 预测 0.03 秒后的位置(适合近距离)。\n"
+                        "  5: 预测 0.08 秒后的位置(适合中距离)。\n"
+                        "  0: 预测 0.16 秒后的位置(适合远距离狙击)。\n"
+                    )
                 update_dependent_controls("ENABLE_LEAD_TARGET", lead_deps, lead_enabled)
 
             # ================= TAB 8: 压枪系统 =================
@@ -1181,7 +1347,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title="Prism Vision-v1.0", width=900, height=800)
+    dpg.create_viewport(title="Prism Vision-v1.2", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()

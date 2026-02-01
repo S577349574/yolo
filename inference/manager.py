@@ -92,6 +92,28 @@ class InferenceManager:
         """当前后端名称"""
         return self._current_backend if self._current_backend else "未初始化"
 
+    # ========== 🔥 新增：兼容尺寸获取 🔥 ==========
+    @property
+    def img_size(self) -> int:
+        """
+        获取模型输入尺寸（动态从底层检测器获取）
+        """
+        if self._detector is None:
+            return 640  # 默认兜底值
+
+        # 1. 尝试从底层检测器获取 (ONNXDetector 或 NCNNDetector 应该存有这个值)
+        # 尝试常见的变量名：img_size, input_size, imgsz
+        for attr in ['img_size', 'input_size', 'imgsz']:
+            if hasattr(self._detector, attr):
+                val = getattr(self._detector, attr)
+                # 如果是元组 (320, 320)，取第一个值
+                if isinstance(val, (list, tuple)):
+                    return val[0]
+                return val
+
+        # 2. 如果底层也没有，尝试从配置读取
+        from config_manager import get_config
+        return get_config('CROP_SIZE', 640)
 
 # 全局单例
 def get_detector() -> InferenceManager:
