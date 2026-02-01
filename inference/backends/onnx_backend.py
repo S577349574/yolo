@@ -73,36 +73,69 @@ class ONNXDetector(BaseDetector):
         # ✅ 从配置获取模型类型
         self.model_type = self._get_model_type()
 
-    def _get_providers(self, preferred: str) -> List:
-        """获取Provider优先级列表"""
+    def _get_providers(self, preferred: str = 'auto') -> List:
+        """获取Provider优先级列表（修复版：尊重preferred_backend并添加调试日志）"""
         available = ort.get_available_providers()
-        priority = []
+        utils.log(f"[ONNX] 系统可用 providers: {available}")
 
+        priority = []
         use_tensorrt = get_config('USE_TENSORRT', True)
 
-        # TensorRT
-        if use_tensorrt and 'TensorrtExecutionProvider' in available:
-            trt_options = self._get_trt_options()
-            priority.append(('TensorrtExecutionProvider', trt_options))
+        # 推荐的 TRT 和 CUDA 配置
+        trt_options = self._get_trt_options()
+        cuda_options = {
+            'device_id': 0,
+            'arena_extend_strategy': 'kSameAsRequested',
+            'cudnn_conv_algo_search': 'EXHAUSTIVE',
+            'do_copy_in_default_stream': True,
+            'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
+        }
 
-        # CUDA
+        preferred = preferred.lower() if preferred else 'auto'
+
+        # === 根据 preferred_backend 构建优先级 ===
+        if preferred == 'tensorrt':
+            if 'TensorrtExecutionProvider' in available and use_tensorrt:
+                priority.append(('TensorrtExecutionProvider', trt_options))
+            else:
+                utils.log("⚠️ 请求 TensorRT 但不可用，将 fallback 到其他后端")
+
+        elif preferred == 'cuda':
+            if 'CUDAExecutionProvider' in available:
+                priority.append(('CUDAExecutionProvider', cuda_options))
+            else:
+                utils.log("⚠️ 请求 CUDA 但不可用，将 fallback 到 CPU")
+
+        elif preferred == 'dml':
+            if 'DmlExecutionProvider' in available:
+                priority.append('DmlExecutionProvider')
+            else:
+                utils.log("⚠️ 请求 DML 但不可用，将 fallback 到 CPU")
+
+        elif preferred == 'cpu':
+            priority.append('CPUExecutionProvider')
+            utils.log("[ONNX] 强制使用 CPU 后端")
+            utils.log(f"[ONNX] 最终 providers 优先级: {[p[0] if isinstance(p, tuple) else p for p in priority]}")
+            return priority
+
+        # === 添加剩余可用后端（避免重复）===
+        if 'TensorrtExecutionProvider' in available and use_tensorrt:
+            if not any(isinstance(p, tuple) and p[0] == 'TensorrtExecutionProvider' for p in priority):
+                priority.append(('TensorrtExecutionProvider', trt_options))
+
         if 'CUDAExecutionProvider' in available:
-            cuda_options = {
-                'device_id': 0,
-                'arena_extend_strategy': 'kSameAsRequested',
-                'cudnn_conv_algo_search': 'EXHAUSTIVE',
-                'do_copy_in_default_stream': True,
-                'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
-            }
-            priority.append(('CUDAExecutionProvider', cuda_options))
+            if not any(isinstance(p, tuple) and p[0] == 'CUDAExecutionProvider' for p in priority):
+                priority.append(('CUDAExecutionProvider', cuda_options))
 
-        # DML
         if 'DmlExecutionProvider' in available:
-            priority.append('DmlExecutionProvider')
+            if not any(isinstance(p, str) and p == 'DmlExecutionProvider' for p in priority):
+                priority.append('DmlExecutionProvider')
 
-        # CPU兜底
-        priority.append('CPUExecutionProvider')
+        # CPU 永远作为兜底（除非强制 cpu 且只返回 cpu）
+        if 'CPUExecutionProvider' not in [p[0] if isinstance(p, tuple) else p for p in priority]:
+            priority.append('CPUExecutionProvider')
 
+        utils.log(f"[ONNX] 最终 providers 优先级: {[p[0] if isinstance(p, tuple) else p for p in priority]}")
         return priority
 
     def _get_trt_options(self) -> Dict:
