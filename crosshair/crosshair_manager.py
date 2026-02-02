@@ -368,8 +368,6 @@ class CrosshairManager:
                     return self._last_valid_position
                 else:
                     # 长期失败：使用回退中心，并重置缓存
-                    if self.enable_debug:
-                        utils.log(f"连续{self._consecutive_misses}次检测失败，使用回退中心")
                     self._last_valid_position = None
                     return fallback_center
 

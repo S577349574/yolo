@@ -332,10 +332,17 @@ class KeyMonitorBase(ABC):
             self._on_left_press()
 
     def _handle_left_release(self):
-        """处理左键释放"""
+        """处理左键释放 - 修正版"""
         self.app_state.set_left_pressed(False)
-        if not self.enable_right or not self.is_key_pressed('right'):
+        # 检查是否还有其他任何一个触发键被按住
+        still_pressing_any = (
+                (self.enable_right and self.is_key_pressed('right')) or
+                (self.enable_mouse4 and self.is_key_pressed('mouse4')) or
+                (self.enable_mouse5 and self.is_key_pressed('mouse5'))
+        )
+        if not still_pressing_any:
             self.app_state.set_mouse_active(False)
+
         if self._on_left_release:
             self._on_left_release()
 
@@ -347,10 +354,17 @@ class KeyMonitorBase(ABC):
             self._on_right_press()
 
     def _handle_right_release(self):
-        """处理右键释放"""
+        """处理右键释放 - 修正版"""
         self.app_state.set_right_pressed(False)
-        if not self.enable_left or not self.is_key_pressed('left'):
+        # 检查是否还有其他任何一个触发键被按住
+        still_pressing_any = (
+                (self.enable_left and self.is_key_pressed('left')) or
+                (self.enable_mouse4 and self.is_key_pressed('mouse4')) or
+                (self.enable_mouse5 and self.is_key_pressed('mouse5'))
+        )
+        if not still_pressing_any:
             self.app_state.set_mouse_active(False)
+
         if self._on_right_release:
             self._on_right_release()
 
