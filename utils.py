@@ -51,25 +51,39 @@ def get_scripts_dir():
 def refresh_scripts_ui():
     scripts_dir = get_scripts_dir()
     print(f"[UI Debug] 正在扫描脚本目录: {scripts_dir}")
+
+
 def get_screen_info():
-    """获取屏幕信息"""
+    """获取屏幕信息 - 修复带鱼屏绝对坐标偏移"""
     import mss
     with mss.mss() as sct:
+        # monitor[1] 是主显示器，但在带鱼屏环境下，必须考虑它的起始坐标
         monitor = sct.monitors[1]
+
+        mw = monitor['width']
+        mh = monitor['height']
+        m_left = monitor['left']
+        m_top = monitor['top']
+
         return {
-            'width': monitor['width'],
-            'height': monitor['height'],
-            'center_x': monitor['width'] // 2,
-            'center_y': monitor['height'] // 2
+            'width': mw,
+            'height': mh,
+            'left': m_left,
+            'top': m_top,
+            # 关键：中心点必须是 物理起始位置 + 宽度的一半
+            'center_x': m_left + (mw // 2),
+            'center_y': m_top + (mh // 2)
         }
 
 
 def calculate_capture_area(crop_size):
-    """计算捕获区域"""
+    """计算捕获区域 - 确保相对于屏幕绝对原点"""
     screen_info = get_screen_info()
+
+    # 这里计算出的 left/top 将会包含显示器的物理偏移
     return {
-        'left': screen_info['center_x'] - crop_size // 2,
-        'top': screen_info['center_y'] - crop_size // 2,
+        'left': screen_info['center_x'] - (crop_size // 2),
+        'top': screen_info['center_y'] - (crop_size // 2),
         'width': crop_size,
         'height': crop_size
     }

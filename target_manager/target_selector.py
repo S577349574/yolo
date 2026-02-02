@@ -226,237 +226,141 @@ class TargetSelector:
             candidate_targets: List[Dict],
             screen_width: int,
             screen_height: int,
-            reference_x: Optional[float] = None,  # ⭐ 新增：真实准星X
-            reference_y: Optional[float] = None  # ⭐ 新增：真实准星Y
+            reference_x: Optional[float] = None,
+            reference_y: Optional[float] = None
     ) -> Tuple[Optional[int], Optional[int]]:
         """
-        目标选择：先按目标个体分组，再选择类别
-
-        Args:
-            candidate_targets: 候选目标列表
-            screen_width: 屏幕宽度
-            screen_height: 屏幕高度
-            reference_x: 真实准星X坐标（如果为None则使用屏幕中心）
-            reference_y: 真实准星Y坐标（如果为None则使用屏幕中心）
+        改进版目标选择：基于物理位置持久化的粘性锁定
         """
-
+        # --- 1. 参数与配置准备 ---
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
         target_class_ids = get_config('TARGET_CLASS_IDS', [0, 1])
-        candidate_targets = [
-            t for t in candidate_targets
-            if t.get('class_id') in target_class_ids
-        ]
+        switch_distance_threshold = get_config('TARGET_SWITCH_DISTANCE_THRESHOLD', 50)  # 切换目标的距离优势阈值
+        identity_threshold = get_config('TARGET_IDENTITY_DISTANCE', 80)  # 判定为同一人的最大位移
 
-        # ⭐ 确定参考点（准星位置）
+        # 过滤合法的类别
+        candidate_targets = [t for t in candidate_targets if t.get('class_id') in target_class_ids]
+
+        # 确定参考点（准星物理位置）
         if reference_x is None or reference_y is None:
             reference_x = screen_width // 2
             reference_y = screen_height // 2
 
-        # ===== 1. 无目标处理 =====
+        # --- 2. 无目标处理 (含卡尔曼预测) ---
         if not candidate_targets:
             self.frames_without_target += 1
-
             if self.frames_without_target >= max_lost_frames:
                 self._reset_tracking()
                 return None, None
 
-            # 卡尔曼预测
             if self.use_kalman and self.is_locked:
-                predicted = self.kalman_filter.predict_only(
-                    max_frames=get_config('KALMAN_MAX_PREDICT_FRAMES', 5)
-                )
-
-                if predicted is not None:
-                    pred_x, pred_y = predicted
-                    pred_x = max(0, min(int(pred_x), screen_width - 1))
-                    pred_y = max(0, min(int(pred_y), screen_height - 1))
-
-                    self.last_target_x = pred_x
-                    self.last_target_y = pred_y
-
-                    if get_config('DEBUG_MODE', False):
-                        utils.log_debug(f"[卡尔曼预测] ({pred_x}, {pred_y})")
-
-                    return pred_x, pred_y
-
+                predicted = self.kalman_filter.predict_only(max_frames=5)
+                if predicted:
+                    px, py = map(int, predicted)
+                    self.last_target_x, self.last_target_y = px, py
+                    return px, py
             return None, None
 
-        # ===== 2. 目标分组（使用真实准星位置）=====
-        target_groups = self._group_detections_by_target(
-            candidate_targets,
-            reference_x,  # ⭐ 传入真实准星位置
-            reference_y
-        )
+        # --- 3. 目标分组 ---
+        # 内部已根据传入的 reference_x/y 计算了 distance_to_center
+        target_groups = self._group_detections_by_target(candidate_targets, reference_x, reference_y)
 
-        # 计算每个目标组的代表距离
-        group_info = []
-        for group_id, detections in target_groups.items():
-            representative = max(detections, key=lambda d: d['box_area'])
-            group_info.append({
-                'group_id': group_id,
+        # 将字典转为列表并提取特征
+        current_groups = []
+        for gid, detections in target_groups.items():
+            # 找到该组中最具代表性的框（通常是面积最大的身体）
+            rep = max(detections, key=lambda d: d['box_area'])
+            current_groups.append({
+                'id': gid,
                 'detections': detections,
-                'distance': representative['distance_to_center'],
-                'representative': representative
+                'x': rep['x'],
+                'y': rep['y'],
+                'dist': rep['distance_to_center'],
+                'area': rep['box_area']
             })
 
-        group_info.sort(key=lambda g: g['distance'])
-        if not group_info:
-            self.frames_without_target += 1
-            if self.frames_without_target >= max_lost_frames:
-                self._reset_tracking()
-            return None, None
+        # --- 4. 寻找“老目标”（持久化核心） ---
+        best_group = None
 
-        closest_group = group_info[0]
-        selected_group_id = closest_group['group_id']
+        # 如果上一帧已经有锁定的目标，尝试在当前帧找回它
+        if self.is_locked and self.last_target_x is not None:
+            # 寻找离上一帧瞄准点最近的目标，且位移在合理范围内
+            matches = []
+            for g in current_groups:
+                move_dist = math.hypot(g['x'] - self.last_target_x, g['y'] - self.last_target_y)
+                if move_dist < identity_threshold:
+                    matches.append((move_dist, g))
 
-        # ===== 3. 锁定稳定性检查 =====
-        min_lock_frames = get_config('MIN_TARGET_LOCK_FRAMES', 10)
-        target_identity_distance = get_config('TARGET_IDENTITY_DISTANCE', 100)
-        switch_distance_threshold = get_config('TARGET_SWITCH_DISTANCE_THRESHOLD', 50)
+            if matches:
+                matches.sort(key=lambda x: x[0])
+                old_target_now = matches[0][1]
 
-        locked_group = None
-        if self.locked_target_group_id is not None and self.last_target_x is not None:
-            for group in group_info:
-                if group['group_id'] == self.locked_target_group_id:
-                    rep = group['representative']
-                    position_diff = math.hypot(
-                        rep['x'] - self.last_target_x,
-                        rep['y'] - self.last_target_y
-                    )
-                    if position_diff < target_identity_distance:
-                        locked_group = group
-                        break
+                closest_new = min(current_groups, key=lambda x: x['dist'])
 
-            if locked_group is not None:
-                distance_gain = locked_group['distance'] - closest_group['distance']
-                should_keep_lock = False
+                # 计算当前老目标的优势
+                # 只有当新目标比老目标近了 TSDT，并且新目标确实非常靠近准星时才切换
+                if closest_new['dist'] < (old_target_now['dist'] - switch_distance_threshold):
+                    # 增加一个二次确认：如果老目标还在准星附近（比如 30px 内），即便新目标更近，也不切换
+                    if old_target_now['dist'] > 30:
+                        best_group = closest_new
+                        self.target_lock_frames = 0
+                    else:
+                        best_group = old_target_now
+                else:
+                    best_group = old_target_now
 
-                if self.target_lock_frames < min_lock_frames:
-                    should_keep_lock = True
-                    reason = f"锁定时间不足 ({self.target_lock_frames} < {min_lock_frames})"
-                elif distance_gain < switch_distance_threshold:
-                    should_keep_lock = True
-                    reason = f"距离优势不足 ({distance_gain:.0f}px < {switch_distance_threshold}px)"
-
-                if should_keep_lock:
-                    selected_group_id = locked_group['group_id']
-                    closest_group = locked_group
-
-                    if get_config('DEBUG_MODE', False):
-                        utils.log_debug(f"[保持锁定] {reason}")
-
-        # ===== 4. 组内部位选择 =====
-        selected_group_detections = closest_group['detections']
-
-        heads = []
-        bodies = []
-        head_class_id = get_config('HEAD_CLASS_ID', 1)
-
-        for detection in selected_group_detections:
-            if detection.get('class_id') == head_class_id:
-                heads.append(detection)
-            else:
-                bodies.append(detection)
-
-        # 头部过滤
-        valid_heads = []
-        if get_config('IGNORE_SMALL_TARGET_HEAD', True):
-            small_area_threshold = get_config('SMALL_TARGET_AREA_THRESHOLD', 200)  # 例如 20×40=800
-            for head in heads:
-                box = head.get('box', (0, 0, 0, 0))
-                x1, y1, x2, y2 = box
-                box_width = x2 - x1
-                box_height = y2 - y1
-                box_area = box_width * box_height
-
-                if box_area >= small_area_threshold:
-                    valid_heads.append(head)
-                elif get_config('DEBUG_MODE', False):
-                    utils.log_debug(
-                        f"[过滤小头部] 面积:{box_area:.0f}px² < {small_area_threshold}px²"
-                    )
-        else:
-            valid_heads = heads
-
-        if get_config('ENABLE_HEAD_PRIORITY', True) and valid_heads:
-            selected_detection = min(valid_heads, key=lambda d: d['distance_to_center'])
-            selected_part_type = 'head'
-
-            if get_config('DEBUG_MODE', False):
-                utils.log_debug(
-                    f"[组内选择] 头部优先 | "
-                    f"头部数:{len(valid_heads)} | "
-                    f"距离:{selected_detection['distance_to_center']:.0f}px"
-                )
-
-        elif bodies:
-            selected_detection = min(bodies, key=lambda d: d['distance_to_center'])
-            selected_part_type = 'body'
-
-            if get_config('DEBUG_MODE', False):
-                reason = "无有效头部" if heads else "头部被过滤"
-                utils.log_debug(
-                    f"[组内选择] 回退身体 | "
-                    f"原因:{reason} | "
-                    f"距离:{selected_detection['distance_to_center']:.0f}px"
-                )
-
-        else:
-            selected_detection = min(
-                selected_group_detections,
-                key=lambda d: d['distance_to_center']
-            )
-            selected_part_type = 'fallback'
-
-            if get_config('DEBUG_MODE', False):
-                utils.log_debug(f"[组内选择] 兜底策略")
-
-        # ===== 5. 更新锁定状态 =====
-        is_new_target = (selected_group_id != self.locked_target_group_id)
-
-        if is_new_target:
-            self.locked_target_group_id = selected_group_id
+        # 如果没有老目标或者跟丢了，选择离当前准星最近的
+        if best_group is None:
+            current_groups.sort(key=lambda x: x['dist'])
+            best_group = current_groups[0]
+            self.is_locked = True
             self.target_lock_frames = 0
+            self.locked_target_group_id = best_group['id']  # 仅作记录
 
-            group_composition = [
-                "头" if d.get('class_id') == head_class_id else "身"
-                for d in selected_group_detections
-            ]
+        # --- 5. 组内部位选择 (头/身) ---
+        selected_det, part_name = self._select_part_within_group(best_group['detections'])
 
-            utils.log_debug(
-                f"✓ 锁定目标组 | {selected_group_id} | "
-                f"组成:[{'+'.join(group_composition)}] | "
-                f"选择:{selected_part_type} | "
-                f"距离:{selected_detection['distance_to_center']:.0f}px"
-            )
-        else:
-            self.target_lock_frames += 1
+        # --- 6. 确定坐标并应用平滑 ---
+        raw_x = selected_det.get('aim_x', selected_det['x'])
+        raw_y = selected_det.get('aim_y', selected_det['y'])
 
-            if get_config('DEBUG_MODE', False):
-                utils.log_debug(
-                    f"[组内稳定] 锁定{self.target_lock_frames}帧 | "
-                    f"当前部位:{selected_part_type}"
-                )
-
-        # ===== 6. 应用平滑 =====
-        if 'aim_x' in selected_detection and 'aim_y' in selected_detection:
-            raw_x = selected_detection['aim_x']
-            raw_y = selected_detection['aim_y']
-        else:
-            raw_x = selected_detection['x']
-            raw_y = selected_detection['y']
-
+        # 如果是刚换的目标，重置平滑/卡尔曼以防大幅拉动
+        is_new_target = (self.target_lock_frames == 0)
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
 
-        smoothed_x = max(0, min(smoothed_x, screen_width - 1))
-        smoothed_y = max(0, min(smoothed_y, screen_height - 1))
-
-        self.last_target_x = int(smoothed_x)
-        self.last_target_y = int(smoothed_y)
+        # 边界约束
+        self.last_target_x = max(0, min(int(smoothed_x), screen_width - 1))
+        self.last_target_y = max(0, min(int(smoothed_y), screen_height - 1))
         self.frames_without_target = 0
-        self.is_locked = True
+
 
         return self.last_target_x, self.last_target_y
+
+    def _select_part_within_group(self, detections: List[Dict]) -> Tuple[Dict, str]:
+        """
+        在确定的目标组内选择最佳部位
+        """
+        head_id = get_config('HEAD_CLASS_ID', 1)
+        heads = [d for d in detections if d['class_id'] == head_id]
+        bodies = [d for d in detections if d['class_id'] != head_id]
+
+        # 1. 优先尝试头部
+        if get_config('ENABLE_HEAD_PRIORITY', True) and heads:
+            # 过滤面积太小的头
+            if get_config('IGNORE_SMALL_TARGET_HEAD', True):
+                threshold = get_config('SMALL_TARGET_AREA_THRESHOLD', 200)
+                valid_heads = [h for h in heads if h['box_area'] >= threshold]
+                if valid_heads:
+                    return min(valid_heads, key=lambda x: x['distance_to_center']), "head"
+            else:
+                return min(heads, key=lambda x: x['distance_to_center']), "head"
+
+        # 2. 回退到身体
+        if bodies:
+            return min(bodies, key=lambda x: x['distance_to_center']), "body"
+
+        # 3. 极端情况兜底
+        return detections[0], "any"
 
     def _apply_smoothing(
             self,

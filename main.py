@@ -120,7 +120,7 @@ class CachedConfig:
         self.feature_scripts = False
         self.feature_game_state = False
         self._model_ref = None
-
+        self.refresh()
     def set_model_reference(self, model):
         """
         设置模型引用（在模型加载后调用）
@@ -246,6 +246,7 @@ class CoreService:
         self.auth = None
         self.heartbeat_thread = None
 
+
     def verify_license(self) -> bool:
         """
         ⭐ 许可证验证（在资源加载前执行）
@@ -302,7 +303,7 @@ class CoreService:
             # 1. 加载配置
             load_config(force_reload=True)
             self.cached_config = CachedConfig()
-
+            self.cached_config.refresh()
             try:
                 from network.command_sender import CommandSender
                 agent_ip = get_config("AGENT_IP", "192.168.10.1") # 从配置读取游戏机IP
@@ -472,6 +473,8 @@ class CoreService:
 
             # 9. 自动开火/压枪
             self.auto_fire = AutoFireController(self.mouse_controller, self.key_monitor)
+
+            print(self.cached_config.enable_manual_recoil)
             if self.cached_config.enable_manual_recoil:
                 self.auto_fire.start_manual_recoil_monitor()
             elif self.cached_config.enable_auto_fire:
@@ -671,8 +674,8 @@ class CoreService:
                 utils.log("[Core] 资源就绪，等待 GUI 启动信号...")
 
             # === 预计算不变量 ===
-            screen_center_x = self.screen_info['width'] // 2
-            screen_center_y = self.screen_info['height'] // 2
+            screen_center_x = self.screen_info['center_x']
+            screen_center_y = self.screen_info['center_y']
 
             # === 本地变量缓存 ===
             _feature_crosshair = False
@@ -798,9 +801,17 @@ class CoreService:
                     )
 
                     # I. 鼠标移动
-                    if self.app_state.is_mouse_active() and best_x is not None:
-                        if self.target_selector.should_send_command(best_x, best_y, aim_ref_x, aim_ref_y):
-                            self.mouse_controller.move_to_target(best_x, best_y)
+                    if best_x is not None:
+                        # 检查当前是否有任何一个【配置中开启的按键】被物理按下
+
+                        enabled_keys = get_monitored_keys()
+                        is_trigger_pressed = any(
+                            self.key_monitor.is_key_pressed(k) for k in enabled_keys)
+
+                        # 只有当：应用状态允许 + 触发键被按下 + 目标选择器通过
+                        if self.app_state.is_mouse_active() and is_trigger_pressed:
+                            if self.target_selector.should_send_command(best_x, best_y, aim_ref_x, aim_ref_y):
+                                self.mouse_controller.move_to_target(best_x, best_y)
 
                     # J. 自动开火/压枪
                     # ==================== 优化版本 ====================

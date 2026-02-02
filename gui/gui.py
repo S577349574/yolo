@@ -430,7 +430,7 @@ def create_gui():
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
-            dpg.add_text("--风带上露水", color=UIColors.APPLE_BLUE)
+            # dpg.add_text("--风带上露水", color=UIColors.APPLE_BLUE)
             dpg.add_button(
                 tag="ai_toggle_btn",
                 label="初始化中...",
@@ -1347,7 +1347,7 @@ def create_gui():
                 # === 脚本列表容器 ===
                 dpg.add_group(tag="script_list_container")
 
-    dpg.create_viewport(title="Prism Vision-v1.2", width=900, height=800)
+    dpg.create_viewport(title="Prism Vision-v1.3", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()

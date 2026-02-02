@@ -1,4 +1,4 @@
-"""按键监控器工厂函数（智能适配版）"""
+"""按键监控器工厂函数（全键监控适配版）"""
 
 from typing import Optional, List
 import utils
@@ -8,11 +8,12 @@ from .winapi_monitor import WinAPIKeyMonitor
 from .makcu_monitor import MakcuKeyMonitor
 from .mtkmbox_monitor import MTKmboxKeyMonitor
 
-
 def get_monitored_keys() -> List[str]:
-    """获取当前配置中启用的所有按键"""
+    """
+    ⭐ 仅供逻辑判断使用：获取用户在配置中“逻辑开启”的按键。
+    用于判断哪些键按下时应该触发『自动开火』或『压枪』。
+    """
     monitored = []
-
     if get_config('ENABLE_LEFT_MOUSE_MONITOR', False):
         monitored.append('left')
     if get_config('ENABLE_RIGHT_MOUSE_MONITOR', False):
@@ -21,12 +22,10 @@ def get_monitored_keys() -> List[str]:
         monitored.append('mouse4')
     if get_config('ENABLE_MOUSE5_MONITOR', False):
         monitored.append('mouse5')
-
     return monitored
 
-
 def get_primary_trigger_key() -> Optional[str]:
-    """获取主触发键（优先级：右键 > 左键 > 侧键4 > 侧键5）"""
+    """从配置中获取主触发键"""
     if get_config('ENABLE_RIGHT_MOUSE_MONITOR', False):
         return 'right'
     elif get_config('ENABLE_LEFT_MOUSE_MONITOR', False):
@@ -35,9 +34,7 @@ def get_primary_trigger_key() -> Optional[str]:
         return 'mouse4'
     elif get_config('ENABLE_MOUSE5_MONITOR', False):
         return 'mouse5'
-    else:
-        return None
-
+    return None
 
 def create_key_monitor(
         app_state,
@@ -45,93 +42,67 @@ def create_key_monitor(
         use_mtkmbox: bool = False,
         shared_controller=None,
         shared_serial=None,
-        enable_left: bool = False,
-        enable_right: bool = True,
-        enable_mouse4: bool = False,
-        enable_mouse5: bool = False,
         enable_auto_fire: bool = False,
-        poll_interval: float = 0.05
+        poll_interval: float = 0.05,
+        # 这里的参数虽然保留，但在内部会被强制设为 True
+        **kwargs
 ) -> Optional[KeyMonitorBase]:
-    """创建按键监控器（自动适配硬件）"""
+    """创建按键监控器（强制开启全物理按键监控）"""
 
     try:
-        # ⭐ 统一的硬件监控策略
         use_hardware = get_config("HARDWARE_MONITOR_PRIORITY", True)
         fallback_pynput = get_config("FALLBACK_TO_PYNPUT", True)
 
+        # ⭐ 核心修改：强制开启所有物理按键的监听
+        # 无论 config 里怎么写，底层驱动/API 都会捕获这些键的状态
+        full_monitor_params = {
+            "enable_left": True,
+            "enable_right": True,
+            "enable_mouse4": True,
+            "enable_mouse5": True,
+            "enable_auto_fire": enable_auto_fire,
+            "poll_interval": poll_interval
+        }
+
         # 1. MTKmbox 硬件
         if use_mtkmbox:
-            utils.log("[KeyMonitor] 🎮 创建 MTKmbox 硬件监控器")
-            utils.log(f"  - 硬件监视优先: {use_hardware}")
-            utils.log(f"  - Pynput回退: {fallback_pynput}")
-            utils.log(f"  - 共享模式: {shared_serial is not None}")
-
+            utils.log("[KeyMonitor] 🎮 创建 MTKmbox 硬件监控器 (全键监控模式)")
             monitor = MTKmboxKeyMonitor(
                 app_state,
                 shared_serial=shared_serial,
-                enable_left=enable_left,
-                enable_right=enable_right,
-                enable_mouse4=enable_mouse4,
-                enable_mouse5=enable_mouse5,
-                enable_auto_fire=enable_auto_fire,
-                poll_interval=poll_interval,
-                use_hardware_monitor=use_hardware,  # ⭐ 使用统一配置
-                fallback_to_pynput=fallback_pynput  # ⭐ 使用统一配置
+                use_hardware_monitor=use_hardware,
+                fallback_to_pynput=fallback_pynput,
+                **full_monitor_params
             )
 
         # 2. Makcu 硬件
         elif use_makcu:
-            utils.log("[KeyMonitor] 🎮 创建 Makcu 硬件监控器")
-            utils.log(f"  - 硬件监视优先: {use_hardware}")
-            utils.log(f"  - Pynput回退: {fallback_pynput}")
-            utils.log(f"  - 共享模式: {shared_controller is not None}")
-
+            utils.log("[KeyMonitor] 🎮 创建 Makcu 硬件监控器 (全键监控模式)")
             monitor = MakcuKeyMonitor(
                 app_state,
                 shared_controller=shared_controller,
-                enable_left=enable_left,
-                enable_right=enable_right,
-                enable_mouse4=enable_mouse4,
-                enable_mouse5=enable_mouse5,
-                enable_auto_fire=enable_auto_fire,
-                poll_interval=poll_interval,
-                use_hardware_monitor=use_hardware,  # ⭐ 使用统一配置
-                fallback_to_pynput=fallback_pynput  # ⭐ 使用统一配置
+                use_hardware_monitor=use_hardware,
+                fallback_to_pynput=fallback_pynput,
+                **full_monitor_params
             )
 
-        # 3. WinAPI（默认）
+        # 3. WinAPI
         else:
-            utils.log("[KeyMonitor] 🖱️ 创建 WinAPI 系统监控器")
+            utils.log("[KeyMonitor] 🖱️ 创建 WinAPI 系统监控器 (全键监控模式)")
             monitor = WinAPIKeyMonitor(
                 app_state,
-                enable_left=enable_left,
-                enable_right=enable_right,
-                enable_mouse4=enable_mouse4,
-                enable_mouse5=enable_mouse5,
-                enable_auto_fire=enable_auto_fire,
-                poll_interval=poll_interval
+                **full_monitor_params
             )
 
-        # 显示配置
-        monitored_keys = get_monitored_keys()
-        utils.log(f"[KeyMonitor] 配置:")
-        utils.log(f"  - 监听左键: {enable_left}")
-        utils.log(f"  - 监听右键: {enable_right}")
-        utils.log(f"  - 监听侧键4: {enable_mouse4}")
-        utils.log(f"  - 监听侧键5: {enable_mouse5}")
-        utils.log(f"  - 自动开火: {enable_auto_fire}")
-
-        if monitored_keys:
-            key_names = {
-                'left': '左键', 'right': '右键',
-                'mouse4': '侧键4', 'mouse5': '侧键5'
-            }
-            utils.log(f"  - 已启用按键: {[key_names[k] for k in monitored_keys]}")
+        # 日志输出：区分“物理监听”与“逻辑触发”
+        configured = get_monitored_keys()
+        utils.log(f"[KeyMonitor] 状态:")
+        utils.log(f"  - 物理层: 已强制开启 [左键, 右键, 侧键4, 侧键5] 的状态捕获")
+        utils.log(f"  - 逻辑层 (配置触发): {configured if configured else '未配置触发键'}")
+        utils.log(f"  - 自动开火功能: {'开启' if enable_auto_fire else '关闭'}")
 
         return monitor
 
     except Exception as e:
         utils.log(f"[KeyMonitor] ❌ 创建失败: {e}")
-        import traceback
-        traceback.print_exc()
         return None
