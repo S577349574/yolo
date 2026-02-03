@@ -6,6 +6,7 @@
 
 import math
 import queue as thread_queue
+import random
 import time
 from abc import ABC, abstractmethod
 from threading import Thread, Event as ThreadEvent, Lock
@@ -193,11 +194,14 @@ class MouseControllerBase(ABC):
             utils.log(f"[{self.get_mode()} Thread] 工作线程已终止")
 
     def _process_move_command(self, move_command):
-        """处理移动命令（使用动态准星位置）"""
         target_x, target_y, _, delay_ms, button_flags = move_command
 
+        # 1. 统一计算基础延迟（这里才会真正用到热重载的 self.default_delay_sec）
+        base_delay = (delay_ms * self.ms_to_sec) if delay_ms is not None else self.default_delay_sec
+
+        # 2. 统一计算拟人化随机抖动
+        actual_sleep = base_delay * random.uniform(0.9, 1.1)
         # 计算延迟
-        sleep_time = (delay_ms * self.ms_to_sec) if delay_ms else self.default_delay_sec
         self.move_count += 1
 
         # ⭐ 修复：使用当前准星位置计算误差
@@ -213,20 +217,17 @@ class MouseControllerBase(ABC):
                     f"[{self.get_mode()}] 在死区内，跳过 "
                     f"[准星:({crosshair_x},{crosshair_y}) 目标:({target_x},{target_y})]"
                 )
-            time.sleep(sleep_time)
+            time.sleep(actual_sleep)
             return
 
-        # PID 计算
         move_x_raw, move_y_raw = self.pid.compute(error_x, error_y)
-
-        # 限幅
         move_x, move_y = self._clamp_movement(move_x_raw, move_y_raw)
 
         # 发送移动指令
         if move_x != 0 or move_y != 0:
             self._send_move(move_x, move_y)
 
-        time.sleep(sleep_time)
+        time.sleep(actual_sleep)
 
         # 处理按钮
         if button_flags != self.BUTTON_NONE:
@@ -244,9 +245,11 @@ class MouseControllerBase(ABC):
             if self.debug_mode and self.move_count % 10 == 1:
                 utils.log(f"[{self.get_mode()}] 限幅: {math.sqrt(move_sq):.1f}px → {self.max_step}px")
 
-        # 四舍五入
-        move_x = int(move_x_raw + 0.5 if move_x_raw > 0 else move_x_raw - 0.5)
-        move_y = int(move_y_raw + 0.5 if move_y_raw > 0 else move_y_raw - 0.5)
+        noise_x = random.uniform(-0.15, 0.15)
+        noise_y = random.uniform(-0.15, 0.15)
+
+        move_x = int(move_x_raw + 0.5 + noise_x if move_x_raw > 0 else move_x_raw - 0.5 + noise_x)
+        move_y = int(move_y_raw + 0.5 + noise_y if move_y_raw > 0 else move_y_raw - 0.5 + noise_y)
 
         # Mickey 限幅
         move_x = max(-self.max_mickey, min(self.max_mickey, move_x))
