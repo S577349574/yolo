@@ -15,7 +15,7 @@ from key_monitor.factory import get_monitored_keys
 makcu_patch.apply()
 
 import utils
-from mouse.auto_fire_controller import AutoFireController
+from controllers import AutoFireController
 import config_manager
 from config_manager import get_config, load_config
 import config_manager as cfg
