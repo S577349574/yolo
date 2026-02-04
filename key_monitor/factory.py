@@ -66,7 +66,7 @@ def create_key_monitor(
 
         # 1. MTKmbox 硬件
         if use_mtkmbox:
-            utils.log("[KeyMonitor] 🎮 创建 MTKmbox 硬件监控器 (全键监控模式)")
+            utils.log("[KeyMonitor] 创建 MTKmbox 硬件监控器 (全键监控模式)")
             monitor = MTKmboxKeyMonitor(
                 app_state,
                 shared_serial=shared_serial,
@@ -77,7 +77,7 @@ def create_key_monitor(
 
         # 2. Makcu 硬件
         elif use_makcu:
-            utils.log("[KeyMonitor] 🎮 创建 Makcu 硬件监控器 (全键监控模式)")
+            utils.log("[KeyMonitor] 创建 Makcu 硬件监控器 (全键监控模式)")
             monitor = MakcuKeyMonitor(
                 app_state,
                 shared_controller=shared_controller,
@@ -88,7 +88,7 @@ def create_key_monitor(
 
         # 3. WinAPI
         else:
-            utils.log("[KeyMonitor] 🖱️ 创建 WinAPI 系统监控器 (全键监控模式)")
+            utils.log("[KeyMonitor] 创建 WinAPI 系统监控器 (全键监控模式)")
             monitor = WinAPIKeyMonitor(
                 app_state,
                 **full_monitor_params
@@ -104,5 +104,5 @@ def create_key_monitor(
         return monitor
 
     except Exception as e:
-        utils.log(f"[KeyMonitor] ❌ 创建失败: {e}")
+        utils.log(f"[KeyMonitor] 创建失败: {e}")
         return None

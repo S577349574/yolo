@@ -33,7 +33,7 @@ class ScriptFileHandler(FileSystemEventHandler):
             if current_time - self._debounce_timers[script_name] < self._debounce_delay:
                 return
         self._debounce_timers[script_name] = current_time
-        utils.log(f"[脚本热重载] 📝 {script_name}")
+        utils.log(f"[脚本热重载] {script_name}")
         self.manager.reload_script(script_name)
 
 
@@ -80,24 +80,24 @@ class ScriptManager:
             self.observer.start()
 
             if self.verbose_logging:
-                utils.log("[ScriptManager] ✅ 文件监控已启动")
+                utils.log("[ScriptManager] 文件监控已启动")
         except Exception as e:
-            utils.log(f"[ScriptManager] ⚠️ 文件监控启动失败: {e}")
+            utils.log(f"[ScriptManager]  文件监控启动失败: {e}")
 
     # ... load_all_scripts 保持不变 ...
     def load_all_scripts(self):
         """加载所有脚本（优化输出）"""
         if not os.path.exists(self.scripts_dir):
-            utils.log(f"⚠️ 脚本目录不存在: {self.scripts_dir}")
+            utils.log(f"脚本目录不存在: {self.scripts_dir}")
             return
 
         script_files = [f for f in os.listdir(self.scripts_dir) if f.endswith('.lua')]
 
         if not script_files:
-            utils.log("ℹ️ 未找到任何脚本文件")
+            utils.log("未找到任何脚本文件")
             return
 
-        utils.log(f"📂 正在加载 {len(script_files)} 个脚本...")
+        utils.log(f"正在加载 {len(script_files)} 个脚本...")
 
         success_count = 0
         failed_scripts = []
@@ -110,9 +110,9 @@ class ScriptManager:
                 failed_scripts.append(os.path.splitext(script_file)[0])
 
         if success_count == len(script_files):
-            utils.log(f"✅ 所有脚本加载成功 ({success_count}/{len(script_files)})")
+            utils.log(f"所有脚本加载成功 ({success_count}/{len(script_files)})")
         else:
-            utils.log(f"⚠️ 加载完成: {success_count}/{len(script_files)} 个成功")
+            utils.log(f"加载完成: {success_count}/{len(script_files)} 个成功")
             if failed_scripts:
                 utils.log(f"   失败的脚本: {', '.join(failed_scripts)}")
 
@@ -137,7 +137,7 @@ class ScriptManager:
             success = engine.execute_code(script_code, chunk_name=script_name)
 
             if not success:
-                utils.log(f"   ❌ {script_name} - 执行失败")
+                utils.log(f"   {script_name} - 执行失败")
                 return False
 
             self.script_engines[script_name] = engine
@@ -173,12 +173,12 @@ class ScriptManager:
             }
 
             if self.verbose_logging:
-                utils.log(f"   ✅ {script_name} ({execution_mode.value})")
+                utils.log(f"   {script_name} ({execution_mode.value})")
 
             return True
 
         except Exception as e:
-            utils.log(f"   ❌ {script_name} - {str(e)[:50]}")
+            utils.log(f"   {script_name} - {str(e)[:50]}")
             if self.verbose_logging:
                 import traceback
                 utils.log(traceback.format_exc())
@@ -186,7 +186,7 @@ class ScriptManager:
 
     def enable_script(self, script_name: str) -> bool:
         if script_name not in self.script_engines:
-            utils.log(f"⚠️ 脚本未加载: {script_name}")
+            utils.log(f"脚本未加载: {script_name}")
             return False
         if script_name in self.enabled_scripts:
             return True
@@ -197,10 +197,10 @@ class ScriptManager:
             self.script_metadata[script_name]["enabled"] = True
 
             mode = self.script_metadata[script_name]["execution_mode"].value
-            utils.log(f"   🟢 {script_name} ({mode} 模式)")
+            utils.log(f"   {script_name} ({mode} 模式)")
             return True
         except Exception as e:
-            utils.log(f"   ❌ {script_name} 启用失败: {e}")
+            utils.log(f"   {script_name} 启用失败: {e}")
             return False
 
     def disable_script(self, script_name: str) -> bool:
@@ -212,10 +212,10 @@ class ScriptManager:
             self.enabled_scripts.discard(script_name)
             self.script_metadata[script_name]["enabled"] = False
             if self.verbose_logging:
-                utils.log(f"   ⭕ {script_name} 已禁用")
+                utils.log(f"   {script_name} 已禁用")
             return True
         except Exception as e:
-            utils.log(f"   ❌ {script_name} 禁用失败: {e}")
+            utils.log(f"   {script_name} 禁用失败: {e}")
             return False
 
     def unload_script(self, script_name: str):
@@ -238,7 +238,7 @@ class ScriptManager:
         if success and was_enabled:
             self.enable_script(script_name)
         if success:
-            utils.log(f"   ✅ {script_name} 已重载")
+            utils.log(f"   {script_name} 已重载")
         return success
 
     def call_event(self, event_name: str, *args):
@@ -255,7 +255,7 @@ class ScriptManager:
                 )
             except Exception as e:
                 if self.verbose_logging:
-                    utils.log(f"⚠️ {script_name}.{event_name} 执行失败: {e}")
+                    utils.log(f"{script_name}.{event_name} 执行失败: {e}")
 
     def get_loaded_scripts(self) -> List[str]:
         return list(self.script_engines.keys())
@@ -278,7 +278,7 @@ class ScriptManager:
         self.cleanup()
 
     def cleanup(self):
-        utils.log("🧹 正在清理脚本系统...")
+        utils.log("正在清理脚本系统...")
         for script_name in list(self.enabled_scripts):
             self.disable_script(script_name)
         self.async_executor.stop()
@@ -293,4 +293,4 @@ class ScriptManager:
         self.script_engines.clear()
         self.script_apis.clear()
         self.script_metadata.clear()
-        utils.log("✅ 脚本系统已清理")
+        utils.log("脚本系统已清理")

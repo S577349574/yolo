@@ -73,11 +73,11 @@ class PreviewWindow:
                 name="PreviewRenderThread"
             )
             self._render_thread.start()
-            utils.log(f"✅ 预览窗口已启动（异步模式）: {window_name}")
+            utils.log(f"预览窗口已启动（异步模式）: {window_name}")
         else:
             cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(self.window_name, self.width, self.height)
-            utils.log(f"✅ 预览窗口已启动（同步模式）: {window_name}")
+            utils.log(f"预览窗口已启动（同步模式）: {window_name}")
 
         utils.log(f"   多类别彩色显示已启用")
         utils.log(f"   准星检测可视化已启用")
@@ -152,7 +152,7 @@ class PreviewWindow:
                     'crosshair_position': crosshair_position
                 })
             except Exception as e:
-                utils.log(f"⚠️ 预览队列错误: {e}")
+                utils.log(f"预览队列错误: {e}")
 
             return self.enabled
         else:
@@ -198,7 +198,7 @@ class PreviewWindow:
                 elif key != 255:
                     self._handle_key(key)
             except Exception as e:
-                utils.log(f"⚠️ 渲染线程错误: {e}")
+                utils.log(f"渲染线程错误: {e}")
                 break
 
         try:
@@ -206,7 +206,7 @@ class PreviewWindow:
         except Exception:
             pass
 
-        utils.log("🛑 预览渲染线程已退出")
+        utils.log("预览渲染线程已退出")
 
     def _render_frame(
             self,
@@ -629,4 +629,4 @@ class PreviewWindow:
                 cv2.destroyWindow(self.window_name)
             except Exception:
                 pass
-        utils.log(f"✅ 预览窗口已关闭")
+        utils.log(f"预览窗口已关闭")

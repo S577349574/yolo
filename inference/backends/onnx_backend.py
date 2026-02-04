@@ -40,7 +40,7 @@ class ONNXDetector(BaseDetector):
 
         _, ext = os.path.splitext(model_path)
         if ext.lower() != '.onnx':
-            utils.log(f"⚠️ 模型扩展名异常: {ext} (预期.onnx)")
+            utils.log(f"模型扩展名异常: {ext} (预期.onnx)")
 
         # 配置Session
         sess_options = ort.SessionOptions()
@@ -59,7 +59,7 @@ class ONNXDetector(BaseDetector):
             raise ModelLoadError(f"ONNX Runtime 加载失败: {e}")
 
         self._active_provider = self.session.get_providers()[0]
-        utils.log(f"✓ 使用后端: {self._active_provider}")
+        utils.log(f"使用后端: {self._active_provider}")
 
         # 获取输入输出信息
         self.input_name = self.session.get_inputs()[0].name
@@ -98,19 +98,19 @@ class ONNXDetector(BaseDetector):
             if 'TensorrtExecutionProvider' in available and use_tensorrt:
                 priority.append(('TensorrtExecutionProvider', trt_options))
             else:
-                utils.log("⚠️ 请求 TensorRT 但不可用，将 fallback 到其他后端")
+                utils.log("请求 TensorRT 但不可用，将 fallback 到其他后端")
 
         elif preferred == 'cuda':
             if 'CUDAExecutionProvider' in available:
                 priority.append(('CUDAExecutionProvider', cuda_options))
             else:
-                utils.log("⚠️ 请求 CUDA 但不可用，将 fallback 到 CPU")
+                utils.log("请求 CUDA 但不可用，将 fallback 到 CPU")
 
         elif preferred == 'dml':
             if 'DmlExecutionProvider' in available:
                 priority.append('DmlExecutionProvider')
             else:
-                utils.log("⚠️ 请求 DML 但不可用，将 fallback 到 CPU")
+                utils.log("请求 DML 但不可用，将 fallback 到 CPU")
 
         elif preferred == 'cpu':
             priority.append('CPUExecutionProvider')
@@ -192,7 +192,7 @@ class ONNXDetector(BaseDetector):
         # 验证配置值
         valid_types = ['v5', 'v8', 'v10', 'v11']
         if model_type not in valid_types:
-            utils.log(f"⚠️ 无效的 MODEL_TYPE: '{model_type}'，使用默认值 'v8'")
+            utils.log(f"无效的 MODEL_TYPE: '{model_type}'，使用默认值 'v8'")
             utils.log(f"   有效值: {', '.join(valid_types)}")
             return 'v8'
 
@@ -229,7 +229,7 @@ class ONNXDetector(BaseDetector):
             times.append(elapsed)
 
         avg = sum(times) / len(times)
-        utils.log(f"✓ ONNX预热完成: 平均 {avg:.2f}ms")
+        utils.log(f"ONNX预热完成: 平均 {avg:.2f}ms")
 
     def preprocess(self, img_bgr):
         """预处理"""
@@ -355,7 +355,7 @@ class ONNXDetector(BaseDetector):
 
                 # 验证是否为正方形输入
                 if height != width:
-                    utils.log(f"⚠️ 模型输入非正方形: {height}x{width}，使用较小值")
+                    utils.log(f"模型输入非正方形: {height}x{width}，使用较小值")
                     size = min(height, width)
                 else:
                     size = height
@@ -364,7 +364,7 @@ class ONNXDetector(BaseDetector):
                 return int(size)
 
         except Exception as e:
-            utils.log(f"⚠️ 自动检测输入尺寸失败: {e}")
+            utils.log(f"自动检测输入尺寸失败: {e}")
 
     def update_thresholds(self):
         """更新阈值"""

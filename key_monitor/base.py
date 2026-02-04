@@ -76,9 +76,9 @@ class KeyMonitorBase(ABC):
             on_config_change('ENABLE_MOUSE4_MONITOR', self._on_mouse4_config_change)
             on_config_change('ENABLE_MOUSE5_MONITOR', self._on_mouse5_config_change)
 
-            utils.log("[KeyMonitor] ✅ 已注册配置热加载回调")
+            utils.log("[KeyMonitor] 已注册配置热加载回调")
         except Exception as e:
-            utils.log(f"[KeyMonitor] ⚠️ 配置回调注册失败: {e}")
+            utils.log(f"[KeyMonitor] 配置回调注册失败: {e}")
 
     def _unregister_config_callbacks(self):
         """取消配置变更回调"""
@@ -92,7 +92,7 @@ class KeyMonitorBase(ABC):
 
             utils.log("[KeyMonitor] 已取消配置回调")
         except Exception as e:
-            utils.log(f"[KeyMonitor] ⚠️ 配置回调取消失败: {e}")
+            utils.log(f"[KeyMonitor] 配置回调取消失败: {e}")
 
     def _on_left_config_change(self, new_value):
         """左键配置变更回调"""
@@ -100,8 +100,8 @@ class KeyMonitorBase(ABC):
         self.enable_left = bool(new_value)
 
         if old_value != self.enable_left:
-            status = "✅ 启用" if self.enable_left else "❌ 禁用"
-            utils.log(f"[KeyMonitor] 🔄 左键监控: {status}")
+            status = "启用" if self.enable_left else "禁用"
+            utils.log(f"[KeyMonitor] 左键监控: {status}")
 
             # 如果禁用时按键正在按下，需要清理状态
             if not self.enable_left and self._last_left_state:
@@ -114,8 +114,8 @@ class KeyMonitorBase(ABC):
         self.enable_right = bool(new_value)
 
         if old_value != self.enable_right:
-            status = "✅ 启用" if self.enable_right else "❌ 禁用"
-            utils.log(f"[KeyMonitor] 🔄 右键监控: {status}")
+            status = "启用" if self.enable_right else "禁用"
+            utils.log(f"[KeyMonitor] 右键监控: {status}")
 
             if not self.enable_right and self._last_right_state:
                 self._last_right_state = False
@@ -127,8 +127,8 @@ class KeyMonitorBase(ABC):
         self.enable_mouse4 = bool(new_value)
 
         if old_value != self.enable_mouse4:
-            status = "✅ 启用" if self.enable_mouse4 else "❌ 禁用"
-            utils.log(f"[KeyMonitor] 🔄 侧键4监控: {status}")
+            status = "启用" if self.enable_mouse4 else "禁用"
+            utils.log(f"[KeyMonitor] 侧键4监控: {status}")
 
             if not self.enable_mouse4 and self._last_mouse4_state:
                 self._last_mouse4_state = False
@@ -139,8 +139,8 @@ class KeyMonitorBase(ABC):
         self.enable_mouse5 = bool(new_value)
 
         if old_value != self.enable_mouse5:
-            status = "✅ 启用" if self.enable_mouse5 else "❌ 禁用"
-            utils.log(f"[KeyMonitor] 🔄 侧键5监控: {status}")
+            status = "启用" if self.enable_mouse5 else "禁用"
+            utils.log(f"[KeyMonitor] 侧键5监控: {status}")
 
             if not self.enable_mouse5 and self._last_mouse5_state:
                 self._last_mouse5_state = False
@@ -202,7 +202,7 @@ class KeyMonitorBase(ABC):
         self._is_running = True
 
         self._print_config()
-        utils.log("[KeyMonitor] ✅ 监控已启动")
+        utils.log("[KeyMonitor] 监控已启动")
         return True
 
     def stop(self):
@@ -210,20 +210,20 @@ class KeyMonitorBase(ABC):
         if not self._is_running:
             return
 
-        utils.log("[KeyMonitor] ⏳ 正在停止监控...")
+        utils.log("[KeyMonitor] 正在停止监控...")
         self._stop_event.set()
 
         if self._monitor_thread and self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=1.0)
             if self._monitor_thread.is_alive():
-                utils.log("[KeyMonitor] ⚠️ 监控线程未在超时内退出")
+                utils.log("[KeyMonitor] 监控线程未在超时内退出")
 
         # ⭐ 取消配置回调
         self._unregister_config_callbacks()
 
         self._cleanup()
         self._is_running = False
-        utils.log("[KeyMonitor] ✅ 监控已停止")
+        utils.log("[KeyMonitor] 监控已停止")
 
     def is_running(self) -> bool:
         """检查监控是否运行中"""

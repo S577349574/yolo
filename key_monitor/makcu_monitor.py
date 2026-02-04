@@ -61,7 +61,7 @@ class MakcuKeyMonitor(KeyMonitorBase):
             if self._is_shared:
                 utils.log("[MakcuKeyMonitor] 使用共享的 Makcu controller")
                 if not self.controller or not self.controller.is_connected():
-                    utils.log("[MakcuKeyMonitor] ❌ 共享 controller 无效或未连接")
+                    utils.log("[MakcuKeyMonitor] 共享 controller 无效或未连接")
                     return False
             else:
                 utils.log("[MakcuKeyMonitor] 创建独立的 Makcu controller")
@@ -86,11 +86,11 @@ class MakcuKeyMonitor(KeyMonitorBase):
 
                     states = self.controller.get_button_states()
                     if states is not None:
-                        utils.log("[MakcuKeyMonitor] ✅ 使用固件按键监视")
+                        utils.log("[MakcuKeyMonitor] 使用固件按键监视")
                         self._use_pynput = False
                         return True
                     else:
-                        utils.log("[MakcuKeyMonitor] ⚠️ 固件返回空状态")
+                        utils.log("[MakcuKeyMonitor] 固件返回空状态")
 
                 except Exception as e:
                     utils.log(f"[MakcuKeyMonitor] 固件不支持按键监视: {e}")
@@ -104,14 +104,14 @@ class MakcuKeyMonitor(KeyMonitorBase):
                 self.pynput_listener = Listener(on_click=self._on_pynput_click)
                 self.pynput_listener.start()
 
-                utils.log("[MakcuKeyMonitor] ✅ pynput 监听已启动")
+                utils.log("[MakcuKeyMonitor] pynput 监听已启动")
                 return True
             else:
-                utils.log("[MakcuKeyMonitor] ❌ 配置禁止使用 pynput 回退")
+                utils.log("[MakcuKeyMonitor] 配置禁止使用 pynput 回退")
                 return False
 
         except Exception as e:
-            utils.log(f"[MakcuKeyMonitor] ❌ 初始化失败: {e}")
+            utils.log(f"[MakcuKeyMonitor] 初始化失败: {e}")
             return False
 
     def _on_pynput_click(self, x, y, button, pressed):

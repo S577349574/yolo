@@ -34,7 +34,6 @@ class ThreadedCrosshairDetector:
         self.last_report_time = time.time()
         self.frames_processed = 0
 
-        # ✅ 共享内存初始化（必须在 img_shape 定义后）
         self.shared_img = mp.Array('B', int(np.prod(img_shape)))
         self.img_lock = threading.Lock()
 
@@ -50,14 +49,12 @@ class ThreadedCrosshairDetector:
             daemon=True
         )
         self.detection_thread.start()
-        print("✅ 准星检测线程已启动")
 
     def stop(self):
         """停止检测线程"""
         self.running = False
         if self.detection_thread:
             self.detection_thread.join(timeout=1.0)
-        print("⏹️ 准星检测线程已停止")
 
     def submit_frame(self, img_bgra, capture_area, fallback_center):
         """提交新帧进行检测"""

@@ -1,5 +1,5 @@
 # controllers/auto_fire_controller.py
-"""自动开火控制器（主协调器 - 调试增强版）"""
+"""自动开火控制器（主协调器）"""
 
 import threading
 import time
@@ -42,7 +42,7 @@ class AutoFireController:
         self.manual_recoil = ManualRecoilMonitor(
             mouse_controller=mouse_controller,
             key_monitor=key_monitor,
-            should_recoil_callback=self._should_apply_recoil  # 传递回调
+            should_recoil_callback=self._should_apply_recoil
         )
 
         # ==================== 目标状态（由外部更新）====================
@@ -65,27 +65,7 @@ class AutoFireController:
         self.total_y = 0.0
         self.last_recoil_time = 0.0
 
-        # ==================== 性能优化 ====================
-        self.last_log_time = 0.0
-        self.log_interval = 1.0
-        self.debug_mode = get_config('AUTO_FIRE_DEBUG_MODE', False)
-
-        # ==================== 调试统计 ====================
-        self.debug_stats = {
-            'start_firing_calls': 0,
-            'stop_firing_calls': 0,
-            'button_send_success': 0,
-            'button_send_fail': 0,
-            'recoil_apply_calls': 0,
-            'recoil_skip_no_firing': 0,
-            'recoil_skip_no_target': 0,
-            'recoil_actual_moves': 0,
-        }
-
-        utils.log("✅ AutoFireController 初始化完成")
-        utils.log(f"   - 鼠标控制器: {type(mouse_controller).__name__}")
-        utils.log(f"   - 按键监听器: {type(key_monitor).__name__ if key_monitor else 'None'}")
-        utils.log(f"   - 调试模式: {self.debug_mode}")
+        utils.log_debug("AutoFireController 初始化完成")
 
     # ==================== 目标状态管理 ====================
 
@@ -106,9 +86,6 @@ class AutoFireController:
             distance: 准星到目标的距离（像素）
         """
         with self._lock:
-            old_detected = self._target_detected
-            old_locked = self._target_locked
-
             self._target_detected = detected
             self._target_locked = locked
             self._target_lock_frames = lock_frames
@@ -116,16 +93,6 @@ class AutoFireController:
 
             if detected:
                 self._last_target_time = time.time()
-
-            # 🔍 调试：状态变化时输出
-            if self.debug_mode and (old_detected != detected or old_locked != locked):
-                utils.log(
-                    f"🎯 [目标状态变化] "
-                    f"检测: {old_detected}→{detected} | "
-                    f"锁定: {old_locked}→{locked} | "
-                    f"帧数: {lock_frames} | "
-                    f"距离: {distance:.1f}px"
-                )
 
     def get_target_status(self) -> Tuple[bool, bool, int, float]:
         """
@@ -158,49 +125,34 @@ class AutoFireController:
         # 检查总开关
         enable_recoil = get_config('ENABLE_RECOIL_CONTROL', True)
         if not enable_recoil:
-            if self.debug_mode:
-                utils.log("🔍 [压枪判断] 总开关关闭")
             return False
 
         # 检查是否需要目标确认
         require_target = get_config('RECOIL_REQUIRE_TARGET', True)
 
         if not require_target:
-            # 不需要目标确认，直接允许压枪
-            if self.debug_mode:
-                utils.log("🔍 [压枪判断] 不需要目标确认，允许压枪")
             return True
 
         # 需要目标确认
         if not self._target_detected:
-            if self.debug_mode:
-                utils.log("🔍 [压枪判断] 未检测到目标")
             return False
 
         # 检查目标丢失超时
         target_timeout = get_config('RECOIL_TARGET_TIMEOUT', 0.5)
         time_since_target = time.time() - self._last_target_time
         if time_since_target > target_timeout:
-            if self.debug_mode:
-                utils.log(f"🔍 [压枪判断] 目标超时 ({time_since_target:.2f}s > {target_timeout}s)")
             return False
 
         # 可选：检查是否锁定目标（更严格）
         require_lock = get_config('RECOIL_REQUIRE_LOCK', False)
         if require_lock and not self._target_locked:
-            if self.debug_mode:
-                utils.log("🔍 [压枪判断] 需要锁定但未锁定")
             return False
 
         # 可选：检查锁定帧数
         min_lock_frames = get_config('RECOIL_MIN_LOCK_FRAMES', 0)
         if self._target_lock_frames < min_lock_frames:
-            if self.debug_mode:
-                utils.log(f"🔍 [压枪判断] 锁定帧数不足 ({self._target_lock_frames} < {min_lock_frames})")
             return False
 
-        if self.debug_mode:
-            utils.log("🔍 [压枪判断] ✅ 所有条件满足，允许压枪")
         return True
 
     def should_auto_fire(
@@ -222,65 +174,41 @@ class AutoFireController:
         Returns:
             bool: 是否应该开火
         """
-        # 🔍 调试：记录判断过程
-        debug_info = []
-
         # 检查总开关
         enable_auto_fire = get_config('ENABLE_AUTO_FIRE', False)
-        debug_info.append(f"总开关: {enable_auto_fire}")
         if not enable_auto_fire:
-            if self.debug_mode:
-                utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ❌ 总开关关闭")
             return False
 
         # 检查目标锁定
-        debug_info.append(f"锁定: {target_locked}")
         if not target_locked:
-            if self.debug_mode:
-                utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ❌ 目标未锁定")
             return False
 
         # 检查锁定帧数
         min_lock_frames = get_config('AUTO_FIRE_MIN_LOCK_FRAMES', 3)
-        debug_info.append(f"帧数: {lock_frames}/{min_lock_frames}")
         if lock_frames < min_lock_frames:
-            if self.debug_mode:
-                utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ❌ 锁定帧数不足")
             return False
 
         # 检查准确率
         accuracy_threshold = get_config('AUTO_FIRE_ACCURACY_THRESHOLD', 0.75)
-        debug_info.append(f"准确率: {current_accuracy:.2%}/{accuracy_threshold:.2%}")
         if current_accuracy < accuracy_threshold:
-            if self.debug_mode:
-                utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ❌ 准确率不足")
             return False
 
         # 检查距离
         distance_threshold = get_config('AUTO_FIRE_DISTANCE_THRESHOLD', 20.0)
-        debug_info.append(f"距离: {error_distance:.1f}/{distance_threshold:.1f}px")
         if error_distance > distance_threshold:
-            if self.debug_mode:
-                utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ❌ 距离过远")
             return False
 
-        if self.debug_mode:
-            utils.log(f"🔍 [自动开火判断] {' | '.join(debug_info)} → ✅ 所有条件满足")
         return True
 
     # ==================== 自动开火模式 ====================
 
     def start_firing(self) -> None:
         """开始射击（按下左键 - 自动开火模式）"""
-        self.debug_stats['start_firing_calls'] += 1
-
         with self._lock:
             if self.is_firing:
-                utils.log("⚠️ [开火] 已经在射击中，忽略重复调用")
                 return
 
-            utils.log("=" * 60)
-            utils.log("🔫 [开火] 准备开始射击...")
+            utils.log_debug("开始射击")
 
             self.is_firing = True
             self.fire_start_time = time.time()
@@ -293,94 +221,41 @@ class AutoFireController:
 
             # 发送左键按下
             left_down = get_config('APP_MOUSE_LEFT_DOWN', 1)
-            utils.log(f"🔫 [开火] 发送左键按下信号: {left_down}")
-
             try:
-                result = self.mouse_controller._send_button(left_down)
-
-                if result:
-                    self.debug_stats['button_send_success'] += 1
-                    utils.log("✅ [开火] 左键按下信号发送成功")
-                else:
-                    self.debug_stats['button_send_fail'] += 1
-                    utils.log("❌ [开火] 左键按下信号发送失败")
-
-                # 🔍 验证鼠标控制器状态
-                utils.log(f"🔍 [开火] 鼠标控制器类型: {type(self.mouse_controller).__name__}")
-                utils.log(f"🔍 [开火] 鼠标控制器方法: {hasattr(self.mouse_controller, '_send_button')}")
-
+                self.mouse_controller._send_button(left_down)
             except Exception as e:
-                self.debug_stats['button_send_fail'] += 1
-                utils.log(f"❌ [开火] 发送左键按下时出错: {e}")
-                import traceback
-                traceback.print_exc()
-
-            utils.log(f"🔫 [开火] 射击状态: is_firing={self.is_firing}")
-            utils.log("=" * 60)
+                utils.log_debug(f"发送左键按下失败: {e}")
 
     def stop_firing(self) -> None:
         """停止射击（释放左键 - 自动开火模式）"""
-        self.debug_stats['stop_firing_calls'] += 1
-
         with self._lock:
             if not self.is_firing:
-                utils.log("⚠️ [停火] 当前未在射击，忽略停火调用")
                 return
-
-            utils.log("=" * 60)
-            utils.log("⏹ [停火] 准备停止射击...")
 
             self.is_firing = False
             fire_duration = time.time() - self.fire_start_time
 
             # 发送左键释放
             left_up = get_config('APP_MOUSE_LEFT_UP', 2)
-            utils.log(f"⏹ [停火] 发送左键释放信号: {left_up}")
-
             try:
-                result = self.mouse_controller._send_button(left_up)
-
-                if result:
-                    self.debug_stats['button_send_success'] += 1
-                    utils.log("✅ [停火] 左键释放信号发送成功")
-                else:
-                    self.debug_stats['button_send_fail'] += 1
-                    utils.log("❌ [停火] 左键释放信号发送失败")
-
+                self.mouse_controller._send_button(left_up)
             except Exception as e:
-                self.debug_stats['button_send_fail'] += 1
-                utils.log(f"❌ [停火] 发送左键释放时出错: {e}")
-                import traceback
-                traceback.print_exc()
+                utils.log_debug(f"发送左键释放失败: {e}")
 
-            # 计算速度
-            actual_speed_x = self.total_x / fire_duration if fire_duration > 0 else 0
-            actual_speed_y = self.total_y / fire_duration if fire_duration > 0 else 0
-
-            utils.log(
-                f"⏹ [停火] 射击统计:\n"
-                f"   - 持续时间: {fire_duration:.2f}s\n"
-                f"   - 子弹数: {self.shot_count}\n"
-                f"   - 累积偏移: X={self.total_x:+.1f}px Y={self.total_y:+.1f}px\n"
-                f"   - 平均速度: X={actual_speed_x:+.1f}px/s Y={actual_speed_y:.1f}px/s"
+            # 输出射击统计
+            utils.log_debug(
+                f"⏹ 停止射击 | 时长: {fire_duration:.2f}s | "
+                f"子弹: {self.shot_count} | "
+                f"偏移: X={self.total_x:+.1f} Y={self.total_y:+.1f}"
             )
-            utils.log("=" * 60)
 
     def apply_recoil_control(self) -> None:
         """应用压枪偏移（自动开火模式）"""
-        self.debug_stats['recoil_apply_calls'] += 1
-
         if not self.is_firing:
-            self.debug_stats['recoil_skip_no_firing'] += 1
-            if self.debug_mode and self.debug_stats['recoil_apply_calls'] % 100 == 0:
-                utils.log(f"🔍 [压枪] 未在射击，跳过 (调用次数: {self.debug_stats['recoil_apply_calls']})")
             return
 
         # 使用智能判断
         if not self._should_apply_recoil():
-            self.debug_stats['recoil_skip_no_target'] += 1
-            if self.debug_mode and self.debug_stats['recoil_skip_no_target'] % 50 == 0:
-                utils.log(f"🔍 [压枪] 目标条件不满足，跳过 (跳过次数: {self.debug_stats['recoil_skip_no_target']})")
             return
 
         with self._lock:
@@ -421,26 +296,18 @@ class AutoFireController:
                 self.accumulated_y -= move_y
 
             if move_x != 0 or move_y != 0:
-                self.debug_stats['recoil_actual_moves'] += 1
                 self._send_move(move_x, move_y)
-
-                if self.debug_mode and self.shot_count % 10 == 0:
-                    utils.log(
-                        f"🔍 [压枪] 第{self.shot_count}发 | "
-                        f"移动: ({move_x:+d}, {move_y:+d}) | "
-                        f"累积: X={self.total_x:+.1f} Y={self.total_y:+.1f}"
-                    )
 
     # ==================== 手动压枪模式 ====================
 
     def start_manual_recoil_monitor(self) -> None:
         """启动手动压枪监控线程"""
-        utils.log("🎯 [手动压枪] 启动监控线程...")
+        utils.log_debug("启动手动压枪监控")
         self.manual_recoil.start()
 
     def stop_manual_recoil_monitor(self) -> None:
         """停止手动压枪监控线程"""
-        utils.log("🎯 [手动压枪] 停止监控线程...")
+        utils.log_debug("停止手动压枪监控")
         self.manual_recoil.stop()
 
     def is_recoil_active(self) -> bool:
@@ -522,8 +389,6 @@ class AutoFireController:
 
     def reset(self) -> None:
         """重置状态（目标丢失时调用）"""
-        utils.log("🔄 [重置] 重置控制器状态...")
-
         if self.is_firing:
             self.stop_firing()
 
@@ -534,34 +399,8 @@ class AutoFireController:
             self.total_x = 0.0
             self.total_y = 0.0
             self.shot_count = 0
-            # 不重置目标状态，让外部控制
 
-        utils.log("✅ [重置] 状态重置完成")
-
-    # ==================== 调试统计 ====================
-
-    def print_debug_stats(self) -> None:
-        """打印调试统计信息"""
-        utils.log("=" * 60)
-        utils.log("📊 [调试统计]")
-        utils.log(f"   开火调用次数: {self.debug_stats['start_firing_calls']}")
-        utils.log(f"   停火调用次数: {self.debug_stats['stop_firing_calls']}")
-        utils.log(f"   按钮发送成功: {self.debug_stats['button_send_success']}")
-        utils.log(f"   按钮发送失败: {self.debug_stats['button_send_fail']}")
-        utils.log(f"   压枪调用次数: {self.debug_stats['recoil_apply_calls']}")
-        utils.log(f"   压枪跳过(未射击): {self.debug_stats['recoil_skip_no_firing']}")
-        utils.log(f"   压枪跳过(无目标): {self.debug_stats['recoil_skip_no_target']}")
-        utils.log(f"   实际移动次数: {self.debug_stats['recoil_actual_moves']}")
-        utils.log(f"   当前射击状态: {self.is_firing}")
-        utils.log(f"   目标检测状态: {self._target_detected}")
-        utils.log(f"   目标锁定状态: {self._target_locked}")
-        utils.log("=" * 60)
-
-    def reset_debug_stats(self) -> None:
-        """重置调试统计"""
-        for key in self.debug_stats:
-            self.debug_stats[key] = 0
-        utils.log("🔄 [调试] 统计信息已重置")
+        utils.log_debug("控制器状态已重置")
 
     # ==================== 兼容性接口（保持向后兼容）====================
 

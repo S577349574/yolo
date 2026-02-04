@@ -43,7 +43,7 @@ class RecoilCalculator:
         elif pattern == 'custom':
             return RecoilCalculator._calculate_custom(shot_count)
         else:
-            utils.log(f"⚠ 未知压枪模式: {pattern}，使用线性模式")
+            utils.log(f"未知压枪模式: {pattern}，使用线性模式")
             return RecoilCalculator._calculate_linear(delta_time)
 
     @staticmethod
@@ -104,7 +104,7 @@ class RecoilCalculator:
         custom_pattern = get_config('RECOIL_CUSTOM_PATTERN', [])
 
         if not custom_pattern:
-            utils.log("⚠ 自定义压枪模式为空，使用线性模式")
+            utils.log("自定义压枪模式为空，使用线性模式")
             return RecoilCalculator._calculate_linear(0.016)
 
         # 循环使用模式数组
@@ -190,7 +190,7 @@ class ManualRecoilMonitor:
     def start(self) -> None:
         """启动监控线程"""
         if self.thread and self.thread.is_alive():
-            utils.log("⚠ 手动压枪监控已在运行")
+            utils.log("手动压枪监控已在运行")
             return
 
         self.stop_flag = False
@@ -203,14 +203,14 @@ class ManualRecoilMonitor:
         mode_desc = self._get_mode_description(trigger_mode)
         target_desc = " + 需要目标" if require_target else ""
 
-        utils.log(f"✅ 手动压枪监控已启动 | 模式: {mode_desc}{target_desc}")
+        utils.log(f"手动压枪监控已启动 | 模式: {mode_desc}{target_desc}")
 
     def stop(self) -> None:
         """停止监控线程"""
         self.stop_flag = True
         if self.thread:
             self.thread.join(timeout=2.0)
-        utils.log("⏹ 手动压枪监控已停止")
+        utils.log("手动压枪监控已停止")
 
     def _monitoring_loop(self) -> None:
         """监控循环（主逻辑）"""
@@ -241,7 +241,7 @@ class ManualRecoilMonitor:
                 # ==================== 暂停提示 ====================
                 elif button_condition and not should_recoil and not recoil_paused_logged:
                     if self.debug_mode:
-                        utils.log("⏸ 压枪暂停：等待目标...")
+                        utils.log("压枪暂停：等待目标...")
                     recoil_paused_logged = True
 
                 # ==================== 执行压枪 ====================
@@ -252,7 +252,7 @@ class ManualRecoilMonitor:
                 time.sleep(0.01)  # 100Hz 监控频率
 
         except Exception as e:
-            utils.log(f"❌ 手动压枪监控线程错误: {e}")
+            utils.log(f"手动压枪监控线程错误: {e}")
             import traceback
             traceback.print_exc()
 
@@ -287,7 +287,7 @@ class ManualRecoilMonitor:
             return left_pressed and button5_pressed
 
         else:
-            utils.log(f"⚠ 未知触发模式: {trigger_mode}，降级为仅左键")
+            utils.log(f"未知触发模式: {trigger_mode}，降级为仅左键")
             return left_pressed
 
     def _start_recoil(self) -> None:
@@ -302,7 +302,7 @@ class ManualRecoilMonitor:
         self.shot_count = 0
 
         if self.debug_mode:
-            utils.log("🔫 开始手动压枪")
+            utils.log("开始手动压枪")
 
     def _stop_recoil(self, reason: str = "未知") -> None:
         """
@@ -317,7 +317,7 @@ class ManualRecoilMonitor:
         # 只记录有效压枪（持续时间 > 0.1秒）
         if fire_duration > 0.1 and self.debug_mode:
             utils.log(
-                f"⏹ 停止压枪 ({reason}) | "
+                f"停止压枪 ({reason}) | "
                 f"持续: {fire_duration:.2f}s | "
                 f"子弹: {self.shot_count} | "
                 f"累积: X={self.total_x:+.1f}px Y={self.total_y:+.1f}px"
