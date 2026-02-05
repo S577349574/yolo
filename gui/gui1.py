@@ -1,13 +1,26 @@
-import sys
 import threading
-import dearpygui.dearpygui as dpg
-import config_manager as cfg
-import os
-import glob
-import cv2
-import numpy as np
 
-import utils
+import dearpygui.dearpygui as dpg
+
+import config_manager as cfg
+from render.main_window import build_main_window
+from theme.apple_theme import (
+    setup_apple_theme,
+    setup_button_themes,
+    setup_notice_tab_theme,
+)
+from theme.colors import UIColors
+from theme.fonts import setup_chinese_font
+from widgets.basic import add_float, add_int, add_bool, add_input_text, add_combo
+from widgets.callbacks import save_callback, update_config_callback, update_class_ids_callback
+from widgets.crosshair_preview import generate_crosshair_preview_callback
+from widgets.helpers import update_dependent_controls, create_master_switch_callback
+from widgets.preview import update_search_bounds, _handle_preview_drag, update_aim_offset_preview
+from widgets.scripts_ui import refresh_scripts_ui
+from widgets.tagged import (
+    add_float_tagged, add_int_tagged, add_bool_tagged, add_input_text_tagged,
+    add_float_input_tagged, add_int_input_tagged, add_combo_tagged
+)
 
 # 1. 加载配置
 cfg.load_config()
@@ -16,44 +29,6 @@ cfg.load_config()
 _gui_exit_event = threading.Event()
 _gui_running = False
 
-# 脚本文件夹路径
-
-
-
-# ========== 🎨 UI 颜色配置 (适配白色背景) ==========
-class UIColors:
-    TEXT_BLACK = (0, 0, 0, 255)
-    TEXT_GRAY = (100, 100, 100, 255)
-    APPLE_BLUE = (0, 122, 255, 255)  # 标题/强调色
-    SUCCESS_GREEN = (52, 199, 89, 255)  # 成功状态
-    WARNING_ORANGE = (255, 149, 0, 255)  # 警告/未保存
-    ERROR_RED = (255, 59, 48, 255)  # 错误
-    SECTION_HEADER = (0, 122, 255, 255)  # 分区标题颜色
-
-
-# ================= 控件联动管理 =================
-
-def update_dependent_controls(master_key, dependent_tags, is_enabled):
-    """通用函数：根据主开关状态启用/禁用子控件"""
-    for tag in dependent_tags:
-        try:
-            dpg.configure_item(tag, enabled=is_enabled)
-        except Exception as e:
-            print(f"[GUI] 无法更新控件 {tag}: {e}")
-
-
-def create_master_switch_callback(config_key, dependent_tags):
-    """创建带联动的主开关回调函数"""
-
-    def callback(sender, app_data, user_data):
-        # 更新配置
-        cfg.set_config(config_key, app_data)
-        dpg.configure_item("status_text", default_value=f"[未保存] 已修改: {config_key}", color=UIColors.WARNING_ORANGE)
-
-        # 更新子控件状态
-        update_dependent_controls(config_key, dependent_tags, app_data)
-
-    return callback
 
 
 # ================= 原有回调函数 =================
@@ -101,285 +76,7 @@ def manual_reload_callback(sender, app_data, user_data):
         # 重载后是否保持暂停，取决于你的业务逻辑，这里默认重载后会让它运行
         update_ai_button_status(True)
 
-
-def save_callback():
-    """保存配置"""
-    if cfg.save_config():
-        dpg.configure_item("status_text", default_value="[成功] 配置已保存至 config.json", color=UIColors.SUCCESS_GREEN)
-    else:
-        dpg.configure_item("status_text", default_value="[错误] 保存失败！请检查权限", color=UIColors.ERROR_RED)
-
-
-def update_config_callback(sender, app_data, user_data):
-    """通用单值更新回调"""
-    key = user_data
-    value = app_data
-    cfg.set_config(key, value)
-    dpg.configure_item("status_text", default_value=f"[未保存] 已修改: {key}", color=UIColors.WARNING_ORANGE)
-
-    if key in ["AIM_X_OFFSET", "AIM_Y_RATIO"]:
-        update_aim_offset_preview()
-
-
-def update_class_ids_callback(sender, app_data, user_data):
-    """处理目标ID多选"""
-    target_id = user_data
-    is_checked = app_data
-    current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
-    if not isinstance(current_ids, list): current_ids = []
-
-    if is_checked:
-        if target_id not in current_ids: current_ids.append(target_id)
-    else:
-        if target_id in current_ids: current_ids.remove(target_id)
-
-    current_ids.sort()
-    cfg.set_config("TARGET_CLASS_IDS", current_ids)
-    dpg.configure_item("status_text", default_value=f"[未保存] 目标ID更新: {current_ids}",
-                       color=UIColors.WARNING_ORANGE)
-
-
-# ================= 脚本管理逻辑 =================
-
-def update_script_state_callback(sender, app_data, user_data):
-    """
-    sender: checkbox 的 ID
-    app_data: 当前 checkbox 的值 (True/False)
-    user_data: 脚本名称 (例如 "debug_system")
-    """
-    script_name = user_data
-    is_enabled = app_data
-
-    # 1. 获取当前已启用的脚本列表
-    current_enabled = cfg.get_config("ENABLED_SCRIPTS", [])
-
-    # 如果读取到的是字符串（为了兼容老配置），先转为列表
-    if isinstance(current_enabled, str):
-        current_enabled = [s.strip() for s in current_enabled.split(',') if s.strip()]
-
-    # 2. 根据勾选状态更新列表
-    if is_enabled:
-        if script_name not in current_enabled:
-            current_enabled.append(script_name)
-    else:
-        if script_name in current_enabled:
-            current_enabled.remove(script_name)
-
-    # 3. 写回配置文件
-    # 建议保存为列表格式，这样 Python 处理起来最方便
-    cfg.set_config("ENABLED_SCRIPTS", current_enabled)
-
-    # 4. 刷新 UI 显示（可选，用于更新旁边的 "(已启用)" 文字）
-    refresh_scripts_ui()
-
-
-def refresh_scripts_ui():
-    SCRIPTS_DIR = utils.get_scripts_dir()
-    """扫描文件夹并重建脚本列表 UI"""
-    # 打印出当前 UI 正在尝试搜索的具体路径
-    print(f"[UI Debug] 正在扫描脚本目录: {SCRIPTS_DIR}")
-    """扫描文件夹并重建脚本列表 UI"""
-    dpg.delete_item("script_list_container", children_only=True)
-
-    if not os.path.exists(SCRIPTS_DIR):
-        os.makedirs(SCRIPTS_DIR)
-
-    lua_files = glob.glob(os.path.join(SCRIPTS_DIR, "*.lua"))
-    script_names = [os.path.splitext(os.path.basename(f))[0] for f in lua_files]
-    enabled_config = cfg.get_config("ENABLED_SCRIPTS", [])
-    # 统一转换为列表，确保 name in enabled_scripts 判断准确
-    if isinstance(enabled_config, str):
-        enabled_scripts = [s.strip() for s in enabled_config.split(',') if s.strip()]
-    else:
-        enabled_scripts = enabled_config
-
-    if not script_names:
-        dpg.add_text("未找到脚本文件 (请在 scripts/ 文件夹放入 .lua)", parent="script_list_container",
-                     color=UIColors.TEXT_GRAY)
-        return
-
-    for name in script_names:
-        is_active = name in enabled_scripts
-        with dpg.group(horizontal=True, parent="script_list_container"):
-            dpg.add_checkbox(
-                label=f"{name}.lua",
-                default_value=is_active,
-                callback=update_script_state_callback,
-                user_data=name
-            )
-            if is_active:
-                dpg.add_text("(已启用)", color=UIColors.SUCCESS_GREEN)
-            else:
-                dpg.add_text("(未启用)", color=UIColors.TEXT_GRAY)
-
-
-def generate_crosshair_preview_callback(sender, app_data, user_data):
-    """生成准星预览回调"""
-    try:
-        config_code = cfg.get_config("CROSSHAIR_VALORANT_CONFIG", "").strip()
-
-        if not config_code:
-            dpg.configure_item("status_text", default_value="[错误] 请先填写准星代码", color=UIColors.ERROR_RED)
-            return
-
-        dpg.configure_item("status_text", default_value="[处理中] 正在生成...", color=UIColors.WARNING_ORANGE)
-
-        from crosshair.games.valorant.config_parser import ValorantConfigParser
-        from crosshair.games.valorant.crosshair_visualizer import CrosshairVisualizer
-
-        # 解析配置
-        config = ValorantConfigParser.parse(config_code)
-        desc = ValorantConfigParser.describe(config)
-
-        # 渲染
-        template_img = CrosshairVisualizer.render(config, size=90)
-        img_rgba = cv2.cvtColor(template_img, cv2.COLOR_BGRA2RGBA)
-
-        # Alpha 混合到浅灰色背景 (适配白色UI)
-        alpha = img_rgba[:, :, 3:4].astype(np.float32) / 255.0
-        rgb = img_rgba[:, :, :3].astype(np.float32)
-        # 背景色改为浅灰 (230, 230, 230)
-        background = np.full((90, 90, 3), 230, dtype=np.float32)
-        blended_rgb = rgb * alpha + background * (1 - alpha)
-
-        # 重新组合
-        final_rgba = np.concatenate([
-            blended_rgb.astype(np.uint8),
-            np.full((90, 90, 1), 255, dtype=np.uint8)
-        ], axis=-1)
-
-        # 转换为纹理数据并更新
-        texture_data = (final_rgba.astype(np.float32) / 255.0).flatten().tolist()
-        dpg.set_value("crosshair_preview_texture", texture_data)
-
-        # 更新状态
-        dpg.configure_item("crosshair_preview_desc", default_value=f"✅ {desc}", color=UIColors.SUCCESS_GREEN)
-        dpg.configure_item("status_text", default_value="[成功] 准星预览已生成", color=UIColors.SUCCESS_GREEN)
-
-    except ValueError as e:
-        dpg.configure_item("crosshair_preview_desc", default_value="❌ 准星代码格式错误", color=UIColors.ERROR_RED)
-        dpg.configure_item("status_text", default_value=f"[错误] 准星代码格式错误: {str(e)}", color=UIColors.ERROR_RED)
-
-    except Exception as e:
-        dpg.configure_item("crosshair_preview_desc", default_value="❌ 生成失败", color=UIColors.ERROR_RED)
-        dpg.configure_item("status_text", default_value=f"[错误] {str(e)}", color=UIColors.ERROR_RED)
-        import traceback
-        traceback.print_exc()
-
-
-# ================= 字体设置 =================
-
-def setup_chinese_font():
-    """配置中文字体支持"""
-    with dpg.font_registry():
-        # 尝试多个字体路径
-        font_paths = [
-            r"C:\Windows\Fonts\msyh.ttc",  # 微软雅黑
-            r"C:\Windows\Fonts\simhei.ttf",  # 黑体
-            r"C:\Windows\Fonts\simsun.ttc",  # 宋体
-        ]
-
-        font_path = None
-        for path in font_paths:
-            if os.path.exists(path):
-                font_path = path
-                break
-
-        if font_path:
-            # ✅ 修复：使用 add_font() 而不是 with dpg.font()
-            with dpg.font(font_path, 18) as font_cn:
-                # ✅ 添加字符范围提示（关键修复）
-                dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
-                dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
-
-                # 手动添加常用字符范围
-                dpg.add_font_range(0x0020, 0x00FF)  # 基本拉丁字母
-                dpg.add_font_range(0x4E00, 0x9FFF)  # 中日韩统一表意文字（扩大范围）
-                dpg.add_font_range(0x3000, 0x303F)  # 中日韩符号和标点
-
-            dpg.bind_font(font_cn)
-            print(f"[GUI] 已加载中文字体: {font_path}")
-        else:
-            print("[GUI] 未找到中文字体，部分中文可能显示为问号")
-
-
-# ================= 🎨 Apple 风格主题设置 (优化版) =================
-def setup_apple_theme():
-    with dpg.theme() as global_theme:
-        with dpg.theme_component(dpg.mvAll):
-            # --- 1. 形状与圆角 (保持圆润) ---
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 10, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 8, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 6, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 6, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_ScrollbarSize, 12, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_ScrollbarRounding, 12, category=dpg.mvThemeCat_Core)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 10, 8, category=dpg.mvThemeCat_Core)
-
-            # --- 2. 边框优化 ---
-            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1, category=dpg.mvThemeCat_Core)  # 输入框描边
-
-            # --- 3. 基础颜色 (White Mode) ---
-            # 窗口与背景
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (255, 255, 255), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (245, 245, 247), category=dpg.mvThemeCat_Core)
-            # 🔥🔥🔥【关键修复】下拉框/菜单/提示框背景 🔥🔥🔥
-            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (255, 255, 255), category=dpg.mvThemeCat_Core)
-
-            # 🔥🔥🔥【建议优化】下拉列表中条目的悬停/选中背景 🔥🔥🔥
-            # 如果不加这个，鼠标指上去可能会变成默认的深蓝色，配合黑色文字会看不清
-            dpg.add_theme_color(dpg.mvThemeCol_Header, (242, 242, 247), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (229, 229, 234), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (209, 209, 214), category=dpg.mvThemeCat_Core)
-            # 文字：深炭灰 (比纯黑更柔和)
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (28, 28, 30), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, (142, 142, 147), category=dpg.mvThemeCat_Core)
-
-            # 边框：中性灰
-            dpg.add_theme_color(dpg.mvThemeCol_Border, (200, 200, 200), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_BorderShadow, (0, 0, 0, 0), category=dpg.mvThemeCat_Core)
-
-            # 按钮
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (242, 242, 247), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (229, 229, 234), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (209, 209, 214), category=dpg.mvThemeCat_Core)
-
-            # 输入框
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (255, 255, 255), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (250, 250, 250), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (235, 235, 240), category=dpg.mvThemeCat_Core)
-
-            # 控件强调色 (Slider, Checkbox)
-            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (0, 122, 255), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 122, 255), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 99, 209), category=dpg.mvThemeCat_Core)
-
-            # 🔥🔥🔥 Tab 标签页配色 (关键修改) 🔥🔥🔥
-            # 1. 未选中：浅灰 (保持背景感)
-            dpg.add_theme_color(dpg.mvThemeCol_Tab, (242, 242, 247), category=dpg.mvThemeCat_Core)
-
-            # 2. 悬停：稍白一点 (交互反馈)
-            dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (250, 250, 250), category=dpg.mvThemeCat_Core)
-
-            # 3. 选中：浅天蓝色 (适配深色字体)
-            # 这里使用了 (215, 230, 255)，这是非常舒服的 macOS 风格浅蓝
-            dpg.add_theme_color(dpg.mvThemeCol_TabActive, (215, 230, 255), category=dpg.mvThemeCat_Core)
-
-            # 4. 失去焦点的选中项：保持浅蓝但淡一点
-            dpg.add_theme_color(dpg.mvThemeCol_TabUnfocusedActive, (230, 240, 255), category=dpg.mvThemeCat_Core)
-
-            # 滚动条
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (255, 255, 255, 0), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, (199, 199, 204), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, (174, 174, 178), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, (142, 142, 147), category=dpg.mvThemeCat_Core)
-
-    dpg.bind_theme(global_theme)
-
-
 # ================= 主 GUI 创建 =================
-
 def create_gui():
     dpg.create_context()
     with dpg.item_handler_registry(tag="preview_handler"):
@@ -387,28 +84,11 @@ def create_gui():
         dpg.add_item_active_handler(callback=_handle_preview_drag)
         # 点击状态（点击即定位）
         dpg.add_item_clicked_handler(callback=_handle_preview_drag)
-
-    # 绿色主题 (运行中)
-    with dpg.theme(tag="theme_btn_running"):
-        with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (46, 125, 50))       # 深绿
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (56, 142, 60))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (27, 94, 32))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
-
-    # 红色主题 (已暂停)
-    with dpg.theme(tag="theme_btn_paused"):
-        with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (198, 40, 40))      # 深红
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (211, 47, 47))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (183, 28, 28))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
     # 1. 设置字体
     setup_chinese_font()
     # 2. 应用 Apple 风格主题
     setup_apple_theme()
-
-
+    setup_button_themes()
     # 注册纹理
     with dpg.texture_registry():
         default_texture = []
@@ -424,8 +104,7 @@ def create_gui():
             tag="crosshair_preview_texture"
         )
 
-
-
+    blue_notice_theme = setup_notice_tab_theme()
     with dpg.window(tag="Primary Window", label="test-v1.0"):
 
         # === 顶部状态栏 ===
@@ -453,6 +132,7 @@ def create_gui():
         dpg.add_separator()
 
         with dpg.tab_bar():
+            build_main_window(blue_notice_theme)
             # ================= TAB 1: 基础设置 =================
             with dpg.tab(label="基础 & 系统"):
                 # ========== 原有配置（保持不变） ==========
@@ -803,7 +483,6 @@ def create_gui():
                             "crosshair_use_fallback",
                             "crosshair_debug_mode",
                             "crosshair_stats_interval"
-
                             # ⭐ 新增：搜索区域相关控件
                             "crosshair_search_x_left",
                             "crosshair_search_x_right",
@@ -902,7 +581,6 @@ def create_gui():
                             60, 1800,
                             "crosshair_stats_interval"
                         )
-                        # ⭐⭐⭐ 新增：搜索区域配置 ⭐⭐⭐
                         dpg.add_separator()
                         dpg.add_text("搜索区域配置（长方形，针对后坐力优化）", color=UIColors.SECTION_HEADER)
 
@@ -977,8 +655,6 @@ def create_gui():
                             color=UIColors.SUCCESS_GREEN,
                             indent=10
                         )
-
-                        # ⭐⭐⭐ 新增：平滑与容错配置 ⭐⭐⭐
                         dpg.add_separator()
                         dpg.add_text("平滑与容错配置", color=UIColors.SECTION_HEADER)
 
@@ -1048,10 +724,8 @@ def create_gui():
                             default_value=head_priority_enabled,
                             callback=create_master_switch_callback("ENABLE_HEAD_PRIORITY", head_priority_deps)
                         )
-
                         add_int_tagged("HEAD_CLASS_ID", "头部 ID 定义", 0, 10, "head_class_id")
                         add_int_tagged("HEAD_PRIORITY_RANGE", "头部优先距离范围 (像素)", 0, 500, "head_priority_range")
-
                         dpg.add_text("说明:在目标组内,头部可以比最近检测框远多少像素",
                                      color=UIColors.TEXT_GRAY)
 
@@ -1244,13 +918,10 @@ def create_gui():
                                 "  10: 目标消失 0.16 秒内,准星会继续预测移动。\n"
                                 "  0: 目标一消失,准星立刻停止移动。\n"
                             )
-
                         update_dependent_controls("USE_KALMAN_FILTER", kalman_deps, kalman_enabled)
-
                         dpg.add_separator()
                         dpg.add_text("EMA 平滑 (备用)", color=UIColors.SECTION_HEADER)
                         add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数 (仅在禁用卡尔曼时生效)", 0.01, 1.0)
-
                         dpg.add_separator()
                         dpg.add_text("移动预判", color=UIColors.SECTION_HEADER)
                         with dpg.tooltip(dpg.last_item()):
@@ -1263,7 +934,6 @@ def create_gui():
                                 "  0.5: 平衡,既平滑又不会太慢。\n"
                                 "  1.0: 不平滑,准星直接跳到目标位置(会抖)。\n"
                             )
-
                         lead_deps = ["lead_frames"]
                         lead_enabled = cfg.get_config("ENABLE_LEAD_TARGET", False)
                         dpg.add_checkbox(
@@ -1284,7 +954,6 @@ def create_gui():
                                 "  0: 预测 0.16 秒后的位置(适合远距离狙击)。\n"
                             )
                         update_dependent_controls("ENABLE_LEAD_TARGET", lead_deps, lead_enabled)
-
                     # ================= TAB 8: 压枪系统 =================
                     with dpg.tab(label="压枪配置"):
                         dpg.add_text("总开关", color=UIColors.APPLE_BLUE)
@@ -1301,11 +970,9 @@ def create_gui():
                             default_value=recoil_enabled,
                             callback=create_master_switch_callback("ENABLE_MANUAL_RECOIL", recoil_deps)
                         )
-
                         add_bool_tagged("ENABLE_RECOIL_CONTROL", "启用后坐力控制", "recoil_ctrl")
                         add_combo_tagged("MANUAL_RECOIL_TRIGGER_MODE", "触发按键模式",
                                          ["left_only", "left_right", "left_button4", "left_button5"], "recoil_mode")
-
                         dpg.add_separator()
                         dpg.add_text("触发逻辑", color=UIColors.SECTION_HEADER)
                         add_bool_tagged("RECOIL_REQUIRE_TARGET", "仅在有目标时压枪", "recoil_req_target")
@@ -1351,39 +1018,14 @@ def create_gui():
                                          1.0, 200.0, "autofire_dist")
                         add_int_tagged("AUTO_FIRE_MIN_LOCK_FRAMES", "开火前需锁定帧数",
                                        0, 100, "autofire_lock")
-
                         update_dependent_controls("ENABLE_AUTO_FIRE", autofire_deps, autofire_enabled)
-
-            # 创建蓝色公告tab主题
-            with dpg.theme() as blue_notice_theme:
-                with dpg.theme_component(dpg.mvTab):
-                    dpg.add_theme_color(dpg.mvThemeCol_Tab, (0, 122, 255))
-                    dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (30, 140, 255))  # 悬停时稍亮
-                    dpg.add_theme_color(dpg.mvThemeCol_TabActive, (0, 100, 220))  # 激活时稍暗
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
-
-            # 公告tab
-            with dpg.tab(label=" ", tag="notice_tab", closable=False):
-                dpg.add_text("更新公告：", color=UIColors.SECTION_HEADER)
-                dpg.add_separator()
-                dpg.add_text("• 这是第一条公告内容", color=UIColors.TEXT_BLACK)
-                dpg.add_text("• 这是第二条公告内容", color=UIColors.TEXT_BLACK)
-                dpg.add_separator()
-                dpg.add_text("更新时间：2024-01-01", color=UIColors.TEXT_BLACK)
-
-            dpg.bind_item_theme("notice_tab", blue_notice_theme)
-
-
-
 
     dpg.create_viewport(title="Prism Vision-v1.3", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()
     dpg.set_primary_window("Primary Window", True)
-
     refresh_scripts_ui()
-
     global _gui_running
     _gui_running = True
 
@@ -1407,296 +1049,15 @@ def create_gui():
             # =========================================
 
             dpg.render_dearpygui_frame()
-
     finally:
         dpg.destroy_context()
         _gui_running = False
         print("[GUI] ✅ GUI 已完全清理")
-
-
-# ================= 通用控件封装（无tag版本） =================
-
-def add_float(key, label, min_v=0.0, max_v=1.0, speed=0.01):
-    val = float(cfg.get_config(key, 0.0))
-    dpg.add_drag_float(
-        label=label,
-        default_value=val,
-        min_value=min_v,
-        max_value=max_v,
-        speed=speed,
-        callback=update_config_callback,
-        user_data=key,
-        width=280
-    )
-
-
-def add_int(key, label, min_v=0, max_v=100):
-    val = int(cfg.get_config(key, 0))
-    dpg.add_drag_int(
-        label=label,
-        default_value=val,
-        min_value=min_v,
-        max_value=max_v,
-        callback=update_config_callback,
-        user_data=key,
-        width=280
-    )
-
-
-def add_bool(key, label):
-    val = bool(cfg.get_config(key, False))
-    dpg.add_checkbox(
-        label=label,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key
-    )
-
-
-def add_input_text(key, label):
-    val = str(cfg.get_config(key, ""))
-    dpg.add_input_text(
-        label=label,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key,
-        width=280
-    )
-
-
-def add_combo(key, label, items):
-    val = str(cfg.get_config(key, items[0]))
-    if val not in items:
-        items.append(val)
-    dpg.add_combo(
-        label=label,
-        items=items,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key,
-        width=280
-    )
-
-
-# ================= 通用控件封装（带tag版本 - 用于联动） =================
-
-def add_float_tagged(key, label, min_v=0.0, max_v=1.0, tag=None, speed=0.01):
-    val = float(cfg.get_config(key, 0.0))
-    dpg.add_drag_float(
-        label=label,
-        default_value=val,
-        min_value=min_v,
-        max_value=max_v,
-        speed=speed,
-        callback=update_config_callback,
-        user_data=key,
-        width=280,
-        tag=tag
-    )
-
-
-def add_int_tagged(key, label, min_v=0, max_v=100, tag=None):
-    val = int(cfg.get_config(key, 0))
-    dpg.add_drag_int(
-        label=label,
-        default_value=val,
-        min_value=min_v,
-        max_value=max_v,
-        callback=update_config_callback,
-        user_data=key,
-        width=280,
-        tag=tag
-    )
-
-
-def add_bool_tagged(key, label, tag=None):
-    val = bool(cfg.get_config(key, False))
-    dpg.add_checkbox(
-        label=label,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key,
-        tag=tag
-    )
-
-
-def add_input_text_tagged(key, label, tag=None):
-    val = str(cfg.get_config(key, ""))
-    dpg.add_input_text(
-        label=label,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key,
-        width=280,
-        tag=tag
-    )
-
-def add_float_input_tagged(key, label, tag=None, format="%.3f"):
-    """专门用于数字输入，无加减号，宽度一致"""
-    val = float(cfg.get_config(key, 0.0))
-    dpg.add_input_float(
-        label=label,
-        default_value=val,
-        tag=tag,
-        step=0,              # 隐藏加减号
-        format=format,       # 格式化显示
-        width=280,           # 统一宽度
-        callback=lambda s, a: cfg.set_config(key, a)
-    )
-
-def add_int_input_tagged(key, label, tag=None):
-    """专门用于整数输入，无加减号，宽度一致"""
-    val = int(cfg.get_config(key, 0))
-    dpg.add_input_int(
-        label=label,
-        default_value=val,
-        tag=tag,
-        step=0,              # 隐藏加减号
-        width=280,           # 统一宽度
-        callback=lambda s, a: cfg.set_config(key, a)
-    )
-
-def add_combo_tagged(key, label, items, tag=None):
-    val = str(cfg.get_config(key, items[0]))
-    if val not in items:
-        items.append(val)
-    dpg.add_combo(
-        label=label,
-        items=items,
-        default_value=val,
-        callback=update_config_callback,
-        user_data=key,
-        width=280,
-        tag=tag
-    )
-
-
-def update_search_bounds(key, value):
-    """更新搜索区域配置并实时显示"""
-    # 获取当前配置
-    bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {
-        "x_left": -30,
-        "x_right": 30,
-        "y_up": -150,
-        "y_down": 20
-    })
-
-    # 更新对应的值
-    bounds[key] = value
-
-    # 限制范围（-500 到 500）
-    bounds[key] = max(-500, min(500, bounds[key]))
-
-    # 写回配置
-    cfg.set_config("CROSSHAIR_SEARCH_BOUNDS", bounds)
-
-    # 更新状态提示
-    dpg.configure_item(
-        "status_text",
-        default_value=f"[未保存] 已修改搜索区域: {key}",
-        color=UIColors.WARNING_ORANGE
-    )
-
-    # 更新显示的搜索区域大小
-    if dpg.does_item_exist("crosshair_search_area_display"):
-        width = bounds["x_right"] - bounds["x_left"]
-        height = abs(bounds["y_up"]) + bounds["y_down"]
-        dpg.configure_item(
-            "crosshair_search_area_display",
-            default_value=f"当前搜索区域: {width}×{height} 像素"
-        )
-def _handle_preview_drag(sender, app_data):
-    """处理预览框内的鼠标拖拽/点击事件"""
-    if not dpg.does_item_exist("aim_preview_drawlist"):
-        return
-
-    # 直接获取鼠标相对于 drawlist 左上角的本地坐标
-    # 这能避免 child_window 导致的全局坐标偏移问题
-    local_mouse_pos = dpg.get_mouse_pos(local=True)
-    rel_x = local_mouse_pos[0]
-    rel_y = local_mouse_pos[1]
-
-    # --- 必须与 update_aim_offset_preview 保持严丝合缝的参数 ---
-    canvas_w, canvas_h = 100, 160  # Drawlist 尺寸
-    rect_w, rect_h = 60, 130       # 人体矩形尺寸
-    rect_x_start = (canvas_w - rect_w) // 2
-    rect_y_start = 10              # 矩形顶部的起始 Y 偏移
-    # ---------------------------------------------------------
-
-    # 计算比例并使用 clamp 限制在 0.0 ~ 1.0 之间
-    # 核心公式：(当前本地像素位置 - 矩形起始位置) / 矩形总长度
-    new_x_ratio = max(0.0, min(1.0, (rel_x - rect_x_start) / rect_w))
-    new_y_ratio = max(0.0, min(1.0, (rel_y - rect_y_start) / rect_h))
-
-    # 更新配置
-    cfg.set_config("AIM_X_OFFSET", round(new_x_ratio, 3))
-    cfg.set_config("AIM_Y_RATIO", round(new_y_ratio, 3))
-
-    # 同步更新 UI 输入框 (input_float)
-    if dpg.does_item_exist("input_aim_x"):
-        dpg.set_value("input_aim_x", round(new_x_ratio, 3))
-    if dpg.does_item_exist("input_aim_y"):
-        dpg.set_value("input_aim_y", round(new_y_ratio, 3))
-
-    # 立即重绘红点位置
-    update_aim_offset_preview()
-
-def update_aim_offset_preview():
-    """实时更新 PID 瞄准偏移预览图"""
-    if not dpg.does_item_exist("aim_preview_node"):
-        return
-
-    dpg.delete_item("aim_preview_node", children_only=True)
-
-    canvas_w, canvas_h = 100, 160
-    rect_w, rect_h = 60, 130
-    rect_x = (canvas_w - rect_w) // 2
-    rect_y = 10
-
-    offset_x = cfg.get_config("AIM_X_OFFSET", 0.5)
-    offset_y = cfg.get_config("AIM_Y_RATIO", 0.5)
-
-    # 1. 绘制背景阴影（增加立体感）
-    dpg.draw_rectangle([rect_x + 2, rect_y + 2], [rect_x + rect_w + 2, rect_y + rect_h + 2],
-                       color=(0, 0, 0, 20), fill=(0, 0, 0, 20), rounding=5, parent="aim_preview_node")
-
-    # 2. 绘制“人体”轮廓
-    dpg.draw_rectangle(
-        [rect_x, rect_y], [rect_x + rect_w, rect_y + rect_h],
-        color=(180, 180, 180, 255), fill=(255, 255, 255, 255),
-        thickness=1, rounding=5, parent="aim_preview_node"
-    )
-
-    # 3. 绘制十字参考线（淡淡的）
-    center_y = rect_y + rect_h // 2
-    center_x = rect_x + rect_w // 2
-    dpg.draw_line([rect_x, center_y], [rect_x + rect_w, center_y], color=(230, 230, 230, 255),
-                  parent="aim_preview_node")
-    dpg.draw_line([center_x, rect_y], [center_x, rect_y + rect_h], color=(230, 230, 230, 255),
-                  parent="aim_preview_node")
-
-    # 4. 计算并绘制瞄准点
-    dot_x = rect_x + (rect_w * offset_x)
-    dot_y = rect_y + (rect_h * offset_y)
-
-    # 呼吸感光圈 (红色半透明背景)
-    dpg.draw_circle([dot_x, dot_y], 8, color=(255, 59, 48, 50), fill=(255, 59, 48, 30), parent="aim_preview_node")
-    # 核心实点
-    dpg.draw_circle([dot_x, dot_y], 4, color=(255, 59, 48, 255), fill=(255, 59, 48, 255), parent="aim_preview_node")
-
-    # 5. 坐标数值显示
-    dpg.draw_text([10, 145], f"Target: ({offset_x:.2f}, {offset_y:.2f})", color=UIColors.TEXT_BLACK, size=12,
-                  parent="aim_preview_node")
 # ================= 外部控制函数 =================
-
 def stop_gui():
     print("[GUI] 正在请求 GUI 退出...")
     _gui_exit_event.set()
-
-
 def is_gui_running():
     return _gui_running
-
-
 if __name__ == "__main__":
     create_gui()

@@ -409,7 +409,6 @@ PROFILE_KEYS = [
 
     # ==================== 目标追踪 (Target Tracking) ====================
     "TARGET_GROUP_DISTANCE_THRESHOLD",
-    "TARGET_ID_GRID_SIZE",
     "MIN_TARGET_LOCK_FRAMES",
     "TARGET_SWITCH_DISTANCE_THRESHOLD",
     "TARGET_IDENTITY_DISTANCE",
