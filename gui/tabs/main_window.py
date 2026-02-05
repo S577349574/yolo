@@ -1,4 +1,4 @@
-from render.tab_notice import build_notice_tab
+from tabs.tab_notice import build_notice_tab
 
 
 def build_main_window(blue_notice_theme):

@@ -3,7 +3,7 @@ import threading
 import dearpygui.dearpygui as dpg
 
 import config_manager as cfg
-from render.main_window import build_main_window
+from tabs.main_window import build_main_window
 from theme.apple_theme import (
     setup_apple_theme,
     setup_button_themes,
