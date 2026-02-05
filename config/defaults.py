@@ -370,3 +370,90 @@ def get_default_config() -> Dict[str, Any]:
         "HARDWARE_MONITOR_PRIORITY": True,  # 硬件模式优先使用硬件监视
         "FALLBACK_TO_PYNPUT": True,
     }
+
+
+PROFILE_KEYS = [
+    # ==================== 准星检测 (Crosshair Detection) ====================
+    "ENABLE_CROSSHAIR_DETECTION",
+    "CROSSHAIR_DETECTOR_TYPE",
+    "CROSSHAIR_VALORANT_CONFIG",
+    "CROSSHAIR_TEMPLATE_PATH",
+    "CROSSHAIR_USE_FALLBACK_CENTER",
+    "CROSSHAIR_DEBUG_MODE",
+    "CROSSHAIR_STATS_INTERVAL",
+    "CROSSHAIR_SEARCH_BOUNDS",  # 字典类型
+    "CROSSHAIR_SMOOTH_FACTOR",
+    "CROSSHAIR_MAX_LOST_FRAMES",
+
+    # ==================== 视觉识别 (Detection) ====================
+    "CONF_THRESHOLD",
+    "IOU_THRESHOLD",
+    "TARGET_CLASS_IDS",
+    "ENABLE_HEAD_PRIORITY",
+    "HEAD_CLASS_ID",
+    "HEAD_PRIORITY_RANGE",
+    "IGNORE_SMALL_TARGET_HEAD",
+    "SMALL_TARGET_AREA_THRESHOLD",
+
+    # ==================== PID 控制 (PID Control) ====================
+    "AIM_Y_RATIO",
+    "AIM_X_OFFSET",
+    "PID_KP_X",
+    "PID_KI_X",
+    "PID_KD_X",
+    "PID_KP_Y",
+    "PID_KI_Y",
+    "PID_KD_Y",
+    "MAX_SINGLE_MOVE_PX",
+    "PRECISION_DEAD_ZONE",
+    "DEFAULT_DELAY_MS_PER_STEP",
+
+    # ==================== 目标追踪 (Target Tracking) ====================
+    "TARGET_GROUP_DISTANCE_THRESHOLD",
+    "TARGET_ID_GRID_SIZE",
+    "MIN_TARGET_LOCK_FRAMES",
+    "TARGET_SWITCH_DISTANCE_THRESHOLD",
+    "TARGET_IDENTITY_DISTANCE",
+    "MAX_LOST_FRAMES",
+
+    # 卡尔曼滤波
+    "USE_KALMAN_FILTER",
+    "KALMAN_PROCESS_NOISE",
+    "KALMAN_MEASUREMENT_NOISE",
+    "KALMAN_MAX_PREDICT_FRAMES",
+
+    # EMA平滑
+    "AIM_POINT_SMOOTH_ALPHA",
+
+    # 移动预判
+    "ENABLE_LEAD_TARGET",
+    "LEAD_FRAMES",
+
+    # ==================== 压枪系统 (Recoil Control) ====================
+    "ENABLE_MANUAL_RECOIL",
+    "ENABLE_RECOIL_CONTROL",
+    "MANUAL_RECOIL_TRIGGER_MODE",
+    "RECOIL_REQUIRE_TARGET",
+    "RECOIL_REQUIRE_LOCK",
+    "RECOIL_TARGET_TIMEOUT",
+    "RECOIL_MIN_LOCK_FRAMES",
+    "RECOIL_PATTERN",
+    "RECOIL_VERTICAL_SPEED",
+    "RECOIL_HORIZONTAL_SPEED",
+    "RECOIL_INCREMENT_Y",
+    "RECOIL_HORIZONTAL_VARIANCE",
+    "RECOIL_MAX_SINGLE_MOVE",
+    "RECOIL_MAX_SINGLE_MOVE_X",
+    "RECOIL_MAX_SINGLE_MOVE_Y",
+
+    # ==================== 自动开火 (Auto Fire) ====================
+    "ENABLE_AUTO_FIRE",
+    "AUTO_FIRE_DEBUG_MODE",
+    "AUTO_FIRE_ACCURACY_THRESHOLD",
+    "AUTO_FIRE_DISTANCE_THRESHOLD",
+    "AUTO_FIRE_MIN_LOCK_FRAMES",
+]
+
+# 参数组默认配置
+DEFAULT_PROFILE_NAME = "default"
+PROFILES_FILE_NAME = "profiles.json"

@@ -2,6 +2,7 @@
 
 from .manager import ConfigManager
 from .callbacks import get_callback_manager
+from .profile_manager import ProfileManager, Profile  # ✅ 新增
 from .events import (
     get_events,
     signal_resume, signal_reload, signal_stop,
@@ -10,12 +11,18 @@ from .events import (
     is_resume_set, is_reload_set, is_stop_set,
     clear_all_events, get_events_status
 )
-from .defaults import get_default_config, CONFIG_GROUPS
+from .defaults import (
+    get_default_config,
+    CONFIG_GROUPS,
+    PROFILE_KEYS,           # ✅ 新增
+    DEFAULT_PROFILE_NAME    # ✅ 新增
+)
 
 # ========== 全局单例实例 ==========
 
 _config_manager = ConfigManager()
 _callback_manager = get_callback_manager()
+_profile_manager = ProfileManager(_config_manager)  # ✅ 新增
 
 
 # ========== 核心配置 API ==========
@@ -145,6 +152,155 @@ def off_any_config_change(callback):
     return _callback_manager.unregister_global(callback)
 
 
+# ========== 参数组管理 API ========== ✅ 新增
+
+def create_profile(name: str, base_profile: str = None) -> Profile:
+    """
+    创建新参数组
+
+    Args:
+        name: 参数组名称
+        base_profile: 基于哪个参数组创建
+
+    Returns:
+        创建的参数组实例
+    """
+    return _profile_manager.create_profile(name, base_profile)
+
+
+def delete_profile(name: str) -> bool:
+    """
+    删除参数组
+
+    Args:
+        name: 参数组名称
+
+    Returns:
+        是否删除成功
+    """
+    return _profile_manager.delete_profile(name)
+
+
+def get_profile(name: str) -> Profile:
+    """
+    获取参数组实例
+
+    Args:
+        name: 参数组名称
+
+    Returns:
+        参数组实例
+    """
+    return _profile_manager.get_profile(name)
+
+
+def list_profiles() -> list:
+    """
+    列出所有参数组名称
+
+    Returns:
+        参数组名称列表
+    """
+    return _profile_manager.list_profiles()
+
+
+def rename_profile(old_name: str, new_name: str) -> bool:
+    """
+    重命名参数组
+
+    Args:
+        old_name: 旧名称
+        new_name: 新名称
+
+    Returns:
+        是否重命名成功
+    """
+    return _profile_manager.rename_profile(old_name, new_name)
+
+
+def set_active_profile(name: str) -> bool:
+    """
+    切换激活的参数组
+
+    Args:
+        name: 参数组名称
+
+    Returns:
+        是否切换成功
+    """
+    return _profile_manager.set_active(name)
+
+
+def get_active_profile() -> str:
+    """
+    获取当前激活的参数组名称
+
+    Returns:
+        参数组名称
+    """
+    return _profile_manager.get_active()
+
+
+def sync_profile_from_global(profile_name: str = None):
+    """
+    从全局配置同步到参数组
+
+    Args:
+        profile_name: 参数组名称，None 则同步到当前激活的参数组
+    """
+    _profile_manager.sync_from_global(profile_name)
+
+
+def sync_profile_to_global(profile_name: str):
+    """
+    将参数组应用到全局配置
+
+    Args:
+        profile_name: 参数组名称
+    """
+    _profile_manager.sync_to_global(profile_name)
+
+
+def save_profiles() -> bool:
+    """
+    保存所有参数组到文件
+
+    Returns:
+        是否保存成功
+    """
+    return _profile_manager.save_profiles()
+
+
+def export_profile(profile_name: str, file_path: str) -> bool:
+    """
+    导出参数组到文件
+
+    Args:
+        profile_name: 参数组名称
+        file_path: 导出文件路径
+
+    Returns:
+        是否导出成功
+    """
+    from pathlib import Path
+    return _profile_manager.export_profile(profile_name, Path(file_path))
+
+
+def import_profile(name: str, file_path: str) -> bool:
+    """
+    从文件导入参数组
+
+    Args:
+        name: 参数组名称
+        file_path: 导入文件路径
+
+    Returns:
+        是否导入成功
+    """
+    from pathlib import Path
+    return _profile_manager.import_profile(name, Path(file_path))
+
+
 # ========== 实用工具 API ==========
 
 def get_app_dir():
@@ -199,6 +355,20 @@ __all__ = [
     "on_any_config_change",
     "off_any_config_change",
 
+    # ✅ 参数组管理
+    "create_profile",
+    "delete_profile",
+    "get_profile",
+    "list_profiles",
+    "rename_profile",
+    "set_active_profile",
+    "get_active_profile",
+    "sync_profile_from_global",
+    "sync_profile_to_global",
+    "save_profiles",
+    "export_profile",
+    "import_profile",
+
     # 控制事件
     "get_events",
     "signal_resume",
@@ -224,6 +394,11 @@ __all__ = [
 
     # 常量
     "CONFIG_GROUPS",
+    "PROFILE_KEYS",          # ✅ 新增
+    "DEFAULT_PROFILE_NAME",  # ✅ 新增
+
+    # 类型
+    "Profile",               # ✅ 新增
 ]
 
 # ========== 版本信息 ==========
