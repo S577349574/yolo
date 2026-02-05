@@ -29,7 +29,7 @@ class SimpleRedDotDetector(CrosshairDetector):
         # 中心亮度验证
         self.min_center_brightness = 100
 
-        utils.log(f"🔴 {self.get_name()} 初始化完成")
+        utils.log(f"{self.get_name()} 初始化完成")
 
     def get_name(self) -> str:
         return "简化红点检测器 v5.5"

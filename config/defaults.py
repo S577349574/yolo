@@ -60,7 +60,7 @@ CONFIG_GROUPS = {
 
     "目标选择": [
         "MIN_TARGET_LOCK_FRAMES", "TARGET_SWITCH_DISTANCE_THRESHOLD",
-        "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES", "TARGET_ID_GRID_SIZE"
+        "TARGET_IDENTITY_DISTANCE", "MAX_LOST_FRAMES"
     ],
 
     "头部优先": [
@@ -240,7 +240,6 @@ def get_default_config() -> Dict[str, Any]:
         "TARGET_SWITCH_DISTANCE_THRESHOLD": 10,
         "TARGET_IDENTITY_DISTANCE": 10,
         "MAX_LOST_FRAMES": 30,
-        "TARGET_ID_GRID_SIZE": 20,
 
         # ========== 头部优先 ==========
         "ENABLE_HEAD_PRIORITY": True,

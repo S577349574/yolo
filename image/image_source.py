@@ -66,20 +66,20 @@ class LocalScreenSource(ImageSource):
         if self._running:
             return
 
-        utils.log("\n📸 启动本地屏幕捕获...")
+        utils.log("\n启动本地屏幕捕获...")
         from image.shared_capture import start_capture_process
 
         self.frame_buffer, self.capture_process, self.stop_event = \
             start_capture_process(crop_size=self.crop_size)
 
         self._running = True
-        utils.log(f"✅ 本地捕获已就绪 | 尺寸: {self.crop_size}x{self.crop_size}")
+        utils.log(f"本地捕获已就绪 | 尺寸: {self.crop_size}x{self.crop_size}")
 
     def stop(self):
         if not self._running:
             return
 
-        utils.log("🛑 停止本地屏幕捕获...")
+        utils.log("停止本地屏幕捕获...")
 
         if self.stop_event:
             self.stop_event.set()
@@ -94,7 +94,7 @@ class LocalScreenSource(ImageSource):
             self.frame_buffer.cleanup()
 
         self._running = False
-        utils.log("✅ 本地捕获已停止")
+        utils.log("本地捕获已停止")
 
     def get_frame(self, timeout: float = 0.016) -> Optional[np.ndarray]:
         if not self._running or not self.frame_buffer:
@@ -143,19 +143,19 @@ class NetworkSource(ImageSource):
         if self._running:
             return
 
-        utils.log("\n🌐 启动UDP网络画面接收...")
+        utils.log("\n启动UDP网络画面接收...")
         self.receiver.start()
         self._running = True
-        utils.log(f"✅ 网络接收已启动 | 端口: {self.receiver.port}")
+        utils.log(f"网络接收已启动 | 端口: {self.receiver.port}")
 
     def stop(self):
         if not self._running:
             return
 
-        utils.log("🛑 停止网络画面接收...")
+        utils.log("停止网络画面接收...")
         self.receiver.stop()
         self._running = False
-        utils.log("✅ 网络接收已停止")
+        utils.log("网络接收已停止")
 
     def get_frame(self, timeout: float = 0.016) -> Optional[np.ndarray]:
         if not self._running:
@@ -209,7 +209,7 @@ def create_image_source(target_size: Optional[int] = None) -> ImageSource:
     if source_type == 'local':
         # ✅ 优先使用传入的 target_size，否则使用配置文件
         crop_size = target_size
-        utils.log(f"🖼️ 图像源: 本地屏幕捕获 ({crop_size}x{crop_size})")
+        utils.log(f"图像源: 本地屏幕捕获 ({crop_size}x{crop_size})")
         return LocalScreenSource(crop_size=crop_size)
 
     elif source_type == 'network':
@@ -223,7 +223,7 @@ def create_image_source(target_size: Optional[int] = None) -> ImageSource:
             frame_width = get_config('FRAME_WIDTH', 320)
             frame_height = get_config('FRAME_HEIGHT', 320)
 
-        utils.log(f"🖼️ 图像源: UDP网络接收 (simplejpeg)")
+        utils.log(f"   图像源: UDP网络接收 (simplejpeg)")
         utils.log(f"   监听端口: {frame_port}")
         utils.log(f"   帧尺寸: {frame_width}x{frame_height}x3 (RGB)")
 

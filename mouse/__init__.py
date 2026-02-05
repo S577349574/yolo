@@ -48,10 +48,10 @@ def create_mouse_controller(
                     shared_device=shared_mtkmbox_device,  # ⭐ 传递共享设备
                     debug=kwargs.get('debug', False)  # ⭐ 传递 debug 参数
                 )
-                utils.log("[MouseFactory] ✅ MTKMBOX 模式启动成功")
+                utils.log("[MouseFactory] MTKMBOX 模式启动成功")
                 return controller
             else:
-                utils.log("[MouseFactory] ⚠️ 共享的 MTKmbox 设备无效或未连接")
+                utils.log("[MouseFactory] 共享的 MTKmbox 设备无效或未连接")
                 raise RuntimeError("MTKmbox 设备不可用")
 
         except Exception as e:
@@ -77,10 +77,10 @@ def create_mouse_controller(
                 controller = MakcuMouseController(
                     shared_controller=shared_makcu_controller,  # ⭐ 传递共享控制器
                 )
-                utils.log("[MouseFactory] ✅ Makcu 模式启动成功")
+                utils.log("[MouseFactory] Makcu 模式启动成功")
                 return controller
             else:
-                utils.log("[MouseFactory] ⚠️ 共享的 Makcu 控制器无效或未连接")
+                utils.log("[MouseFactory] 共享的 Makcu 控制器无效或未连接")
                 raise RuntimeError("Makcu 控制器不可用")
 
         except Exception as e:
@@ -100,10 +100,10 @@ def create_mouse_controller(
         try:
             utils.log("[MouseFactory] 尝试初始化驱动模式控制器...")
             controller = DriverMouseController(**kwargs)
-            utils.log("[MouseFactory] ✅ 驱动模式控制器创建成功")
+            utils.log("[MouseFactory] 驱动模式控制器创建成功")
             return controller
         except Exception as e:
-            utils.log(f"[MouseFactory] ⚠ 驱动模式创建失败: {e}")
+            utils.log(f"[MouseFactory] 驱动模式创建失败: {e}")
 
             # 检查是否允许降级
             auto_fallback = get_config("MOUSE_MODE_AUTO_FALLBACK", True)

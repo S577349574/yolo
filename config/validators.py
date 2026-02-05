@@ -33,7 +33,6 @@ VALIDATION_RULES: Dict[str, tuple] = {
     "TARGET_SWITCH_DISTANCE_THRESHOLD": (10, 500, int, 50),
     "TARGET_IDENTITY_DISTANCE": (10, 500, int, 100),
     "MAX_LOST_FRAMES": (1, 300, int, 30),
-    "TARGET_ID_GRID_SIZE": (5, 100, int, 20),
 
     # 头部优先
     "HEAD_CLASS_ID": (0, 100, int, 1),

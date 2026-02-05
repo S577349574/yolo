@@ -233,7 +233,6 @@ class LicenseAuthenticator:
             machine_info = f"{hardware_info['disk_id']}|{hardware_info['motherboard_serial']}|{hardware_info['cpu_id']}"
 
             if not any(hardware_info.values()):
-                print("[LicenseAuth] 警告: 无法获取硬件信息，使用UUID作为机器码")
                 machine_code = str(uuid.uuid4())
             else:
                 machine_code = hashlib.sha256(machine_info.encode()).hexdigest()
@@ -241,7 +240,6 @@ class LicenseAuthenticator:
             return machine_code
 
         except Exception as e:
-            print(f"[LicenseAuth] 生成机器码失败: {e}，使用UUID替代")
             return str(uuid.uuid4())
 
     def _generate_signature(self, data: str, timestamp: int) -> str:

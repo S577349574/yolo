@@ -1140,7 +1140,6 @@ def create_gui():
             with dpg.tab(label="目标追踪"):
                 dpg.add_text("目标分组设置", color=UIColors.APPLE_BLUE)
                 add_int("TARGET_GROUP_DISTANCE_THRESHOLD", "身体头部分组距离阈值", 10, 500)
-                add_int("TARGET_ID_GRID_SIZE", "目标ID网格大小 (像素)", 5, 100)
 
                 dpg.add_text("说明：身体和头部距离小于此值时认为是同一个目标",
                              color=UIColors.TEXT_GRAY)

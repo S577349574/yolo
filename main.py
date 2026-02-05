@@ -15,7 +15,7 @@ from key_monitor.factory import get_monitored_keys
 makcu_patch.apply()
 
 import utils
-from mouse.auto_fire_controller import AutoFireController
+from controllers import AutoFireController
 import config_manager
 from config_manager import get_config, load_config
 import config_manager as cfg
@@ -147,7 +147,7 @@ class CachedConfig:
         else:
             # 兜底：从配置文件读取（仅在模型未加载时）
             self.crop_size = get_config('CROP_SIZE', 640)
-            utils.log(f"⚠️ [CachedConfig] 模型未加载，使用配置文件 crop_size: {self.crop_size}")
+            utils.log(f"[CachedConfig] 模型未加载，使用配置文件 crop_size: {self.crop_size}")
 
 
 
@@ -320,7 +320,7 @@ class CoreService:
             if use_makcu:
                 try:
                     from makcu import create_controller
-                    utils.log("🔌 初始化 Makcu 硬件...")
+                    utils.log("初始化 Makcu 硬件...")
                     self.shared_makcu_controller = create_controller(
                         fallback_com_port=get_config("MAKCU_PORT", ""),
                         debug=get_config("MAKCU_DEBUG_MODE", False),
@@ -343,7 +343,7 @@ class CoreService:
             if use_mtkmbox:
                 try:
                     from mtkmbox import MTKMBOX
-                    utils.log("🔌 初始化 MTKmbox 硬件...")
+                    utils.log("初始化 MTKmbox 硬件...")
 
                     port = get_config("MTKMBOX_PORT", "COM6")
                     vid = get_config("MTKMBOX_VID", 0x0416)
@@ -372,7 +372,7 @@ class CoreService:
 
             # ========== 3. 硬件互斥性检查 ⭐ 新增 ==========
             if use_makcu and use_mtkmbox:
-                utils.log("⚠检测到同时启用 Makcu 和 MTKmbox，应用优先级规则...")
+                utils.log("检测到同时启用 Makcu 和 MTKmbox，应用优先级规则...")
                 utils.log("  优先级: MTKmbox > Makcu")
                 utils.log("  保留 MTKmbox，禁用 Makcu")
                 use_makcu = False
@@ -406,14 +406,12 @@ class CoreService:
             if not self.key_monitor or not self.key_monitor.start():
                 raise RuntimeError("按键监控器启动失败")
 
-            print(f"[Debug] key_monitor 类型: {type(self.key_monitor).__name__}")
-            print(f"[Debug] key_monitor.running: {getattr(self.key_monitor, '_running', 'N/A')}")
 
             # 4. 驱动加载
             use_driver_mode = get_config("USE_DRIVER_MODE", True)
             if use_driver_mode:
                 if not ensure_driver_loaded():
-                    utils.log("⚠ 驱动加载失败，切换到 WinAPI 模式")
+                    utils.log("驱动加载失败，切换到 WinAPI 模式")
                     use_driver_mode = False
                 else:
                     utils.log("驱动已就绪")
@@ -429,7 +427,6 @@ class CoreService:
 
             self.cached_config.set_model_reference(self.model)
             model_input_size = self.cached_config.crop_size  # 或 self.model.input_size
-            print(f"[Core] 使用模型输入尺寸: {model_input_size}x{model_input_size}")
 
             # 6. 准星检测
             if get_config('ENABLE_CROSSHAIR_DETECTION', False):
@@ -474,12 +471,11 @@ class CoreService:
             # 9. 自动开火/压枪
             self.auto_fire = AutoFireController(self.mouse_controller, self.key_monitor)
 
-            print(self.cached_config.enable_manual_recoil)
             if self.cached_config.enable_manual_recoil:
                 self.auto_fire.start_manual_recoil_monitor()
             elif self.cached_config.enable_auto_fire:
                 if not get_monitored_keys():
-                    utils.log("⚠ 自动开火已禁用：未配置触发键")
+                    utils.log("自动开火已禁用：未配置触发键")
                     self.cached_config.enable_auto_fire = False
 
             # 10. 图像源

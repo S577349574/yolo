@@ -73,7 +73,7 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
             if self._is_shared:
                 utils.log("[MTKmboxKeyMonitor] 使用共享的 MTKmbox 设备")
                 if not self.device or not self.device.is_connected():
-                    utils.log("[MTKmboxKeyMonitor] ❌ 共享设备无效或未连接")
+                    utils.log("[MTKmboxKeyMonitor] 共享设备无效或未连接")
                     return False
             else:
                 utils.log("[MTKmboxKeyMonitor] 创建独立的 MTKmbox 设备")
@@ -88,7 +88,7 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
                 time.sleep(0.3)
 
                 if not self.device.is_connected():
-                    utils.log("[MTKmboxKeyMonitor] ❌ 设备连接失败")
+                    utils.log("[MTKmboxKeyMonitor] 设备连接失败")
                     return False
 
             # 尝试使用硬件监视
@@ -99,14 +99,14 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
                     # 测试固件按键监视功能
                     test_state = self.device.get_button_state('left')
                     if test_state != -1:
-                        utils.log("[MTKmboxKeyMonitor] ✅ 使用固件按键监视（后台轮询模式）")
+                        utils.log("[MTKmboxKeyMonitor] 使用固件按键监视（后台轮询模式）")
                         self._use_pynput = False
 
                         # ⭐ 启动后台轮询
                         self._start_hardware_polling()
                         return True
                     else:
-                        utils.log("[MTKmboxKeyMonitor] ⚠️ 固件不支持按键监视")
+                        utils.log("[MTKmboxKeyMonitor] 固件不支持按键监视")
 
                 except Exception as e:
                     utils.log(f"[MTKmboxKeyMonitor] 固件监视初始化失败: {e}")
@@ -120,14 +120,14 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
                 self.pynput_listener = Listener(on_click=self._on_pynput_click)
                 self.pynput_listener.start()
 
-                utils.log("[MTKmboxKeyMonitor] ✅ pynput 监听已启动")
+                utils.log("[MTKmboxKeyMonitor] pynput 监听已启动")
                 return True
             else:
-                utils.log("[MTKmboxKeyMonitor] ❌ 配置禁止使用 pynput 回退")
+                utils.log("[MTKmboxKeyMonitor] 配置禁止使用 pynput 回退")
                 return False
 
         except Exception as e:
-            utils.log(f"[MTKmboxKeyMonitor] ❌ 初始化失败: {e}")
+            utils.log(f"[MTKmboxKeyMonitor] 初始化失败: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -235,7 +235,7 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
             self._polling_stop.set()
             self._polling_thread.join(timeout=2.0)
             if self._polling_thread.is_alive():
-                utils.log("[MTKmboxKeyMonitor] ⚠️ 轮询线程未在超时内退出")
+                utils.log("[MTKmboxKeyMonitor] 轮询线程未在超时内退出")
 
         # 清理 pynput
         if self.pynput_listener:
