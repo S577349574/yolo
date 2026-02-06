@@ -13,6 +13,7 @@ import utils
 from config_manager import get_config
 from ..base import BaseDetector
 from ..exceptions import ModelLoadError
+from .pv_crypto import decrypt_pv_file, PVDecryptError
 
 
 class ONNXDetector(BaseDetector):
@@ -39,8 +40,8 @@ class ONNXDetector(BaseDetector):
             raise ModelLoadError(f"模型文件不存在: {model_path}")
 
         _, ext = os.path.splitext(model_path)
-        if ext.lower() != '.onnx':
-            utils.log(f"模型扩展名异常: {ext} (预期.onnx)")
+        if ext.lower() not in ('.onnx', '.pv'):
+            raise ModelLoadError(f"不支持的模型格式: {ext} (仅支持 .onnx / .pv)")
 
         # 配置Session
         sess_options = ort.SessionOptions()
@@ -54,7 +55,30 @@ class ONNXDetector(BaseDetector):
         providers = self._get_providers(preferred_backend)
 
         try:
-            self.session = ort.InferenceSession(model_path, sess_options, providers=providers)
+            if model_path.lower().endswith(".pv"):
+                utils.log("[ONNX] 检测到 PV 加密模型，正在解密到内存")
+
+                card_key = get_config("LICENSE_KEY", None)
+                if not card_key:
+                    raise ModelLoadError("未配置 LICENSE_KEY，无法解密 PV 模型")
+
+                model_bytes = decrypt_pv_file(model_path, card_key)
+
+                self.session = ort.InferenceSession(
+                    model_bytes,
+                    sess_options,
+                    providers=providers
+                )
+            else:
+                # 普通 onnx
+                self.session = ort.InferenceSession(
+                    model_path,
+                    sess_options,
+                    providers=providers
+                )
+
+        except PVDecryptError as e:
+            raise ModelLoadError(f"PV 模型解密失败: {e}")
         except Exception as e:
             raise ModelLoadError(f"ONNX Runtime 加载失败: {e}")
 
