@@ -430,7 +430,7 @@ def create_gui():
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
-            # dpg.add_text("--祁柠", color=UIColors.APPLE_BLUE)
+            dpg.add_text("--你看你又皱眉", color=UIColors.APPLE_BLUE)
             dpg.add_button(
                 tag="ai_toggle_btn",
                 label="初始化中...",
