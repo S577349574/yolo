@@ -430,7 +430,7 @@ def create_gui():
 
         # === 顶部状态栏 ===
         with dpg.group(horizontal=True):
-            dpg.add_text("--你看你又皱眉", color=UIColors.APPLE_BLUE)
+            # dpg.add_text("--", color=UIColors.APPLE_BLUE)
             dpg.add_button(
                 tag="ai_toggle_btn",
                 label="初始化中...",
@@ -472,7 +472,7 @@ def create_gui():
                 add_combo(
                     "MODEL_TYPE",
                     "YOLO 模型类型",
-                    ["v5", "v8", "v10", "v11"]
+                    ["v5", "v8", "v10", "v11", "v26"]
                 )
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text("根据不同模型训练方式选择不同的类型，一般模型名字上都会标注出是v5或者v8\n"
@@ -1011,20 +1011,33 @@ def create_gui():
                 dpg.add_text("目标 ID 选择", color=UIColors.APPLE_BLUE)
 
                 current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
-                for i in range(10):
-                    if i % 5 == 0:
-                        group_tag = dpg.add_group(horizontal=True)
-                    is_active = i in current_ids
-                    dpg.add_checkbox(
-                        label=f"ID {i}",
-                        default_value=is_active,
-                        callback=update_class_ids_callback,
-                        user_data=i,
-                        parent=group_tag
-                    )
-                    dpg.add_spacer(width=20, parent=group_tag)
+
+                # ⭐ 使用表格布局，8列
+                with dpg.table(header_row=False, borders_innerH=False, borders_outerH=False,
+                               borders_innerV=False, borders_outerV=False):
+
+                    # 添加8列
+                    for _ in range(8):
+                        dpg.add_table_column()
+
+                    # 添加2行（15个ID需要2行）
+                    for row in range(2):
+                        with dpg.table_row():
+                            for col in range(8):
+                                i = row * 8 + col
+                                if i < 15:
+                                    is_active = i in current_ids
+                                    dpg.add_checkbox(
+                                        label=f"ID {i}",
+                                        default_value=is_active,
+                                        callback=update_class_ids_callback,
+                                        user_data=i
+                                    )
+                                else:
+                                    dpg.add_text("")  # 空占位
 
                 dpg.add_separator()
+
                 dpg.add_text("头部优先策略", color=UIColors.SECTION_HEADER)
 
                 head_priority_deps = [
@@ -1347,7 +1360,7 @@ def create_gui():
 
 
 
-    dpg.create_viewport(title="Prism Vision-v1.3", width=900, height=800)
+    dpg.create_viewport(title="Prism Vision-v1.3.2", width=900, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     update_aim_offset_preview()

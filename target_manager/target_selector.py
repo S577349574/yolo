@@ -1,4 +1,4 @@
-# target_selector.py (完整修复版 - 支持真实准星位置)
+# target_selector.py (支持多类别版本 + 类别过滤)
 
 import math
 from typing import List, Dict, Optional, Tuple
@@ -113,7 +113,7 @@ class TargetKalmanFilter:
 
 
 class TargetSelector:
-    """目标选择器：改进分组与持久化"""
+    """目标选择器：支持多类别"""
 
     def __init__(self):
         # 基础跟踪状态
@@ -122,10 +122,11 @@ class TargetSelector:
         self.frames_without_target: int = 0
         self.is_locked: bool = False
 
-        self.target_lock_frames: int = 0  # 当前目标已锁定的帧数
-        self.locked_target_group_id: Optional[str] = None  # 兼容旧接口
-        # ⭐ 新增：目标持久化追踪
-        self.tracked_targets: Dict[int, Dict] = {}  # {target_id: {x, y, last_seen_frame, ...}}
+        self.target_lock_frames: int = 0
+        self.locked_target_group_id: Optional[str] = None
+
+        # 目标持久化追踪
+        self.tracked_targets: Dict[int, Dict] = {}
         self.current_frame: int = 0
         self.next_target_id: int = 0
         self.locked_target_id: Optional[int] = None
@@ -146,7 +147,7 @@ class TargetSelector:
             box: Tuple[float, float, float, float],
             capture_area: Dict[str, int]
     ) -> Tuple[int, int]:
-        """计算瞄准点 (保持不变)"""
+        """计算瞄准点"""
         x1, y1, x2, y2 = map(int, box)
         box_width = x2 - x1
         box_height = y2 - y1
@@ -166,18 +167,26 @@ class TargetSelector:
             self,
             detections: List[Dict],
             reference_x: float,
-            reference_y: float
+            reference_y: float,
+            allowed_class_ids: List[int]  # ⭐ 新增参数
     ) -> List[Dict]:
         """
-        ⭐ 改进版分组：返回目标列表而非字典
+        ⭐ 多类别支持版分组：自动识别所有类别并智能分组
+
+        分组策略：
+        1. class_id=0 视为身体（主体）
+        2. class_id=1 视为头部（优先部位）
+        3. 其他类别视为独立目标或附属部位
+        4. ⭐ 只处理 allowed_class_ids 中的类别
 
         返回格式：
         [
             {
                 'x': 中心X,
                 'y': 中心Y,
-                'body': body_detection or None,
-                'head': head_detection or None,
+                'parts': {class_id: detection, ...},  # 所有部位
+                'primary_part': detection,  # 主要部位
+                'priority_part': detection or None,  # 优先部位（如头部）
                 'distance': 到准星距离,
                 'area': 总面积
             },
@@ -185,6 +194,12 @@ class TargetSelector:
         ]
         """
         group_distance_threshold = get_config('TARGET_GROUP_DISTANCE_THRESHOLD', 100)
+
+        # ⭐ 第一步：过滤只保留允许的类别
+        detections = [d for d in detections if d.get('class_id', -1) in allowed_class_ids]
+
+        if not detections:
+            return []
 
         # 预处理：计算距离和面积
         for det in detections:
@@ -196,26 +211,40 @@ class TargetSelector:
             x1, y1, x2, y2 = box
             det['box_area'] = (x2 - x1) * (y2 - y1)
 
-        bodies = [d for d in detections if d.get('class_id') == 0]
-        heads = [d for d in detections if d.get('class_id') == 1]
+        # ⭐ 按类别分类（只包含允许的类别）
+        detections_by_class = {}
+        for det in detections:
+            class_id = det.get('class_id', -1)
+            if class_id not in detections_by_class:
+                detections_by_class[class_id] = []
+            detections_by_class[class_id].append(det)
+
+        # 获取身体（class_id=0）作为主体
+        bodies = detections_by_class.get(0, [])
+        heads = detections_by_class.get(1, [])
+
+        # 其他类别（排除0和1）
+        other_classes = {k: v for k, v in detections_by_class.items() if k not in [0, 1]}
 
         target_groups = []
 
-        # ⭐ 改进1：先按身体建组
+        # ⭐ 策略1：以身体为中心建组
         for body in bodies:
-            target_groups.append({
-                'body': body,
-                'head': None,
+            group = {
+                'parts': {0: body},
+                'primary_part': body,
+                'priority_part': None,
                 'x': body['x'],
                 'y': body['y'],
                 'distance': body['distance_to_center'],
                 'area': body['box_area']
-            })
+            }
+            target_groups.append(group)
 
-        # ⭐ 改进2：头部匹配优化
+        # ⭐ 策略2：匹配头部到身体组
         used_heads = set()
         for group in target_groups:
-            body = group['body']
+            body = group['primary_part']
             best_head = None
             min_distance = float('inf')
 
@@ -223,13 +252,12 @@ class TargetSelector:
                 if i in used_heads:
                     continue
 
-                # 距离检查
                 distance = math.hypot(head['x'] - body['x'], head['y'] - body['y'])
                 if distance > group_distance_threshold:
                     continue
 
-                # ⭐ 新增：头部应该在身体上方（Y坐标更小）
-                if head['y'] > body['y'] + 20:  # 允许20px误差
+                # 头部应该在身体上方
+                if head['y'] > body['y'] + 20:
                     continue
 
                 if distance < min_distance:
@@ -237,20 +265,62 @@ class TargetSelector:
                     best_head = head
 
             if best_head:
-                group['head'] = best_head
+                group['parts'][1] = best_head
+                group['priority_part'] = best_head
                 used_heads.add(heads.index(best_head))
-                # 更新组中心为头部位置（如果有头）
+                # 更新组中心为头部位置
                 group['x'] = best_head['x']
                 group['y'] = best_head['y']
                 group['distance'] = best_head['distance_to_center']
                 group['area'] += best_head['box_area']
 
-        # ⭐ 改进3：处理孤立的头部
+        # ⭐ 策略3：匹配其他类别到现有组
+        for class_id, detections_list in other_classes.items():
+            used_indices = set()
+
+            for group in target_groups:
+                primary = group['primary_part']
+                best_match = None
+                min_distance = float('inf')
+
+                for i, det in enumerate(detections_list):
+                    if i in used_indices:
+                        continue
+
+                    distance = math.hypot(det['x'] - primary['x'], det['y'] - primary['y'])
+                    if distance > group_distance_threshold:
+                        continue
+
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_match = (i, det)
+
+                if best_match:
+                    idx, det = best_match
+                    used_indices.add(idx)
+                    group['parts'][class_id] = det
+                    group['area'] += det['box_area']
+
+            # 未匹配的其他类别作为独立目标
+            for i, det in enumerate(detections_list):
+                if i not in used_indices:
+                    target_groups.append({
+                        'parts': {class_id: det},
+                        'primary_part': det,
+                        'priority_part': None,
+                        'x': det['x'],
+                        'y': det['y'],
+                        'distance': det['distance_to_center'],
+                        'area': det['box_area']
+                    })
+
+        # ⭐ 策略4：处理孤立的头部
         for i, head in enumerate(heads):
             if i not in used_heads:
                 target_groups.append({
-                    'body': None,
-                    'head': head,
+                    'parts': {1: head},
+                    'primary_part': head,
+                    'priority_part': head,
                     'x': head['x'],
                     'y': head['y'],
                     'distance': head['distance_to_center'],
@@ -263,11 +333,7 @@ class TargetSelector:
             self,
             current_groups: List[Dict]
     ) -> Dict[int, Dict]:
-        """
-        ⭐ 新增：将当前帧的目标组匹配到历史追踪目标
-
-        返回: {target_id: group_data}
-        """
+        """将当前帧的目标组匹配到历史追踪目标"""
         identity_threshold = get_config('TARGET_IDENTITY_DISTANCE', 80)
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
 
@@ -302,7 +368,6 @@ class TargetSelector:
                 idx, group = best_match
                 used_groups.add(idx)
                 matched_targets[tid] = group
-                # 更新追踪信息
                 self.tracked_targets[tid].update({
                     'x': group['x'],
                     'y': group['y'],
@@ -332,16 +397,15 @@ class TargetSelector:
             reference_y: Optional[float] = None
     ) -> Tuple[Optional[int], Optional[int]]:
         """
-        ⭐ 改进版目标选择：基于持久化ID的稳定追踪
+        ⭐ 多类别支持版目标选择（带类别过滤）
         """
         self.current_frame += 1
 
-        # 参数准备
         max_lost_frames = get_config('MAX_LOST_FRAMES', 30)
-        target_class_ids = get_config('TARGET_CLASS_IDS', [0, 1])
         switch_distance_threshold = get_config('TARGET_SWITCH_DISTANCE_THRESHOLD', 50)
 
-        candidate_targets = [t for t in candidate_targets if t.get('class_id') in target_class_ids]
+        # ⭐ 获取允许的类别列表
+        allowed_class_ids = get_config('TARGET_CLASS_IDS', [0, 1])
 
         if reference_x is None or reference_y is None:
             reference_x = screen_width // 2
@@ -362,11 +426,28 @@ class TargetSelector:
                     return px, py
             return None, None
 
-        # ⭐ 核心改进：分组 + 匹配
+        # ⭐ 核心：多类别分组（传入允许的类别）
         current_groups = self._group_detections_by_target(
-            candidate_targets, reference_x, reference_y
+            candidate_targets, reference_x, reference_y, allowed_class_ids
         )
+
+        if not current_groups:
+            if get_config('DEBUG_MODE', False):
+                utils.log_debug("[目标选择] 分组后无有效目标")
+            self.frames_without_target += 1
+            if self.frames_without_target >= max_lost_frames:
+                self._reset_tracking()
+            return None, None
+
         matched_targets = self._match_to_tracked_targets(current_groups)
+
+        if not matched_targets:
+            if get_config('DEBUG_MODE', False):
+                utils.log_debug("[目标选择] 匹配后无有效目标")
+            self.frames_without_target += 1
+            if self.frames_without_target >= max_lost_frames:
+                self._reset_tracking()
+            return None, None
 
         # 目标选择逻辑
         best_target_id = None
@@ -375,14 +456,11 @@ class TargetSelector:
         # 优先保持锁定目标
         if self.locked_target_id is not None and self.locked_target_id in matched_targets:
             locked_group = matched_targets[self.locked_target_id]
-
-            # 检查是否有明显更优的目标
             closest_id = min(matched_targets.keys(), key=lambda tid: matched_targets[tid]['distance'])
             closest_group = matched_targets[closest_id]
 
-            # 只有当新目标显著更近时才切换
             if closest_group['distance'] < (locked_group['distance'] - switch_distance_threshold):
-                if locked_group['distance'] > 30:  # 老目标已经偏离准星
+                if locked_group['distance'] > 30:
                     best_target_id = closest_id
                     best_group = closest_group
                 else:
@@ -392,14 +470,14 @@ class TargetSelector:
                 best_target_id = self.locked_target_id
                 best_group = locked_group
 
-        # 没有锁定目标或锁定目标丢失
+        # 没有锁定目标
         if best_target_id is None:
             best_target_id = min(matched_targets.keys(), key=lambda tid: matched_targets[tid]['distance'])
             best_group = matched_targets[best_target_id]
             self.locked_target_id = best_target_id
             self.is_locked = True
 
-        # 组内部位选择
+        # ⭐ 多类别部位选择
         selected_det, part_name = self._select_part_within_group(best_group)
 
         # 坐标平滑
@@ -408,16 +486,14 @@ class TargetSelector:
 
         is_new_target = (self.locked_target_id != best_target_id)
         smoothed_x, smoothed_y = self._apply_smoothing(raw_x, raw_y, is_new_target)
-        # ⭐⭐⭐ 关键修复：更新锁定帧数 ⭐⭐⭐
+
         if is_new_target:
-            # 切换到新目标，重置帧数
             self.target_lock_frames = 1
             self.locked_target_id = best_target_id
             self.is_locked = True
             if get_config('DEBUG_MODE', False):
                 utils.log_debug(f"[目标切换] 新目标ID={best_target_id}，重置帧数")
         else:
-            # 持续锁定同一目标，累积帧数
             self.target_lock_frames += 1
             if get_config('DEBUG_MODE', False) and self.target_lock_frames % 30 == 0:
                 utils.log_debug(f"[目标锁定] ID={best_target_id}，已锁定{self.target_lock_frames}帧")
@@ -436,26 +512,38 @@ class TargetSelector:
 
     def _select_part_within_group(self, group: Dict) -> Tuple[Dict, str]:
         """
-        ⭐ 改进版部位选择
+        ⭐ 多类别部位选择策略
+
+        优先级：
+        1. priority_part（如头部 class_id=1）
+        2. primary_part（如身体 class_id=0）
+        3. 其他类别中面积最大的
         """
-        head = group.get('head')
-        body = group.get('body')
+        parts = group.get('parts', {})
 
-        # 优先头部
-        if get_config('ENABLE_HEAD_PRIORITY', True) and head:
-            if get_config('IGNORE_SMALL_TARGET_HEAD', True):
-                threshold = get_config('SMALL_TARGET_AREA_THRESHOLD', 200)
-                if head['box_area'] >= threshold:
-                    return head, "head"
-            else:
-                return head, "head"
+        # 策略1：优先部位（头部）
+        if get_config('ENABLE_HEAD_PRIORITY', True):
+            priority_part = group.get('priority_part')
+            if priority_part:
+                if get_config('IGNORE_SMALL_TARGET_HEAD', True):
+                    threshold = get_config('SMALL_TARGET_AREA_THRESHOLD', 200)
+                    if priority_part['box_area'] >= threshold:
+                        return priority_part, f"class_{priority_part.get('class_id', 'unknown')}_priority"
+                else:
+                    return priority_part, f"class_{priority_part.get('class_id', 'unknown')}_priority"
 
-        # 回退身体
-        if body:
-            return body, "body"
+        # 策略2：主要部位（身体）
+        primary_part = group.get('primary_part')
+        if primary_part:
+            return primary_part, f"class_{primary_part.get('class_id', 'unknown')}_primary"
 
-        # 兜底
-        return head or body, "any"
+        # 策略3：选择面积最大的部位
+        if parts:
+            largest_part = max(parts.values(), key=lambda p: p.get('box_area', 0))
+            return largest_part, f"class_{largest_part.get('class_id', 'unknown')}_largest"
+
+        # 兜底（理论上不会到这里）
+        return {'x': group['x'], 'y': group['y'], 'box_area': 0}, "fallback"
 
     def _apply_smoothing(
             self,
@@ -463,7 +551,7 @@ class TargetSelector:
             raw_y: float,
             is_new_target: bool = False
     ) -> Tuple[int, int]:
-        """平滑处理 (保持不变)"""
+        """平滑处理"""
         if self.use_kalman:
             if is_new_target:
                 self.kalman_filter.init_with_position(raw_x, raw_y)
@@ -488,7 +576,7 @@ class TargetSelector:
             reference_x: float,
             reference_y: float
     ) -> bool:
-        """判断是否需要发送移动命令 (保持不变)"""
+        """判断是否需要发送移动命令"""
         offset_x = target_x - reference_x
         offset_y = target_y - reference_y
         offset_distance = math.hypot(offset_x, offset_y)
@@ -501,7 +589,7 @@ class TargetSelector:
             current_y: int,
             lead_frames: int = 2
     ) -> Tuple[int, int]:
-        """获取预判位置 (保持不变)"""
+        """获取预判位置"""
         if not self.use_kalman or not self.kalman_filter.initialized:
             return current_x, current_y
         predicted = self.kalman_filter.get_predicted_position(lead_frames)
@@ -516,7 +604,7 @@ class TargetSelector:
         self.is_locked = False
         self.locked_target_id = None
         self.frames_without_target = 0
-        self.target_lock_frames = 0  # ⭐ 添加这行
+        self.target_lock_frames = 0
         self.tracked_targets.clear()
 
         self.smoothed_aim_x = None

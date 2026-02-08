@@ -798,13 +798,12 @@ class CoreService:
 
                     # I. 鼠标移动
                     if best_x is not None:
-                        # 检查当前是否有任何一个【配置中开启的按键】被物理按下
 
                         enabled_keys = get_monitored_keys()
                         is_trigger_pressed = any(
                             self.key_monitor.is_key_pressed(k) for k in enabled_keys)
 
-                        # 只有当：应用状态允许 + 触发键被按下 + 目标选择器通过
+
                         if self.app_state.is_mouse_active() and is_trigger_pressed:
                             if self.target_selector.should_send_command(best_x, best_y, aim_ref_x, aim_ref_y):
                                 self.mouse_controller.move_to_target(best_x, best_y)
