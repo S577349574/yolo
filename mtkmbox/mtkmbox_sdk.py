@@ -183,31 +183,36 @@ class MTKMBOX:
             except Exception as e:
                 raise MTKMBOXCommandError(f"命令执行失败: {e}")
 
-
     def _clean_response(self, raw_response: str) -> str:
         """
         清理串口响应，提取有效数据
 
         Args:
-            raw_response: 原始响应字符串（如 "km.left()\r\n1\r\n>>>"）
+            raw_response: 原始响应字符串
 
         Returns:
-            str: 清理后的有效数据（如 "1"）
+            str: 清理后的有效数据
         """
-        # 移除提示符
-        response = raw_response.replace('>>>', '').strip()
+        import re
 
-        # 按行分割，移除空行
+        # 移除提示符和特殊字符
+        response = raw_response.replace('>>>', '').replace('\r', '').strip()
+
+        # 按行分割
         lines = [line.strip() for line in response.split('\n') if line.strip()]
 
         if not lines:
             return ""
 
-        # ⭐ 关键逻辑：如果第一行包含命令回显（有括号），则移除
-        if lines and '(' in lines[0] and ')' in lines[0]:
-            lines = lines[1:]
+        # ⭐ 移除所有包含 'km.' 的行（命令回显）
+        lines = [line for line in lines if not line.startswith('km.')]
 
-        # 返回最后一个非空行（通常是返回值）
+        # ⭐ 优先返回纯数字行
+        for line in lines:
+            if re.match(r'^-?\d+$', line):
+                return line
+
+        # 返回最后一行
         return lines[-1] if lines else ""
 
     # ==================== 公共 API ====================
