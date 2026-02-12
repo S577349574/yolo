@@ -45,57 +45,75 @@ class CrosshairDetector(ABC):
         pass
 
     def detect(self, img: np.ndarray, capture_area: dict) -> Optional[Tuple[int, int]]:
-        """
-        在图像中检测准星位置（公共接口）
-
-        Args:
-            img: BGR/BGRA 格式图像
-            capture_area: 捕获区域 {'left', 'top', 'width', 'height'}
-
-        Returns:
-            (x, y) 屏幕绝对坐标，或 None
-        """
         if not self.enabled:
             return None
 
         import cv2
 
+        if img is None or img.size == 0:
+            return self.last_pos
+
         h, w = img.shape[:2]
+        if h <= 0 or w <= 0:
+            return self.last_pos
+
         center_x, center_y = w // 2, h // 2
 
-        # 1. 裁剪搜索区域（统一使用 search_bounds）
-        x1 = max(0, center_x + self.search_bounds['x_left'])
-        x2 = min(w, center_x + self.search_bounds['x_right'])
-        y1 = max(0, center_y + self.search_bounds['y_up'])
-        y2 = min(h, center_y + self.search_bounds['y_down'])
+        # 1) 规范化 bounds，防止配置写反
+        xl = int(self.search_bounds.get('x_left', -80))
+        xr = int(self.search_bounds.get('x_right', 80))
+        yu = int(self.search_bounds.get('y_up', -80))
+        yd = int(self.search_bounds.get('y_down', 80))
+
+        if xr < xl:
+            xl, xr = xr, xl
+        if yd < yu:
+            yu, yd = yd, yu
+
+        # 2) 裁剪搜索区域
+        x1 = max(0, min(w, center_x + xl))
+        x2 = max(0, min(w, center_x + xr))
+        y1 = max(0, min(h, center_y + yu))
+        y2 = max(0, min(h, center_y + yd))
+
+        if x2 <= x1 or y2 <= y1:
+            # ROI 无效，按“未检测到”处理
+            self.last_valid_count -= 1
+            if self.last_valid_count <= 0:
+                self.last_pos = None
+            return self.last_pos
 
         roi = img[y1:y2, x1:x2]
+        if roi is None or roi.size == 0:
+            self.last_valid_count -= 1
+            if self.last_valid_count <= 0:
+                self.last_pos = None
+            return self.last_pos
 
-        # 2. 转换为BGR
-        if roi.shape[2] == 4:
+        # 3) 转换为 BGR（仅当确实有4通道）
+        if roi.ndim == 3 and roi.shape[2] == 4:
             roi = cv2.cvtColor(roi, cv2.COLOR_BGRA2BGR)
 
-        # 3. 调用子类实现
+        # 4) 调用子类实现
         local_pos = self._detect_impl(roi)
-
         if local_pos is None:
             self.last_valid_count -= 1
             if self.last_valid_count <= 0:
                 self.last_pos = None
             return self.last_pos
 
-        # 4. 转换为屏幕坐标
-        abs_x_in_img = x1 + local_pos[0]
-        abs_y_in_img = y1 + local_pos[1]
+        # 5) 转换为屏幕坐标
+        abs_x_in_img = x1 + int(local_pos[0])
+        abs_y_in_img = y1 + int(local_pos[1])
 
-        screen_x = round(capture_area['left'] + abs_x_in_img)
-        screen_y = round(capture_area['top'] + abs_y_in_img)
+        screen_x = int(round(int(capture_area['left']) + abs_x_in_img))
+        screen_y = int(round(int(capture_area['top']) + abs_y_in_img))
 
-        # 5. 平滑处理
+        # 6) 平滑
         if self.last_pos:
             screen_x = int(self.last_pos[0] * (1 - self.smooth_factor) + screen_x * self.smooth_factor)
             screen_y = int(self.last_pos[1] * (1 - self.smooth_factor) + screen_y * self.smooth_factor)
 
         self.last_pos = (screen_x, screen_y)
         self.last_valid_count = self.max_lost_frames
-        return screen_x, screen_y
+        return self.last_pos

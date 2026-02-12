@@ -64,7 +64,7 @@ CONFIG_GROUPS = {
     ],
 
     "头部优先": [
-        "ENABLE_HEAD_PRIORITY", "HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE",
+        "ENABLE_HEAD_PRIORITY", "BODY_CLASS_ID","HEAD_CLASS_ID", "HEAD_PRIORITY_RANGE",
         "IGNORE_SMALL_TARGET_HEAD", "SMALL_TARGET_AREA_THRESHOLD"
     ],
 
@@ -112,13 +112,17 @@ CONFIG_GROUPS = {
 
     # ⭐ 更新：按键监控（添加 MTKmbox）
     "按键监控": [
-        "ENABLE_LEFT_MOUSE_MONITOR", "ENABLE_RIGHT_MOUSE_MONITOR",
-        "ENABLE_MOUSE4_MONITOR", "ENABLE_MOUSE5_MONITOR",
-        "KEY_MONITOR_INTERVAL_MS",
         "MAKCU_USE_HARDWARE_MONITOR", "MAKCU_FALLBACK_TO_PYNPUT",  # Makcu 特定
         "MTKMBOX_USE_HARDWARE_MONITOR", "MTKMBOX_FALLBACK_TO_PYNPUT"  # ⭐ MTKmbox 特定
     ],
 
+    "触发按键": [
+        "KEY_PROFILE_BINDINGS",
+        "KEY_PROFILE_DEFAULT_MODE",
+        "KEY_PROFILE_PRIORITY",
+        "KEY_PROFILE_FALLBACK",
+        "HOLD_FALLBACK_POLICY", # ⭐ MTKmbox 特定
+    ],
     "系统配置": [
         "ENABLE_LOGGING", "LOG_LEVEL", "DEBUG_MODE",
         "MAKCU_DEBUG_MODE", "MTKMBOX_DEBUG_MODE",  # ⭐ 新增
@@ -243,6 +247,7 @@ def get_default_config() -> Dict[str, Any]:
 
         # ========== 头部优先 ==========
         "ENABLE_HEAD_PRIORITY": True,
+        "BODY_CLASS_ID": 0,
         "HEAD_CLASS_ID": 1,
         "HEAD_PRIORITY_RANGE": 80,
         "IGNORE_SMALL_TARGET_HEAD": True,
@@ -310,14 +315,6 @@ def get_default_config() -> Dict[str, Any]:
         "APP_MOUSE_MIDDLE_DOWN": 16,
         "APP_MOUSE_MIDDLE_UP": 32,
 
-        # ========== 按键监控 ==========
-        "ENABLE_LEFT_MOUSE_MONITOR": False,
-        "ENABLE_RIGHT_MOUSE_MONITOR": True,
-        "ENABLE_MOUSE4_MONITOR": False,
-        "ENABLE_MOUSE5_MONITOR": False,
-        "KEY_MONITOR_INTERVAL_MS": 50,
-
-
         # ========== 系统配置 ==========
         "ENABLE_LOGGING": True,
         "LOG_LEVEL": "INFO",
@@ -368,6 +365,17 @@ def get_default_config() -> Dict[str, Any]:
 
         "HARDWARE_MONITOR_PRIORITY": True,  # 硬件模式优先使用硬件监视
         "FALLBACK_TO_PYNPUT": True,
+
+        # ========== 新按键系统 ==========
+        "ENABLE_KEY_PROFILE_BINDING": True,
+        "KEY_PROFILE_BINDINGS": {
+            "right": {"profile": "default", "mode": "hold", "trigger": True}
+        },
+        "KEY_PROFILE_DEFAULT_MODE": "hold",
+        "KEY_PROFILE_PRIORITY": ["left","right", "mouse5", "mouse4"],
+        "KEY_PROFILE_FALLBACK": "default",
+        "HOLD_FALLBACK_POLICY": "previous"
+
     }
 
 
@@ -389,6 +397,7 @@ PROFILE_KEYS = [
     "IOU_THRESHOLD",
     "TARGET_CLASS_IDS",
     "ENABLE_HEAD_PRIORITY",
+    "BODY_CLASS_ID",
     "HEAD_CLASS_ID",
     "HEAD_PRIORITY_RANGE",
     "IGNORE_SMALL_TARGET_HEAD",

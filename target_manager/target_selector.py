@@ -193,6 +193,9 @@ class TargetSelector:
             ...
         ]
         """
+
+        body_class_id = get_config('BODY_CLASS_ID', 0)
+        head_class_id = get_config('HEAD_CLASS_ID', 1)
         group_distance_threshold = get_config('TARGET_GROUP_DISTANCE_THRESHOLD', 100)
 
         # ⭐ 第一步：过滤只保留允许的类别
@@ -220,11 +223,12 @@ class TargetSelector:
             detections_by_class[class_id].append(det)
 
         # 获取身体（class_id=0）作为主体
-        bodies = detections_by_class.get(0, [])
-        heads = detections_by_class.get(1, [])
+        bodies = detections_by_class.get(body_class_id, [])
+        heads = detections_by_class.get(head_class_id, [])
 
         # 其他类别（排除0和1）
-        other_classes = {k: v for k, v in detections_by_class.items() if k not in [0, 1]}
+        other_classes = {k: v for k, v in detections_by_class.items()
+                         if k not in [body_class_id, head_class_id]}
 
         target_groups = []
 

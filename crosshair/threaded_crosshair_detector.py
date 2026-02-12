@@ -57,21 +57,23 @@ class ThreadedCrosshairDetector:
             self.detection_thread.join(timeout=1.0)
 
     def submit_frame(self, img_bgra, capture_area, fallback_center):
-        """提交新帧进行检测"""
-        # 快速写入共享内存
         with self.img_lock:
             np.copyto(
                 np.frombuffer(self.shared_img.get_obj(), dtype=np.uint8).reshape(self.img_shape),
                 img_bgra
             )
 
-        # 只传递元数据
+        meta = {'area': capture_area, 'fallback': fallback_center, 'timestamp': time.time()}
+
+        # 清空旧的，只保留最新的
         try:
-            self.image_queue.put_nowait({
-                'area': capture_area,
-                'fallback': fallback_center,
-                'timestamp': time.time()
-            })
+            while True:
+                self.image_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        try:
+            self.image_queue.put_nowait(meta)
         except queue.Full:
             pass
 

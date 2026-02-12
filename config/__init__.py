@@ -2,7 +2,7 @@
 
 from .manager import ConfigManager
 from .callbacks import get_callback_manager
-from .profile_manager import ProfileManager, Profile  # ✅ 新增
+from .profile_manager import ProfileManager, Profile
 from .events import (
     get_events,
     signal_resume, signal_reload, signal_stop,
@@ -14,15 +14,15 @@ from .events import (
 from .defaults import (
     get_default_config,
     CONFIG_GROUPS,
-    PROFILE_KEYS,           # ✅ 新增
-    DEFAULT_PROFILE_NAME    # ✅ 新增
+    PROFILE_KEYS,
+    DEFAULT_PROFILE_NAME
 )
 
 # ========== 全局单例实例 ==========
 
 _config_manager = ConfigManager()
 _callback_manager = get_callback_manager()
-_profile_manager = ProfileManager(_config_manager)  # ✅ 新增
+_profile_manager = ProfileManager(_config_manager)
 
 
 # ========== 核心配置 API ==========
@@ -338,6 +338,19 @@ def reset_to_defaults() -> bool:
 # ========== 导出列表 ==========
 
 __all__ = [
+
+    "create_profile",
+    "delete_profile",
+    "get_profile",
+    "list_profiles",
+    "rename_profile",
+    "set_active_profile",
+    "get_active_profile",
+    "sync_profile_from_global",
+    "sync_profile_to_global",
+    "save_profiles",
+    "export_profile",
+    "import_profile",
     # 核心配置
     "load_config",
     "get_config",
@@ -385,6 +398,7 @@ __all__ = [
     "is_stop_set",
     "clear_all_events",
     "get_events_status",
+    "save_profiles",
 
     # 实用工具
     "get_app_dir",

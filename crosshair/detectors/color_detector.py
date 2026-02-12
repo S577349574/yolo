@@ -30,8 +30,9 @@ class ColorCrosshairDetector(CrosshairDetector):
         return "颜色准星检测器"
 
     def _detect_impl(self, roi: np.ndarray) -> Optional[Tuple[int, int]]:
-        lower = np.clip(self.target_color - self.tolerance, 0, 255)
-        upper = np.clip(self.target_color + self.tolerance, 0, 255)
+        tc = self.target_color.astype(np.int16)
+        lower = np.clip(tc - self.tolerance, 0, 255).astype(np.uint8)
+        upper = np.clip(tc + self.tolerance, 0, 255).astype(np.uint8)
 
         mask = cv2.inRange(roi, lower, upper)
         coords = cv2.findNonZero(mask)
@@ -46,4 +47,4 @@ class ColorCrosshairDetector(CrosshairDetector):
         cx = int(M['m10'] / M['m00'])
         cy = int(M['m01'] / M['m00'])
 
-        return (cx, cy)
+        return cx, cy

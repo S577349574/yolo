@@ -1,19 +1,19 @@
 import dearpygui.dearpygui as dpg
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
-from widgets.basic import add_combo, add_int
+from gui.widgets.basic import add_combo, add_int
 
-from widgets.tagged import add_int_tagged, add_bool_tagged
+from gui.widgets.tagged import add_int_tagged, add_bool_tagged
 
-from widgets.helpers import create_master_switch_callback
+from gui.widgets.helpers import create_master_switch_callback
 import config_manager as cfg
-from widgets.basic import add_bool
-from widgets.helpers import update_dependent_controls
-from widgets.tagged import add_input_text_tagged, add_float_input_tagged, add_int_input_tagged
+from gui.widgets.basic import add_bool
+from gui.widgets.helpers import update_dependent_controls
+from gui.widgets.tagged import add_input_text_tagged, add_float_input_tagged, add_int_input_tagged
 
 
 def build_driver_keys_tab(blue_notice_theme):
-    with dpg.tab(label="驱动 & 按键"):
+    with dpg.tab(label="驱动模式"):
         dpg.add_text("硬件模式选择", color=UIColors.APPLE_BLUE)
         dpg.add_text(r"Makcu\MTKmbox\传统驱动只能选一个", color=UIColors.ERROR_RED)
 
@@ -104,18 +104,6 @@ def build_driver_keys_tab(blue_notice_theme):
         with dpg.tooltip("serial_interval"):
             dpg.add_text("适用于所有串口设备 (Makcu/MTKmbox)\n如果出现通信超时，请调大此值")
 
-        # ========== 按键监控配置 ==========
-        dpg.add_separator()
-        dpg.add_text("按键监控配置", color=UIColors.APPLE_BLUE)
-        dpg.add_text("选择哪些按键触发瞄准", color=UIColors.TEXT_GRAY, indent=20)
-
-        add_bool("ENABLE_LEFT_MOUSE_MONITOR", "监控左键")
-        add_bool("ENABLE_RIGHT_MOUSE_MONITOR", "监控右键")
-        add_bool("ENABLE_MOUSE4_MONITOR", "监控侧键4 (后退键)")
-        add_bool("ENABLE_MOUSE5_MONITOR", "监控侧键5 (前进键)")
-
-        dpg.add_separator()
-        add_int("KEY_MONITOR_INTERVAL_MS", "监控间隔 (ms)", 10, 1000)
 
         # ========== 按键映射 ID ==========
         dpg.add_separator()

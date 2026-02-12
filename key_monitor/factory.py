@@ -10,31 +10,41 @@ from .mtkmbox_monitor import MTKmboxKeyMonitor
 
 def get_monitored_keys() -> List[str]:
     """
-    ⭐ 仅供逻辑判断使用：获取用户在配置中“逻辑开启”的按键。
-    用于判断哪些键按下时应该触发『自动开火』或『压枪』。
+    新方案：获取用户在 KEY_PROFILE_BINDINGS 中配置为 trigger=true 的按键。
+    用于判断哪些键按下时应该触发『自动开火』或『压枪』等逻辑。
     """
-    monitored = []
-    if get_config('ENABLE_LEFT_MOUSE_MONITOR', False):
-        monitored.append('left')
-    if get_config('ENABLE_RIGHT_MOUSE_MONITOR', False):
-        monitored.append('right')
-    if get_config('ENABLE_MOUSE4_MONITOR', False):
-        monitored.append('mouse4')
-    if get_config('ENABLE_MOUSE5_MONITOR', False):
-        monitored.append('mouse5')
+    bindings = get_config("KEY_PROFILE_BINDINGS", {}) or {}
+    monitored: List[str] = []
+
+    if not isinstance(bindings, dict):
+        return monitored
+
+    for key in ["left", "right", "mouse4", "mouse5"]:
+        v = bindings.get(key)
+        if isinstance(v, dict) and bool(v.get("trigger", False)):
+            monitored.append(key)
+
     return monitored
 
+
 def get_primary_trigger_key() -> Optional[str]:
-    """从配置中获取主触发键"""
-    if get_config('ENABLE_RIGHT_MOUSE_MONITOR', False):
-        return 'right'
-    elif get_config('ENABLE_LEFT_MOUSE_MONITOR', False):
-        return 'left'
-    elif get_config('ENABLE_MOUSE4_MONITOR', False):
-        return 'mouse4'
-    elif get_config('ENABLE_MOUSE5_MONITOR', False):
-        return 'mouse5'
-    return None
+    """新方案：从 KEY_PROFILE_BINDINGS(trigger=true) 中按 KEY_PROFILE_PRIORITY 选主触发键"""
+    bindings = get_config("KEY_PROFILE_BINDINGS", {}) or {}
+    if not isinstance(bindings, dict):
+        return None
+
+    trigger_keys = {k for k, v in bindings.items()
+                    if k in ("left", "right", "mouse4", "mouse5")
+                    and isinstance(v, dict)
+                    and bool(v.get("trigger", False))}
+
+    priority = get_config("KEY_PROFILE_PRIORITY", ["left","right", "mouse5", "mouse4"]) or []
+    for k in priority:
+        if k in trigger_keys:
+            return k
+
+    return next(iter(trigger_keys), None)
+
 
 def create_key_monitor(
         app_state,
@@ -60,8 +70,7 @@ def create_key_monitor(
             "enable_right": True,
             "enable_mouse4": True,
             "enable_mouse5": True,
-            "enable_auto_fire": enable_auto_fire,
-            "poll_interval": poll_interval
+            "enable_auto_fire": enable_auto_fire
         }
 
         # 1. MTKmbox 硬件

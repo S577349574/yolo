@@ -3,7 +3,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 
 import config_manager as cfg
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
 
 def generate_crosshair_preview_callback(sender, app_data, user_data):

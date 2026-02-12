@@ -2,7 +2,7 @@
 配置管理器中转层 - 向后兼容
 
 此文件为兼容层，所有调用转发到新的 config 模块。
-旧代码无需修改，以下导入方式均可正常工作：
+旧代码无需修改,以下导入方式均可正常工作：
 
     import config_manager
     from config_manager import get_config, load_config
@@ -18,7 +18,6 @@ from config import (
     set_config,
     save_config,
     get_all_config,
-
     # 自动重载
     start_auto_reload,
     stop_auto_reload,
@@ -45,30 +44,50 @@ from config import (
     is_stop_set,
     clear_all_events,
     get_events_status,
-
+    set_active_profile,
     # 实用工具
     get_app_dir,
     get_config_file,
     get_default_config,
+    list_profiles,
     reset_to_defaults,
 
     # 常量
-    CONFIG_GROUPS,
+    CONFIG_GROUPS, create_profile, delete_profile, get_profile, rename_profile, sync_profile_from_global,
+    sync_profile_to_global, save_profiles, export_profile, import_profile, get_active_profile,
 )
-
-from config.manager import ConfigManager as _ConfigManager
 from config.callbacks import ConfigCallbackManager
+from config.manager import ConfigManager as _ConfigManager
+
+# ✅ 新增：KeyMonitor 实例存储
+_key_monitor_instance = None
 
 
-# ========== 兼容性 ConfigManager 类 ==========
+def set_key_monitor(monitor):
+    """
+    设置 KeyMonitor 实例（供 GUI 焦点检测使用）
+
+    Args:
+        monitor: KeyMonitor 实例
+    """
+    global _key_monitor_instance
+    _key_monitor_instance = monitor
+
+
+def get_key_monitor():
+    """
+    获取 KeyMonitor 实例
+
+    Returns:
+        KeyMonitor 实例，如果未设置则返回 None
+    """
+    return _key_monitor_instance
+
 
 class ConfigManager:
     """
-    兼容性 ConfigManager 类
-
-    保持与旧代码完全兼容的接口
+    配置管理器（仅负责全局配置）
     """
-
     _instance = None
 
     def __new__(cls):
@@ -185,6 +204,24 @@ __all__ = [
 
     # 常量
     "CONFIG_GROUPS",
+
+    # Profile 管理
+    "create_profile",
+    "delete_profile",
+    "get_profile",
+    "list_profiles",
+    "rename_profile",
+    "set_active_profile",
+    "get_active_profile",
+    "sync_profile_from_global",
+    "sync_profile_to_global",
+    "save_profiles",
+    "export_profile",
+    "import_profile",
+
+    # ✅ KeyMonitor 管理
+    "set_key_monitor",
+    "get_key_monitor",
 ]
 
 

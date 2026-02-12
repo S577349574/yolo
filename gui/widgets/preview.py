@@ -1,11 +1,11 @@
 import dearpygui.dearpygui as dpg
 
 import config_manager as cfg
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
 
 def update_search_bounds(key, value):
-    """更新搜索区域配置并实时显示"""
+    """更新搜索区域配置并实时显示（保存到参数组）"""
     bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {
         "x_left": -30,
         "x_right": 30,
@@ -15,14 +15,22 @@ def update_search_bounds(key, value):
 
     bounds[key] = value
     bounds[key] = max(-500, min(500, bounds[key]))
+
+    # ✅ 1. 更新全局配置
     cfg.set_config("CROSSHAIR_SEARCH_BOUNDS", bounds)
 
+    # ✅ 2. 同步到当前参数组（关键修复）
+    active_profile = cfg.get_active_profile()
+    cfg.sync_profile_from_global(active_profile)
+
+    # ✅ 3. 更新状态提示
     dpg.configure_item(
         "status_text",
         default_value=f"[未保存] 已修改搜索区域: {key}",
         color=UIColors.WARNING_ORANGE
     )
 
+    # ✅ 4. 更新显示文字
     if dpg.does_item_exist("crosshair_search_area_display"):
         width = bounds["x_right"] - bounds["x_left"]
         height = abs(bounds["y_up"]) + bounds["y_down"]
@@ -49,15 +57,29 @@ def _handle_preview_drag(sender, app_data):
     new_x_ratio = max(0.0, min(1.0, (rel_x - rect_x_start) / rect_w))
     new_y_ratio = max(0.0, min(1.0, (rel_y - rect_y_start) / rect_h))
 
+    # ✅ 1. 更新全局配置
     cfg.set_config("AIM_X_OFFSET", round(new_x_ratio, 3))
     cfg.set_config("AIM_Y_RATIO", round(new_y_ratio, 3))
 
+    # ✅ 2. 同步到当前参数组（关键修复）
+    active_profile = cfg.get_active_profile()
+    cfg.sync_profile_from_global(active_profile)
+
+    # ✅ 3. 更新 UI 控件
     if dpg.does_item_exist("input_aim_x"):
         dpg.set_value("input_aim_x", round(new_x_ratio, 3))
     if dpg.does_item_exist("input_aim_y"):
         dpg.set_value("input_aim_y", round(new_y_ratio, 3))
 
+    # ✅ 4. 更新预览图
     update_aim_offset_preview()
+    # ✅ 5. 提示用户（可选）
+    if dpg.does_item_exist("status_text"):
+        dpg.configure_item(
+            "status_text",
+            default_value=f"[未保存] 已修改瞄准偏移: X={new_x_ratio:.3f}, Y={new_y_ratio:.3f}",
+            color=UIColors.WARNING_ORANGE
+        )
 
 
 def update_aim_offset_preview():

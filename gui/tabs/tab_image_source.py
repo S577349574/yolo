@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
-from widgets.basic import add_combo, add_int
+from gui.widgets.basic import add_combo, add_int
 
 
 def build_image_source_tab(blue_notice_theme):

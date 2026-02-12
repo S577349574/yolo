@@ -1,15 +1,9 @@
 import dearpygui.dearpygui as dpg
-from theme.colors import UIColors
 
-from widgets.basic import add_combo, add_int
-
-from widgets.tagged import add_int_tagged, add_bool_tagged
-
-from widgets.helpers import create_master_switch_callback
-
-from widgets.basic import add_bool
-
-from widgets.scripts_ui import refresh_scripts_ui
+from gui.theme.colors import UIColors
+from gui.widgets.basic import add_bool
+from gui.widgets.basic import add_int
+from gui.widgets.scripts_ui import refresh_scripts_ui
 
 
 def build_scripts_tab(blue_notice_theme):

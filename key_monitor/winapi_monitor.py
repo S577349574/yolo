@@ -29,7 +29,15 @@ class WinAPIKeyMonitor(KeyMonitorBase):
             poll_interval: 轮询间隔
         """
         # ⭐ 只传递基类需要的参数
-        super().__init__(app_state, poll_interval=poll_interval)
+        super().__init__(
+            app_state,
+            enable_left=enable_left,
+            enable_right=enable_right,
+            enable_mouse4=enable_mouse4,
+            enable_mouse5=enable_mouse5,
+            enable_auto_fire=enable_auto_fire,
+            poll_interval=poll_interval
+        )
 
         # 保存配置（用于日志和调试）
         self.enable_left = enable_left

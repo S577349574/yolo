@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
-from theme.colors import UIColors
-from widgets.basic import add_input_text, add_combo, add_bool, add_int
+from gui.theme.colors import UIColors
+from gui.widgets.basic import add_input_text, add_combo, add_bool, add_int
 import config_manager as cfg
 
 def build_system_tab(blue_notice_theme):
@@ -21,7 +21,7 @@ def build_system_tab(blue_notice_theme):
         add_combo(
             "MODEL_TYPE",
             "YOLO 模型类型",
-            ["v5", "v8", "v10", "v11"]
+            ["v5", "v8", "v10", "v11", "v26"]
         )
         with dpg.tooltip(dpg.last_item()):
             dpg.add_text("根据不同模型训练方式选择不同的类型，一般模型名字上都会标注出是v5或者v8\n"

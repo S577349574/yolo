@@ -48,7 +48,7 @@ def emergency_cleanup():
         pass
 
 
-atexit.register(emergency_cleanup)
+# atexit.register(emergency_cleanup)
 
 
 class AppState:
@@ -392,19 +392,14 @@ class CoreService:
                 use_mtkmbox=use_mtkmbox,
                 shared_controller=self.shared_makcu_controller,
                 shared_serial=self.shared_mtkmbox_device,
-                enable_left=get_config('ENABLE_LEFT_MOUSE_MONITOR', False),
-                enable_right=get_config('ENABLE_RIGHT_MOUSE_MONITOR', True),
-                enable_mouse4=get_config('ENABLE_MOUSE4_MONITOR', False),
-                enable_mouse5=get_config('ENABLE_MOUSE5_MONITOR', False),
-                enable_auto_fire=self.cached_config.enable_auto_fire,
-                poll_interval=get_config('KEY_MONITOR_INTERVAL_MS', 50) / 1000.0
+                enable_auto_fire=self.cached_config.enable_auto_fire
             )
 
             if not self.key_monitor or not self.key_monitor.start():
                 raise RuntimeError("按键监控器启动失败")
 
-            if not self.key_monitor or not self.key_monitor.start():
-                raise RuntimeError("按键监控器启动失败")
+            cfg.set_key_monitor(self.key_monitor)
+            utils.log("[Core] KeyMonitor 已注册到配置管理器")
 
 
             # 4. 驱动加载
@@ -938,7 +933,7 @@ class CoreService:
 def start_app():
     """程序入口"""
     # 导入 GUI (延迟导入，避免循环依赖)
-    from gui.gui import create_gui
+    from gui.gui1 import create_gui
 
     # 1. 创建核心服务
     core = CoreService()

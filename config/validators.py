@@ -79,7 +79,6 @@ VALIDATION_RULES: Dict[str, tuple] = {
     "SERIAL_MIN_SEND_INTERVAL": (0.001, 0.100, float, 0.012),
 
     # 系统配置
-    "KEY_MONITOR_INTERVAL_MS": (10, 1000, int, 50),
     "CONFIG_MONITOR_INTERVAL_SEC": (1, 60, int, 5),
     "CAPTURE_FPS": (1, 500, int, 144),
     "INFERENCE_FPS": (1, 500, int, 300),
@@ -149,10 +148,6 @@ BOOL_KEYS: List[str] = [
     "IGNORE_SMALL_TARGET_HEAD",
 
     # 按键监控
-    "ENABLE_LEFT_MOUSE_MONITOR",
-    "ENABLE_RIGHT_MOUSE_MONITOR",
-    "ENABLE_MOUSE4_MONITOR",
-    "ENABLE_MOUSE5_MONITOR",
     "MAKCU_USE_HARDWARE_MONITOR",      # Makcu 特定
     "MAKCU_FALLBACK_TO_PYNPUT",        # Makcu 特定
     "MTKMBOX_USE_HARDWARE_MONITOR",    # ⭐ MTKmbox 特定
@@ -225,6 +220,11 @@ DEPRECATED_KEYS: List[str] = [
     "ATTACK_PROTECTION_TRIGGER_FRAMES",
     "LOCKED_TARGET_BONUS",
     "USE_LZ4",
+    "ENABLE_LEFT_MOUSE_MONITOR",
+    "ENABLE_RIGHT_MOUSE_MONITOR",
+    "ENABLE_MOUSE4_MONITOR",
+    "ENABLE_MOUSE5_MONITOR",
+
 ]
 
 
@@ -385,6 +385,102 @@ class ConfigValidator:
 
         # ⭐ 硬件互斥性检查
         c = self._validate_hardware_exclusivity(c)
+
+        # ==================== 按键-参数组绑定（新方案）校验 ====================
+
+        # ENABLE_KEY_PROFILE_BINDING
+        if not isinstance(c.get("ENABLE_KEY_PROFILE_BINDING", True), bool):
+            c["ENABLE_KEY_PROFILE_BINDING"] = True
+
+        # KEY_PROFILE_DEFAULT_MODE
+        mode = c.get("KEY_PROFILE_DEFAULT_MODE", "hold")
+        if mode not in ["hold", "toggle"]:
+            c["KEY_PROFILE_DEFAULT_MODE"] = "hold"
+
+        # KEY_PROFILE_BINDINGS
+        bindings = c.get("KEY_PROFILE_BINDINGS", {})
+        if not isinstance(bindings, dict):
+            c["KEY_PROFILE_BINDINGS"] = {}
+        else:
+            # bindings 的 value 允许 str 或 dict
+
+            # KEY_PROFILE_BINDINGS（不允许简写；必须包含所有键；每个键必须包含 profile/mode/trigger）
+            allowed_keys = {"left", "right", "mouse4", "mouse5"}
+
+            # 从 defaults 里拿默认 bindings（如果没有就用通用默认）
+            default_mode = c.get("KEY_PROFILE_DEFAULT_MODE", "hold")
+            default_bindings = self._defaults.get("KEY_PROFILE_BINDINGS", {})
+
+            def _default_binding_for(key: str) -> Dict[str, Any]:
+                dv = default_bindings.get(key)
+                if isinstance(dv, dict):
+                    # 确保 defaults 里也有完整字段
+                    return {
+                        "profile": str(dv.get("profile", "default")) if dv.get("profile",
+                                                                               "default") is not None else "default",
+                        "mode": dv.get("mode", default_mode) if dv.get("mode", default_mode) in ["hold",
+                                                                                                 "toggle"] else default_mode,
+                        "trigger": dv.get("trigger", True) if isinstance(dv.get("trigger", True), bool) else True,
+                    }
+                # 通用默认
+                return {"profile": "default", "mode": default_mode, "trigger": True}
+
+            bindings = c.get("KEY_PROFILE_BINDINGS", {})
+            if not isinstance(bindings, dict):
+                bindings = {}
+
+            fixed: Dict[str, Dict[str, Any]] = {}
+
+            # 1) 强制包含所有 allowed_keys
+            for k in allowed_keys:
+                fixed[k] = _default_binding_for(k)
+
+            # 2) 校验/覆盖用户输入（不接受 str 简写；非 dict 直接忽略）
+            for k, v in bindings.items():
+                if k not in allowed_keys:
+                    continue
+
+                if not isinstance(v, dict):
+                    # 不允许简写/其它类型，直接丢弃，保留默认
+                    self._log(f"⚠️ KEY_PROFILE_BINDINGS.{k} 必须是 dict，已忽略非法值并使用默认")
+                    continue
+
+                # 必须包含所有字段：profile/mode/trigger（缺失则补默认）
+                dv = _default_binding_for(k)
+
+                profile = v.get("profile", dv["profile"])
+                mode = v.get("mode", dv["mode"])
+                trigger = v.get("trigger", dv["trigger"])
+
+                # profile 必须是 str（允许空字符串？这里按“必须是有效字符串”处理：空/非str -> 默认）
+                if not isinstance(profile, str) or not profile.strip():
+                    profile = dv["profile"]
+
+                # mode 必须 hold/toggle
+                if mode not in ["hold", "toggle"]:
+                    mode = dv["mode"]
+
+                # trigger 必须 bool
+                if not isinstance(trigger, bool):
+                    trigger = dv["trigger"]
+
+                fixed[k] = {"profile": profile, "mode": mode, "trigger": trigger}
+
+            c["KEY_PROFILE_BINDINGS"] = fixed
+
+        # KEY_PROFILE_PRIORITY
+        if not isinstance(c.get("KEY_PROFILE_PRIORITY"), list):
+            c["KEY_PROFILE_PRIORITY"] = ["left","right", "mouse5", "mouse4"]
+
+        # KEY_PROFILE_FALLBACK
+        fallback = c.get("KEY_PROFILE_FALLBACK", "default")
+        if fallback is not None and not isinstance(fallback, str):
+            c["KEY_PROFILE_FALLBACK"] = "default"
+
+        # HOLD_FALLBACK_POLICY
+        policy = c.get("HOLD_FALLBACK_POLICY", "previous")
+        if policy not in ["previous", "fallback"]:
+            c["HOLD_FALLBACK_POLICY"] = "previous"
 
         return c
 

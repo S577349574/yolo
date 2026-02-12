@@ -97,29 +97,16 @@ class ProfileManager:
     _instance = None
     _lock = threading.RLock()
 
-    def __new__(cls, *args, **kwargs):
-        """单例模式"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self, config_manager: ConfigManager):
-        """
-        初始化参数组管理器
-
-        Args:
-            config_manager: 全局配置管理器实例
-        """
-        # 避免重复初始化
         if hasattr(self, '_initialized'):
             return
 
         self._config_manager = config_manager
         self._profiles: Dict[str, Profile] = {}
         self._active_profile: str = DEFAULT_PROFILE_NAME
-        self._profiles_file = Path(PROFILES_FILE_NAME)
+
+        # ✅ 修复点：固定 profiles.json 路径
+        self._profiles_file = self._config_manager.app_dir / PROFILES_FILE_NAME
 
         # 验证 PROFILE_KEYS 的有效性
         self._validate_profile_keys()
@@ -130,9 +117,10 @@ class ProfileManager:
         # 确保存在默认参数组
         if DEFAULT_PROFILE_NAME not in self._profiles:
             self.create_profile(DEFAULT_PROFILE_NAME)
-            self.sync_from_global()  # 从当前全局配置初始化
+            self.sync_from_global()
 
         self._initialized = True
+
 
     # ========== 参数组管理 ==========
 
@@ -419,30 +407,21 @@ class ProfileManager:
                 return False
 
     def save_profiles(self) -> bool:
-        """
-        保存所有参数组到 profiles.json
+        """保存所有参数组到文件"""
+        try:
+            data = {
+                "active_profile": self._active_profile,
+                "profiles": {name: profile.to_dict() for name, profile in self._profiles.items()}
+            }
 
-        Returns:
-            是否保存成功
-        """
-        with self._lock:
-            try:
-                data = {
-                    'active_profile': self._active_profile,
-                    'profiles': {
-                        name: profile.to_dict()
-                        for name, profile in self._profiles.items()
-                    }
-                }
-
-                with open(self._profiles_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-
-                return True
-
-            except Exception as e:
-                warnings.warn(f"保存参数组配置失败: {e}")
-                return False
+            # 保存到 profiles.json 文件
+            with open(self._profiles_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            print("[ProfileManager] 参数组已保存至 profiles.json")
+            return True
+        except Exception as e:
+            print(f"[ProfileManager] 保存参数组失败: {e}")
+            return False
 
     # ========== 实用工具 ==========
 

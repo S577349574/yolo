@@ -133,21 +133,13 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
             return False
 
     def _start_hardware_polling(self):
-        """⭐ 启动硬件轮询线程"""
-        # 确定需要轮询的按键
-        keys_to_poll = ['f12']  # ⭐ 始终轮询 F12
+        """⭐ 启动硬件轮询线程（强制全键物理捕获）"""
 
-        if self.enable_left:
-            keys_to_poll.append('left')
-        if self.enable_right:
-            keys_to_poll.append('right')
-        if self.enable_mouse4:
-            keys_to_poll.append('mouse4')
-        if self.enable_mouse5:
-            keys_to_poll.append('mouse5')
+        # ✅ 始终轮询所有物理按键
+        keys_to_poll = ['f12', 'left', 'right', 'mouse4', 'mouse5']
 
-        utils.log(f"[MTKmboxKeyMonitor] 启动后台轮询: {keys_to_poll}")
-        utils.log(f"[MTKmboxKeyMonitor] 轮询频率: {1000/self._hardware_polling_interval:.0f}Hz")
+        utils.log(f"[MTKmboxKeyMonitor] 启动后台轮询(全键物理捕获): {keys_to_poll}")
+        utils.log(f"[MTKmboxKeyMonitor] 轮询频率: {1000 / self._hardware_polling_interval:.0f}Hz")
 
         self._polling_stop.clear()
         self._polling_thread = threading.Thread(

@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
 
 import config_manager as cfg
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
 
 def update_dependent_controls(master_key, dependent_tags, is_enabled):

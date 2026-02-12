@@ -5,7 +5,7 @@ import dearpygui.dearpygui as dpg
 
 import config_manager as cfg
 import utils
-from theme.colors import UIColors
+from gui.theme.colors import UIColors
 
 
 def update_script_state_callback(sender, app_data, user_data):

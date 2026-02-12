@@ -3,6 +3,8 @@ import dearpygui.dearpygui as dpg
 
 import dearpygui.dearpygui as dpg
 
+from gui.gui import UIColors
+
 
 def setup_apple_theme():
     with dpg.theme() as global_theme:
@@ -92,3 +94,12 @@ def setup_notice_tab_theme():
             dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255))
 
     return blue_notice_theme
+
+def create_table_header_theme():
+    with dpg.theme() as table_theme:
+        with dpg.theme_component(dpg.mvTable):
+            # 表头默认背景色(未选中状态) - 关键!
+            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, (229, 229, 234))
+            # 表头激活/选中色
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (70, 130, 220))
+    return table_theme
