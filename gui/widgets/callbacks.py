@@ -1,19 +1,23 @@
 import dearpygui.dearpygui as dpg
-
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.theme.colors import UIColors
+
 IS_REFRESHING_TARGET_IDS_UI = False
 
 
-# 注意：为避免循环，这里用“局部导入”或在文件底部导入都可以。
-# 我们在函数内部导入，最稳。
-
-
-# gui1.py 中的 save_callback 示例
+# ============================================================
+# 保存按钮回调
+# ============================================================
 
 def save_callback():
+    """
+    保存当前编辑参数组到 profiles.json，
+    并同步到全局配置 config.json，使其立即生效。
+    """
+    edit_profile = cfg.get_edit_profile()
     active_profile = cfg.get_active_profile()
 
+    # 1️⃣ 保存参数组文件
     if not cfg.save_profiles():
         dpg.configure_item(
             "status_text",
@@ -22,83 +26,91 @@ def save_callback():
         )
         return
 
-    # 可选：保存运行态配置
+    # 2️⃣ 始终同步当前编辑组到全局配置
+    cfg.sync_profile_to_global(edit_profile)
     cfg.save_config()
 
-    dpg.configure_item(
-        "status_text",
-        default_value=f"[成功] 已保存参数组: {active_profile}",
-        color=UIColors.SUCCESS_GREEN
-    )
-
-    # 保存参数组配置（通过 cfg.save_profiles 调用）
-    success = cfg.save_profiles()  # 调用保存参数组配置的方法
-    if success:
+    # 3️⃣ 如果编辑组不是运行组，提示用户
+    if active_profile != edit_profile:
         dpg.configure_item(
             "status_text",
-            default_value="[成功] 参数组配置已保存至 profiles.json",
-            color=UIColors.SUCCESS_GREEN
+            default_value=f"[成功] 已保存 {edit_profile} 并同步到全局配置",
+            color=UIColors.WARNING_ORANGE
         )
     else:
         dpg.configure_item(
             "status_text",
-            default_value="[错误] 参数组保存失败！",
-            color=UIColors.ERROR_RED
+            default_value=f"[成功] 已保存并应用参数组: {edit_profile}",
+            color=UIColors.SUCCESS_GREEN
         )
 
 
+
+# ============================================================
+# 通用配置更新回调（用于 tagged 控件）
+# ============================================================
+
 def update_config_callback(sender, app_data, user_data):
+    """
+    所有 tagged 控件都会走这里。
+    只有 PROFILE_KEYS 中的参数才写入参数组。
+    """
+    from config.defaults import PROFILE_KEYS  # 导入 PROFILE_KEYS
+
     key = user_data
     value = app_data
+    edit_profile = cfg.get_edit_profile()
 
-    active_profile = cfg.get_active_profile()
-
-    if active_profile:
-        # ✅ 写入参数组
-        profile = cfg.get_profile(active_profile) if active_profile else None
+    # ✅ 只有在 PROFILE_KEYS 中的参数才写入参数组
+    if key in PROFILE_KEYS and edit_profile:
+        profile = cfg.get_profile(edit_profile)
         if profile:
             profile.set(key, value)
+            dpg.configure_item(
+                "status_text",
+                default_value=f"[未保存] 已修改({edit_profile}): {key}",
+                color=UIColors.WARNING_ORANGE
+            )
+    else:
+        # ✅ 非 PROFILE_KEYS 的参数直接写入全局配置
+        cfg.set_config(key, value)
+        dpg.configure_item(
+            "status_text",
+            default_value=f"[未保存] 已修改(全局): {key}",
+            color=UIColors.WARNING_ORANGE
+        )
 
-    # ✅ 同时更新全局配置（让运行中的系统生效）
-    cfg.set_config(key, value)
 
-    dpg.configure_item(
-        "status_text",
-        default_value=f"[未保存] 已修改({active_profile}): {key}",
-        color=UIColors.WARNING_ORANGE
-    )
-
-
+# ============================================================
+# 目标ID多选回调
+# ============================================================
 
 def update_class_ids_callback(sender, app_data, user_data):
+    """
+    处理 TARGET_CLASS_IDS 多选逻辑。
+    只写入当前编辑参数组，不直接同步运行态。
+    """
+
+    global IS_REFRESHING_TARGET_IDS_UI
+
     if IS_REFRESHING_TARGET_IDS_UI:
         return
-    """处理目标ID多选（写入当前参数组 + 同步运行配置）"""
+
     target_id = int(user_data)
     is_checked = bool(app_data)
 
-    active_profile = cfg.get_active_profile()
+    edit_profile = cfg.get_edit_profile()
+    profile = cfg.get_profile(edit_profile)
 
-    # 1) 先从“当前参数组”取值（优先保证写入 profile 的正确性）
-    current_ids = []
-    if active_profile:
-        profile = cfg.get_profile(active_profile)
-        if isinstance(profile, dict):
-            current_ids = profile.get("TARGET_CLASS_IDS", [])
-        else:
-            # 如果你们的 profile 是自定义对象（有 get/set），就用它的 get
-            try:
-                current_ids = profile.get("TARGET_CLASS_IDS", [])
-            except Exception:
-                current_ids = []
+    if not profile:
+        return
 
-    # 兜底：如果 profile 里没有，就从全局取
-    if not isinstance(current_ids, list):
-        current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
+    # 1️⃣ 读取当前参数组中的 TARGET_CLASS_IDS
+    current_ids = profile.get("TARGET_CLASS_IDS", [])
     if not isinstance(current_ids, list):
         current_ids = []
 
-    # 2) 更新列表
+    # 2️⃣ 更新集合
     s = set(current_ids)
     if is_checked:
         s.add(target_id)
@@ -107,22 +119,10 @@ def update_class_ids_callback(sender, app_data, user_data):
 
     new_ids = sorted(s)
 
-    # 3) ✅ 写入当前参数组（profiles.json 才会保存到对应组）
-    if active_profile:
-        profile = cfg.get_profile(active_profile)
-        if profile:
-            # dict 或对象两种都兼容
-            if isinstance(profile, dict):
-                profile["TARGET_CLASS_IDS"] = new_ids
-            else:
-                profile.set("TARGET_CLASS_IDS", new_ids)
-
-    # 4) ✅ 同步运行态全局配置（让系统立即生效）
-    cfg.set_config("TARGET_CLASS_IDS", new_ids)
-
+    # 3️⃣ 写回参数组
+    profile.set("TARGET_CLASS_IDS", new_ids)
     dpg.configure_item(
         "status_text",
-        default_value=f"[未保存] 已修改({active_profile}): TARGET_CLASS_IDS = {new_ids}",
+        default_value=f"[未保存] 已修改({edit_profile}): TARGET_CLASS_IDS = {new_ids}",
         color=UIColors.WARNING_ORANGE
     )
-

@@ -334,6 +334,30 @@ def reset_to_defaults() -> bool:
     _config_manager.config = default
     return _config_manager.save_config()
 
+# ================== UI 编辑态 API ==================
+
+_EDIT_PROFILE = DEFAULT_PROFILE_NAME  # UI 当前正在编辑的参数组
+
+
+def set_edit_profile(name: str):
+    global _EDIT_PROFILE
+    _EDIT_PROFILE = name
+
+
+def get_edit_profile() -> str:
+    return _EDIT_PROFILE
+
+
+def ui_get_config(key: str, default=None):
+    return _profile_manager.get(_EDIT_PROFILE, key, default)
+
+
+def ui_set_config(key: str, value):
+    _profile_manager.set(_EDIT_PROFILE, key, value)
+
+
+def ui_save_profiles():
+    return _profile_manager.save_profiles()
 
 # ========== 导出列表 ==========
 

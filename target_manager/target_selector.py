@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Tuple
 import numpy as np
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 
 
 class TargetKalmanFilter:

@@ -1,13 +1,12 @@
 import dearpygui.dearpygui as dpg
 from gui.theme.colors import UIColors
 
-from gui.widgets.basic import add_combo, add_int
+from gui.widgets.basic import add_int
 
 from gui.widgets.tagged import add_int_tagged, add_bool_tagged
 
 from gui.widgets.helpers import create_master_switch_callback
-import config_manager as cfg
-from gui.widgets.basic import add_bool
+from config import config_manager as cfg
 from gui.widgets.helpers import update_dependent_controls
 from gui.widgets.tagged import add_input_text_tagged, add_float_input_tagged, add_int_input_tagged
 

@@ -1,7 +1,7 @@
 """
 鼠标控制器模块 - 工厂入口
 """
-from config_manager import get_config
+from config.config_manager import get_config
 from .mouse_controller import MouseControllerBase
 from .driver_mouse import DriverMouseController
 from .mtkmbox_mouse import MTKMBOXMouseController

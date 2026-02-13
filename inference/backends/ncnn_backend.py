@@ -12,7 +12,7 @@ except ImportError:
     NCNN_AVAILABLE = False
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from ..base import BaseDetector
 from ..exceptions import ModelLoadError, BackendNotAvailableError
 

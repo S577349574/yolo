@@ -5,7 +5,8 @@ from gui.theme.colors import UIColors
 from gui.widgets.tagged import add_int_tagged, add_bool_tagged
 
 from gui.widgets.helpers import create_master_switch_callback
-import config_manager as cfg
+from config import config_manager as cfg
+
 
 def build_preview_tab(blue_notice_theme):
     with dpg.tab(label="预览窗口"):

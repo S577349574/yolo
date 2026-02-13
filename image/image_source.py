@@ -202,7 +202,7 @@ def create_image_source(target_size: Optional[int] = None) -> ImageSource:
     Returns:
         ImageSource 实例
     """
-    from config_manager import get_config
+    from config.config_manager import get_config
 
     source_type = get_config('IMAGE_SOURCE_TYPE', 'local')
 

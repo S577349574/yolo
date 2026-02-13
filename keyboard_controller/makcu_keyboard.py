@@ -5,7 +5,7 @@ Makcu 硬件键盘控制器
 
 import time
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from makcu import create_controller
 
 from keyboard_controller import KeyboardControllerBase

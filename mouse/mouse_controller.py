@@ -14,7 +14,7 @@ from threading import Thread, Event as ThreadEvent, Lock
 import win32api
 
 import utils
-from config_manager import get_config, on_config_change
+from config.config_manager import get_config, on_config_change
 from pid_controller import PIDController
 
 

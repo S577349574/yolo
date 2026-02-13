@@ -1,45 +1,61 @@
+# tab_features.py
 import dearpygui.dearpygui as dpg
-
 from gui.theme.colors import UIColors
+from config import config_manager as cfg
 
-from gui.widgets.tagged import add_combo_tagged
-from gui.widgets.helpers import update_dependent_controls
-from gui.widgets.callbacks import update_class_ids_callback
-from gui.widgets.crosshair_preview import generate_crosshair_preview_callback
-from gui.widgets.preview import update_search_bounds
 from gui.widgets.tagged import (
-    add_input_text_tagged, add_bool_tagged, add_int_tagged,
-    add_float_input_tagged, add_int_input_tagged, add_float_tagged,refresh_all_tagged_controls
+    add_input_text_tagged,
+    add_bool_tagged,
+    add_int_tagged,
+    add_float_input_tagged,
+    add_int_input_tagged,
+    add_float_tagged,
+    add_combo_tagged,
+    refresh_all_tagged_controls
 )
 
-import config_manager as cfg
+from gui.widgets.helpers import update_dependent_controls
+from gui.widgets.preview import update_search_bounds, update_aim_offset_preview
+from gui.widgets.crosshair_preview import generate_crosshair_preview_callback
+from gui.widgets.callbacks import update_class_ids_callback
+from gui.widgets.basic import add_float, add_int
 
-from gui.widgets.basic import add_float
-
-from gui.widgets.basic import add_int
-
-from gui.widgets.preview import update_aim_offset_preview
+import gui.widgets.callbacks as cbs
 
 
-# ---------------------------- 参数组管理：UI 刷新 ----------------------------
+# ============================================================
+# UI刷新辅助
+# ============================================================
 
 def _safe_set(tag: str, value):
     if dpg.does_item_exist(tag):
         dpg.set_value(tag, value)
 
 
+def _get_edit_profile():
+    return cfg.get_profile(cfg.get_edit_profile())
+
+
+def _get_edit_value(key, default=None):
+    """始终从“正在编辑的参数组(edit_profile)”读取，而不是全局运行 config(active)."""
+    p = _get_edit_profile()
+    if not p:
+        return default
+    return p.get(key, default)
+
+
 def refresh_ui_from_config():
-    """把当前全局 config 的值刷新到 UI 控件上（切换参数组后调用）"""
+    """把【正在编辑的参数组(edit_profile)】的值刷新到 UI 控件上（切换编辑参数组后调用）"""
 
     # ===== 准星检测 =====
-    _safe_set("crosshair_detector_type", cfg.get_config("CROSSHAIR_DETECTOR_TYPE"))
-    _safe_set("crosshair_valorant_config", cfg.get_config("CROSSHAIR_VALORANT_CONFIG"))
-    _safe_set("crosshair_template_path", cfg.get_config("CROSSHAIR_TEMPLATE_PATH"))
-    _safe_set("crosshair_use_fallback", cfg.get_config("CROSSHAIR_USE_FALLBACK_CENTER"))
-    _safe_set("crosshair_debug_mode", cfg.get_config("CROSSHAIR_DEBUG_MODE"))
-    _safe_set("crosshair_stats_interval", cfg.get_config("CROSSHAIR_STATS_INTERVAL"))
+    _safe_set("crosshair_detector_type", _get_edit_value("CROSSHAIR_DETECTOR_TYPE"))
+    _safe_set("crosshair_valorant_config", _get_edit_value("CROSSHAIR_VALORANT_CONFIG"))
+    _safe_set("crosshair_template_path", _get_edit_value("CROSSHAIR_TEMPLATE_PATH"))
+    _safe_set("crosshair_use_fallback", _get_edit_value("CROSSHAIR_USE_FALLBACK_CENTER"))
+    _safe_set("crosshair_debug_mode", _get_edit_value("CROSSHAIR_DEBUG_MODE"))
+    _safe_set("crosshair_stats_interval", _get_edit_value("CROSSHAIR_STATS_INTERVAL"))
 
-    bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {})
+    bounds = _get_edit_value("CROSSHAIR_SEARCH_BOUNDS", {})
     _safe_set("crosshair_search_x_left", bounds.get("x_left", -30))
     _safe_set("crosshair_search_x_right", bounds.get("x_right", 30))
     _safe_set("crosshair_search_y_up", bounds.get("y_up", -150))
@@ -54,30 +70,46 @@ def refresh_ui_from_config():
             default_value=f"当前搜索区域: {current_width}×{current_height} 像素"
         )
 
-    _safe_set("crosshair_smooth_factor", cfg.get_config("CROSSHAIR_SMOOTH_FACTOR"))
-    _safe_set("crosshair_max_lost_frames", cfg.get_config("CROSSHAIR_MAX_LOST_FRAMES"))
+    _safe_set("crosshair_smooth_factor", _get_edit_value("CROSSHAIR_SMOOTH_FACTOR"))
+    _safe_set("crosshair_max_lost_frames", _get_edit_value("CROSSHAIR_MAX_LOST_FRAMES"))
 
     # ===== PID 瞄准 =====
-    _safe_set("input_aim_y", cfg.get_config("AIM_Y_RATIO"))
-    _safe_set("input_aim_x", cfg.get_config("AIM_X_OFFSET"))
+    _safe_set("input_aim_y", _get_edit_value("AIM_Y_RATIO"))
+    _safe_set("input_aim_x", _get_edit_value("AIM_X_OFFSET"))
+
 
 def update_combo_box():
-    """更新参数组 ComboBox 的 items 与当前选中值"""
     names = cfg.list_profiles()
-    active = cfg.get_active_profile()
+    edit = cfg.get_edit_profile()
 
     if dpg.does_item_exist("profile_combo_box"):
         dpg.configure_item("profile_combo_box", items=names)
-        # 确保当前值是 items 里的值
-        if active in names:
-            dpg.set_value("profile_combo_box", active)
-        elif names:
-            dpg.set_value("profile_combo_box", names[0])
+        if edit in names:
+            dpg.set_value("profile_combo_box", edit)
 
 
 # ---------------------------- 参数组管理：回调 ----------------------------
+def on_edit_profile_change(profile_name):
+    try:
+        cfg.set_edit_profile(profile_name)
+
+        refresh_all_tagged_controls()
+        refresh_target_class_ids_checkboxes()
+        refresh_non_tagged_controls()
+
+        update_aim_offset_preview()
+
+        print(f"已切换编辑参数组: {profile_name}")
+
+    except Exception as e:
+        print(f"切换失败: {profile_name}, error={e}")
+
 
 def on_profile_change(profile_name):
+    """
+    注意：这是“切换当前使用(active_profile)”的逻辑，
+    它本来就应该影响全局运行 config，所以这里仍然用 cfg.get_config 是合理的。
+    """
     try:
         if not cfg.set_active_profile(profile_name):
             print(f"切换失败: {profile_name}")
@@ -86,7 +118,7 @@ def on_profile_change(profile_name):
         # 1) 刷新所有 tagged 控件（值会跟随 profile 切换）
         refresh_all_tagged_controls()
 
-        refresh_target_class_ids_checkboxes()  # ✅ 新增
+        refresh_target_class_ids_checkboxes()
         # 2) 刷新未标记的控件（例如手写的 input_int 搜索区域）
         refresh_non_tagged_controls()
 
@@ -115,7 +147,7 @@ def on_profile_change(profile_name):
         # --- 视觉识别：头部优先 ---
         update_dependent_controls(
             "ENABLE_HEAD_PRIORITY",
-            ["body_class_id","head_class_id", "head_priority_range", "ignore_small_head", "small_target_threshold"],
+            ["body_class_id", "head_class_id", "head_priority_range", "ignore_small_head", "small_target_threshold"],
             cfg.get_config("ENABLE_HEAD_PRIORITY", True)
         )
 
@@ -168,10 +200,13 @@ def on_profile_change(profile_name):
         print(f"切换失败: {profile_name}, error={e}")
 
 
-
 def refresh_non_tagged_controls():
-    # 搜索区域（你这里是手写 input_int，不是 tagged.py 创建的）
-    bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {})
+    profile = _get_edit_profile()
+    if not profile:
+        return
+
+    bounds = profile.get("CROSSHAIR_SEARCH_BOUNDS", {})
+
     for k, tag in [
         ("x_left", "crosshair_search_x_left"),
         ("x_right", "crosshair_search_x_right"),
@@ -181,7 +216,6 @@ def refresh_non_tagged_controls():
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, bounds.get(k))
 
-    # 搜索区域显示文字
     if dpg.does_item_exist("crosshair_search_area_display"):
         current_width = bounds.get("x_right", 30) - bounds.get("x_left", -30)
         current_height = abs(bounds.get("y_up", -150)) + bounds.get("y_down", 20)
@@ -190,93 +224,47 @@ def refresh_non_tagged_controls():
             default_value=f"当前搜索区域: {current_width}×{current_height} 像素"
         )
 
+
 def create_new_profile():
     name = (dpg.get_value("new_profile_name") or "").strip()
     if not name:
-        print("请输入有效的参数组名称")
         return
 
     try:
         cfg.create_profile(name)
+        cfg.set_edit_profile(name)
         update_combo_box()
-
-        # ✅ 统一走完整切换刷新
-        on_profile_change(name)
-
-        print(f"成功创建新参数组: {name}")
+        on_edit_profile_change(name)
     except Exception as e:
-        print(f"创建参数组失败: {name}, error={e}")
+        print(f"创建失败: {e}")
 
 
 def delete_profile_ui():
-    """删除当前参数组（支持删除激活组）"""
-    active = cfg.get_active_profile()
+    edit = cfg.get_edit_profile()
 
-    # ✅ 1. 检查是否是 default 组
-    if active == "default":
-        print("❌ 不能删除 default 参数组")
-        if dpg.does_item_exist("status_text"):
-            dpg.configure_item(
-                "status_text",
-                default_value="[错误] 不能删除 default 参数组",
-                color=(255, 59, 48, 255)  # 红色
-            )
+    if edit == cfg.DEFAULT_PROFILE_NAME:
         return
 
     try:
-        # ✅ 2. 先切换到 default（或其他可用组）
-        names = cfg.list_profiles()
-        fallback = "default" if "default" in names else None
+        cfg.delete_profile(edit)
 
-        if not fallback:
-            # 如果连 default 都不存在，找第一个不是当前组的
-            fallback = next((n for n in names if n != active), None)
+        fallback = cfg.DEFAULT_PROFILE_NAME
+        cfg.set_edit_profile(fallback)
 
-        if not fallback:
-            print("❌ 没有可用的备用参数组")
-            return
-
-        # 先切换到备用组
-        cfg.set_active_profile(fallback)
-
-        # ✅ 3. 删除原来的组
-        ok = cfg.delete_profile(active)
-        if not ok:
-            print(f"❌ 删除失败: {active}")
-            return
-
-        # ✅ 4. 刷新 UI
         update_combo_box()
-        on_profile_change(fallback)
-
-        print(f"✅ 成功删除参数组: {active}，已切换到: {fallback}")
-
-        if dpg.does_item_exist("status_text"):
-            dpg.configure_item(
-                "status_text",
-                default_value=f"[成功] 已删除 '{active}'，当前: '{fallback}'",
-                color=(52, 199, 89, 255)  # 绿色
-            )
+        on_edit_profile_change(fallback)
 
     except Exception as e:
-        print(f"❌ 删除参数组失败: {active}, error={e}")
-        if dpg.does_item_exist("status_text"):
-            dpg.configure_item(
-                "status_text",
-                default_value=f"[错误] 删除失败: {str(e)}",
-                color=(255, 59, 48, 255)
-            )
+        print(f"删除失败: {e}")
 
 
 # ---------------------------- 构建 UI ----------------------------
-import gui.widgets.callbacks as cbs
 
 def refresh_target_class_ids_checkboxes():
     cbs.IS_REFRESHING_TARGET_IDS_UI = True
     try:
-        ids = cfg.get_config("TARGET_CLASS_IDS", [])
-        if not isinstance(ids, list):
-            ids = []
+        profile = _get_edit_profile()
+        ids = profile.get("TARGET_CLASS_IDS", []) if profile else []
         s = set(int(x) for x in ids)
 
         for i in range(15):
@@ -286,40 +274,37 @@ def refresh_target_class_ids_checkboxes():
     finally:
         cbs.IS_REFRESHING_TARGET_IDS_UI = False
 
+
 def build_features_tab(blue_notice_theme):
     with dpg.tab(label="功能参数"):
+
         dpg.add_text("参数组管理", color=UIColors.APPLE_BLUE)
+
         with dpg.group(horizontal=True):
-            dpg.add_text("创建新的参数组:", color=UIColors.TEXT_GRAY)
             dpg.add_input_text(tag="new_profile_name", width=200)
-            dpg.add_button(label="新建参数组", small=True, callback=lambda: create_new_profile())
-
+            dpg.add_button(label="新建参数组", callback=create_new_profile)
 
         with dpg.group(horizontal=True):
-            dpg.add_text("当前选中要编辑的参数组:", color=UIColors.TEXT_GRAY)
-            active_profile = cfg.get_active_profile()
+
+            edit_profile = cfg.get_edit_profile()
             profile_names = cfg.list_profiles()
 
             dpg.add_combo(
                 items=profile_names,
-                default_value=active_profile,
+                default_value=edit_profile,
                 width=200,
-                callback=lambda s, a: on_profile_change(a),
+                callback=lambda s, a: on_edit_profile_change(a),
                 tag="profile_combo_box"
             )
 
-            dpg.add_button(label="删除参数组", small=True, callback=lambda: delete_profile_ui())
-        dpg.add_text(
-            "参数组包含：准星检测/视觉识别/PID控制/目标追踪/压强配置/自动开火\n"
-            "比如我要新创建一个叫aw的参数，并绑定到右键\n"
-            "第一步：在创建新的参数组输入框中输入AW，\n"
-            "然后调整好PID等参数点击保存所有配置"
-            "然后回到按键策略界面中，在RIGHT下面绑定参数组下拉框选中AW\n"
-            "按键模式设置按住生效，勾选触发逻辑。\n"
-            "这样一个参数组就设置好了，在游戏中长按右键就会使用叫AW的参数组\n"
-            ,
-            color=UIColors.TEXT_GRAY
-        )
+            dpg.add_button(label="删除参数组", callback=delete_profile_ui)
+
+            # 🔥 专业级按钮
+            dpg.add_button(
+                label="应用到当前使用",
+                callback=lambda: cfg.set_active_profile(cfg.get_edit_profile())
+            )
+
         dpg.add_separator()
 
         # ----------------- 下面保持你原来的 TAB 内容即可 -----------------
@@ -365,12 +350,15 @@ def build_features_tab(blue_notice_theme):
                     "crosshair_detector_type"
                 )
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("如果你是三角洲用户，就点击下拉框选择red_dot\n"
-                                 "如果使用red_dot的话，那你的激光不可以同样使用红色的，会对准星锁造成干扰\n"
-                                 "其他模式较为复杂，我后面会出详细的使用方法。\n"
-                                 )
-                dpg.add_text("说明: color=颜色匹配 | template=模板匹配 | cross_shape=十字形状检测",
-                             color=UIColors.TEXT_GRAY, indent=20)
+                    dpg.add_text(
+                        "如果你是三角洲用户，就点击下拉框选择red_dot\n"
+                        "如果使用red_dot的话，那你的激光不可以同样使用红色的，会对准星锁造成干扰\n"
+                        "其他模式较为复杂，我后面会出详细的使用方法。\n"
+                    )
+                dpg.add_text(
+                    "说明: color=颜色匹配 | template=模板匹配 | cross_shape=十字形状检测",
+                    color=UIColors.TEXT_GRAY, indent=20
+                )
 
                 dpg.add_separator()
                 dpg.add_text("Valorant 准星配置", color=UIColors.SECTION_HEADER)
@@ -381,8 +369,10 @@ def build_features_tab(blue_notice_theme):
                     "crosshair_valorant_config"
                 )
 
-                dpg.add_text("示例: 0;P;c;5;o;1;d;1;0t;1;0l;2;0o;2;0a;1;0f;0;1b;0",
-                             color=UIColors.TEXT_GRAY, indent=20)
+                dpg.add_text(
+                    "示例: 0;P;c;5;o;1;d;1;0t;1;0l;2;0o;2;0a;1;0f;0;1b;0",
+                    color=UIColors.TEXT_GRAY, indent=20
+                )
 
                 dpg.add_button(
                     label="生成预览",
@@ -414,8 +404,10 @@ def build_features_tab(blue_notice_theme):
                     "crosshair_template_path"
                 )
 
-                dpg.add_text("说明:用于 template 模式,支持相对/绝对路径",
-                             color=UIColors.TEXT_GRAY, indent=20)
+                dpg.add_text(
+                    "说明:用于 template 模式,支持相对/绝对路径",
+                    color=UIColors.TEXT_GRAY, indent=20
+                )
 
                 dpg.add_separator()
                 dpg.add_text("高级选项", color=UIColors.SECTION_HEADER)
@@ -447,8 +439,8 @@ def build_features_tab(blue_notice_theme):
                     wrap=400
                 )
 
-                # 获取当前配置
-                bounds = cfg.get_config("CROSSHAIR_SEARCH_BOUNDS", {
+                # ✅ 获取【正在编辑的参数组(edit_profile)】配置（不是全局运行 config）
+                bounds = _get_edit_value("CROSSHAIR_SEARCH_BOUNDS", {
                     "x_left": -30,
                     "x_right": 30,
                     "y_up": -150,
@@ -534,31 +526,39 @@ def build_features_tab(blue_notice_theme):
 
                 dpg.add_separator()
 
+                # ✅ 初始化依赖状态：用 edit_profile
+                update_dependent_controls(
+                    "ENABLE_CROSSHAIR_DETECTION",
+                    crosshair_deps,
+                    _get_edit_value("ENABLE_CROSSHAIR_DETECTION", True)
+                )
+
             # ================= TAB 5: 视觉识别 =================
             with dpg.tab(label="视觉识别"):
                 dpg.add_text("检测参数", color=UIColors.APPLE_BLUE)
                 add_float("CONF_THRESHOLD", "置信度阈值", 0.1, 0.99)
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("置信度越高，程序越‘挑剔’。如果发现准星经常锁定在墙壁、草地等非目标物体上（锁环境），请调高此值。\n"
-                                 "如果调的很高比如0.6还是锁环境，那就说明你使用的onnx模型比较垃圾换一个。\n"
-                                 )
+                    dpg.add_text(
+                        "置信度越高，程序越‘挑剔’。如果发现准星经常锁定在墙壁、草地等非目标物体上（锁环境），请调高此值。\n"
+                        "如果调的很高比如0.6还是锁环境，那就说明你使用的onnx模型比较垃圾换一个。\n"
+                    )
                 add_float("IOU_THRESHOLD", "重叠剔除 (IOU)", 0.1, 0.99)
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("如果你发现准星经常在同一个目标身上反复横跳，可以尝试稍微调低一点点（如 0.45）\n"
-                                 "如果你发现两个敌人走在一起时，其中一个人的框经常消失，可以尝试稍微调高一点点（如 0.55）\n"
-                                 )
+                    dpg.add_text(
+                        "如果你发现准星经常在同一个目标身上反复横跳，可以尝试稍微调低一点点（如 0.45）\n"
+                        "如果你发现两个敌人走在一起时，其中一个人的框经常消失，可以尝试稍微调高一点点（如 0.55）\n"
+                    )
                 dpg.add_separator()
                 dpg.add_text("目标 ID 选择", color=UIColors.APPLE_BLUE)
 
-                current_ids = cfg.get_config("TARGET_CLASS_IDS", [])
+                # ✅ 用 edit_profile 的 TARGET_CLASS_IDS
+                current_ids = _get_edit_value("TARGET_CLASS_IDS", [])
                 with dpg.table(header_row=False, borders_innerH=False, borders_outerH=False,
                                borders_innerV=False, borders_outerV=False):
 
-                    # 添加8列
                     for _ in range(8):
                         dpg.add_table_column()
 
-                    # 添加2行（15个ID需要2行）
                     for row in range(2):
                         with dpg.table_row():
                             for col in range(8):
@@ -573,7 +573,7 @@ def build_features_tab(blue_notice_theme):
                                         user_data=i
                                     )
                                 else:
-                                    dpg.add_text("")  # 空占位
+                                    dpg.add_text("")
 
                 dpg.add_separator()
                 dpg.add_text("头部优先策略", color=UIColors.SECTION_HEADER)
@@ -625,52 +625,46 @@ def build_features_tab(blue_notice_theme):
                 dpg.add_text("适用场景:远距离目标 / 头部抖动严重时",
                              color=UIColors.TEXT_GRAY)
 
+                # ✅ 初始化依赖状态：用 edit_profile
                 update_dependent_controls(
                     "ENABLE_HEAD_PRIORITY",
                     head_priority_deps,
-                    cfg.get_config("ENABLE_HEAD_PRIORITY", True)
+                    _get_edit_value("ENABLE_HEAD_PRIORITY", True)
                 )
                 update_dependent_controls(
                     "IGNORE_SMALL_TARGET_HEAD",
                     small_target_deps,
-                    cfg.get_config("IGNORE_SMALL_TARGET_HEAD", True)
+                    _get_edit_value("IGNORE_SMALL_TARGET_HEAD", True)
                 )
 
             # ================= TAB 6: PID 瞄准 =================
             with dpg.tab(label="PID 控制"):
-                # 上部分：参数设置
                 dpg.add_text("瞄准偏移参数", color=UIColors.APPLE_BLUE)
                 with dpg.group(horizontal=False):
                     add_float_input_tagged(
                         "AIM_Y_RATIO",
                         "Y轴 瞄准高度",
                         tag="input_aim_y",
-                        format="%.3f",
-                        callback=lambda s, a, u: update_aim_offset_preview()  # ✅ 添加预览更新
+                        callback=lambda s, a, u: update_aim_offset_preview()
                     )
 
                     add_float_input_tagged(
                         "AIM_X_OFFSET",
                         "X轴 微调偏移",
                         tag="input_aim_x",
-                        format="%.3f",
-                        callback=lambda s, a, u: update_aim_offset_preview()  # ✅ 添加预览更新
+                        callback=lambda s, a, u: update_aim_offset_preview()
                     )
-
-                # 中部分：预览面板 (放在参数下方)
 
                 dpg.add_text("实时瞄准位置预览", color=UIColors.APPLE_BLUE)
                 with dpg.group(horizontal=True):
                     with dpg.child_window(width=300, height=180, border=True, no_scrollbar=True):
                         with dpg.group(horizontal=True):
-                            # 绘制区
                             with dpg.drawlist(width=100, height=160, tag="aim_preview_drawlist"):
                                 dpg.add_draw_node(tag="aim_preview_node")
                             dpg.bind_item_handler_registry("aim_preview_drawlist", "preview_handler")
-                            # 右侧说明文字
                             with dpg.group():
                                 dpg.add_spacer(height=40)
-                                dpg.add_text("支持鼠标直接拖拽圆点", color=UIColors.SUCCESS_GREEN)  # 提示用户
+                                dpg.add_text("支持鼠标直接拖拽圆点", color=UIColors.SUCCESS_GREEN)
                                 dpg.add_text("调整结果将自动同步", color=UIColors.TEXT_GRAY)
 
                 dpg.add_separator()
@@ -703,8 +697,10 @@ def build_features_tab(blue_notice_theme):
                 add_int("MAX_SINGLE_MOVE_PX", "单帧最大移动像素", 1, 2000)
                 add_int("PRECISION_DEAD_ZONE", "瞄准死区 (像素)", 0, 50)
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("在这个像素范围内，准星不会再微调。\n"
-                                 "设为 2 到 5 可以有效消除准星在锁定目标时的‘微颤’感。")
+                    dpg.add_text(
+                        "在这个像素范围内，准星不会再微调。\n"
+                        "设为 2 到 5 可以有效消除准星在锁定目标时的‘微颤’感。"
+                    )
                 add_int("DEFAULT_DELAY_MS_PER_STEP", "每步延迟 (ms)", 0, 50)
 
             # ================= TAB 7: 目标追踪 =================
@@ -810,14 +806,18 @@ def build_features_tab(blue_notice_theme):
                         "  10: 目标消失 0.16 秒内,准星会继续预测移动。\n"
                         "  0: 目标一消失,准星立刻停止移动。\n"
                     )
+
+                # ✅ 初始化依赖状态：用 edit_profile
                 update_dependent_controls(
                     "USE_KALMAN_FILTER",
                     kalman_deps,
-                    cfg.get_config("USE_KALMAN_FILTER", True)
+                    _get_edit_value("USE_KALMAN_FILTER", True)
                 )
+
                 dpg.add_separator()
                 dpg.add_text("EMA 平滑 (备用)", color=UIColors.SECTION_HEADER)
                 add_float("AIM_POINT_SMOOTH_ALPHA", "瞄准点平滑系数 (仅在禁用卡尔曼时生效)", 0.01, 1.0)
+
                 dpg.add_separator()
                 dpg.add_text("移动预判", color=UIColors.SECTION_HEADER)
                 with dpg.tooltip(dpg.last_item()):
@@ -842,9 +842,7 @@ def build_features_tab(blue_notice_theme):
                     )
                 )
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "根据目标的移动速度,预测他未来的位置,提前瞄准。\n"
-                    )
+                    dpg.add_text("根据目标的移动速度,预测他未来的位置,提前瞄准。\n")
                 add_int_tagged("LEAD_FRAMES", "预判提前量 (帧)", 0, 30, "lead_frames")
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
@@ -853,11 +851,14 @@ def build_features_tab(blue_notice_theme):
                         "  5: 预测 0.08 秒后的位置(适合中距离)。\n"
                         "  0: 预测 0.16 秒后的位置(适合远距离狙击)。\n"
                     )
+
+                # ✅ 初始化依赖状态：用 edit_profile
                 update_dependent_controls(
                     "ENABLE_LEAD_TARGET",
                     lead_deps,
-                    cfg.get_config("ENABLE_LEAD_TARGET", False)
+                    _get_edit_value("ENABLE_LEAD_TARGET", False)
                 )
+
             # ================= TAB 8: 压枪系统 =================
             with dpg.tab(label="压枪配置"):
                 dpg.add_text("总开关", color=UIColors.APPLE_BLUE)
@@ -903,10 +904,11 @@ def build_features_tab(blue_notice_theme):
                 add_float_tagged("RECOIL_MAX_SINGLE_MOVE_X", "X轴 最大单次", 1.0, 200.0, "recoil_max_x")
                 add_float_tagged("RECOIL_MAX_SINGLE_MOVE_Y", "Y轴 最大单次", 1.0, 200.0, "recoil_max_y")
 
+                # ✅ 初始化依赖状态：用 edit_profile
                 update_dependent_controls(
                     "ENABLE_MANUAL_RECOIL",
                     recoil_deps,
-                    cfg.get_config("ENABLE_MANUAL_RECOIL", True)
+                    _get_edit_value("ENABLE_MANUAL_RECOIL", True)
                 )
 
             # ================= TAB 9: 自动开火 =================
@@ -927,15 +929,17 @@ def build_features_tab(blue_notice_theme):
                 add_bool_tagged("AUTO_FIRE_DEBUG_MODE", "自动开火调试", "autofire_debug")
 
                 dpg.add_separator()
-                dpg.add_text("触发阈值", color=UIColors.ERROR_RED)  # 保持醒目，但稍微调暗
+                dpg.add_text("触发阈值", color=UIColors.ERROR_RED)
                 add_float_tagged("AUTO_FIRE_ACCURACY_THRESHOLD", "准星重合度 (0.1-1.0)",
                                  0.1, 1.0, "autofire_acc")
                 add_float_tagged("AUTO_FIRE_DISTANCE_THRESHOLD", "距离像素阈值",
                                  1.0, 200.0, "autofire_dist")
                 add_int_tagged("AUTO_FIRE_MIN_LOCK_FRAMES", "开火前需锁定帧数",
                                0, 100, "autofire_lock")
+
+                # ✅ 初始化依赖状态：用 edit_profile
                 update_dependent_controls(
                     "ENABLE_AUTO_FIRE",
                     autofire_deps,
-                    cfg.get_config("ENABLE_AUTO_FIRE", False)
+                    _get_edit_value("ENABLE_AUTO_FIRE", False)
                 )

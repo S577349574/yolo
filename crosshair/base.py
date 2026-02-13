@@ -5,7 +5,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 import numpy as np
-from config_manager import get_config
+from config.config_manager import get_config
 
 
 class CrosshairDetector(ABC):

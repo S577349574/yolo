@@ -1,7 +1,8 @@
 import dearpygui.dearpygui as dpg
 from gui.theme.colors import UIColors
 from gui.widgets.basic import add_input_text, add_combo, add_bool, add_int
-import config_manager as cfg
+from config import config_manager as cfg
+
 
 def build_system_tab(blue_notice_theme):
     with dpg.tab(label="基础 & 系统"):

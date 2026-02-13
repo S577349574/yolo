@@ -5,9 +5,9 @@ Makcu 硬件模式鼠标控制器 (队列优化版)
 import time
 import queue
 import threading
-from typing import Optional, Tuple
+from typing import Optional
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from makcu import create_controller, MouseButton
 from mouse import MouseControllerBase
 

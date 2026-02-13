@@ -8,7 +8,14 @@ import utils
 
 
 class KeyMonitorBase(ABC):
-    """按键监控抽象基类"""
+    """
+    新方案说明：
+
+    - 逻辑触发由 KEY_PROFILE_BINDINGS[key].trigger 决定
+    - 参数组切换由 KEY_PROFILE_BINDINGS[key].profile + mode(hold/toggle) 决定
+    - hold：按住期间临时切 profile；松开后恢复(toggle/previous/fallback)
+    - toggle：按下切到指定 profile 并保持（不会再按一次切回），但逻辑触发仍是按住语义（按下触发，松开释放）
+    """
 
     def __init__(
             self,
@@ -20,7 +27,6 @@ class KeyMonitorBase(ABC):
             enable_mouse5: bool = False,
             enable_auto_fire: bool = False,
             poll_interval: float = 0.05,
-
     ):
         self.app_state = app_state
 
@@ -65,21 +71,13 @@ class KeyMonitorBase(ABC):
         self._hold_override_active: bool = False
         self._hold_prev_profile: Optional[str] = None
         self._active_profile_cache: Optional[str] = None
-        self._ui_focus_mode = False
         # 初始化缓存为当前激活参数组（可选）
         try:
-            from config_manager import get_active_profile
+            from config.config_manager import get_active_profile
             self._active_profile_cache = get_active_profile()
         except Exception:
             self._active_profile_cache = None
 
-    def set_ui_focus_mode(self, enabled: bool):
-        """设置 UI 焦点模式（禁用参数组切换）"""
-        self._ui_focus_mode = enabled
-        if enabled:
-            utils.log_debug("[KeyMonitor] UI 焦点模式：已暂停参数组切换")
-        else:
-            utils.log_debug("[KeyMonitor] UI 焦点模式：已恢复参数组切换")
     # ==================== 抽象方法 ====================
 
     @abstractmethod
@@ -181,16 +179,16 @@ class KeyMonitorBase(ABC):
             bindings, default_mode, priority, fallback_profile, hold_policy, enabled_binding
         """
         try:
-            from config_manager import get_config
+            from config.config_manager import get_config
             enabled = bool(get_config("ENABLE_KEY_PROFILE_BINDING", True))
             bindings = get_config("KEY_PROFILE_BINDINGS", {}) or {}
             default_mode = get_config("KEY_PROFILE_DEFAULT_MODE", "hold")
-            priority = get_config("KEY_PROFILE_PRIORITY", ["left","right", "mouse5", "mouse4"]) or []
+            priority = get_config("KEY_PROFILE_PRIORITY", ["left", "right", "mouse5", "mouse4"]) or []
             fallback = get_config("KEY_PROFILE_FALLBACK", "default")
             policy = get_config("HOLD_FALLBACK_POLICY", "previous")
             return bindings, default_mode, priority, fallback, policy, enabled
         except Exception:
-            return {}, "hold", ["left","right", "mouse5", "mouse4"], "default", "previous", True
+            return {}, "hold", ["left", "right", "mouse5", "mouse4"], "default", "previous", True
 
     def _parse_binding(self, val: Any, default_mode: str) -> Optional[Dict[str, Any]]:
         """
@@ -220,7 +218,7 @@ class KeyMonitorBase(ABC):
 
     def _profile_exists(self, name: str) -> bool:
         try:
-            from config_manager import list_profiles
+            from config.config_manager import list_profiles
             return bool(name) and (name in list_profiles())
         except Exception:
             return False
@@ -235,7 +233,7 @@ class KeyMonitorBase(ABC):
             return
 
         try:
-            from config_manager import set_active_profile
+            from config.config_manager import set_active_profile
             if set_active_profile(name):
                 self._active_profile_cache = name
                 utils.log(f"[KeyMonitor] 参数组切换 -> {name}")
@@ -277,7 +275,7 @@ class KeyMonitorBase(ABC):
                     # 第一次进入 hold，记录进入前 profile
                     if not self._hold_override_active:
                         try:
-                            from config_manager import get_active_profile
+                            from config.config_manager import get_active_profile
                             self._hold_prev_profile = get_active_profile()
                         except Exception:
                             self._hold_prev_profile = None
@@ -449,11 +447,10 @@ class KeyMonitorBase(ABC):
         if not b:
             return
 
-        if not self._ui_focus_mode:
-            self._handle_toggle_press(key_name, b)
-            self._evaluate_hold_profiles()
-            if b.get("trigger", True):
-                self._trigger_press(key_name)
+        self._handle_toggle_press(key_name, b)
+        self._evaluate_hold_profiles()
+        if b.get("trigger", True):
+            self._trigger_press(key_name)
 
 
     def _on_physical_release(self, key_name: str):
@@ -468,8 +465,7 @@ class KeyMonitorBase(ABC):
         if b and b.get("trigger", True):
             self._trigger_release(key_name)
 
-        if not self._ui_focus_mode:
-            self._handle_hold_release()
+        self._handle_hold_release()
 
     # ==================== 监控循环 ====================
 
@@ -539,7 +535,7 @@ class KeyMonitorBase(ABC):
             f"mouse4={self.enable_mouse4}, mouse5={self.enable_mouse5}"
         )
         try:
-            from config_manager import get_config
+            from config.config_manager import get_config
             utils.log(f"  - ENABLE_KEY_PROFILE_BINDING={get_config('ENABLE_KEY_PROFILE_BINDING', True)}")
             utils.log(f"  - KEY_PROFILE_DEFAULT_MODE={get_config('KEY_PROFILE_DEFAULT_MODE', 'hold')}")
             utils.log(f"  - KEY_PROFILE_PRIORITY={get_config('KEY_PROFILE_PRIORITY', ['right','mouse5','mouse4'])}")

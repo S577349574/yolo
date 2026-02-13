@@ -1,7 +1,6 @@
-import sys
 import threading
 import dearpygui.dearpygui as dpg
-import config_manager as cfg
+from config import config_manager as cfg
 import os
 import glob
 import cv2

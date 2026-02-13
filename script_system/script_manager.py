@@ -12,7 +12,7 @@ from .script_engine import ScriptEngine
 from .script_api import ScriptAPI
 # 导入修改后的执行器和模式
 from .async_script_executor import AsyncScriptExecutor, ExecutionMode
-from config_manager import get_config
+from config.config_manager import get_config
 import utils
 
 

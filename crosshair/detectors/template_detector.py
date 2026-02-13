@@ -7,7 +7,7 @@ import numpy as np
 import os
 from typing import Optional, Tuple
 from ..base import CrosshairDetector
-from config_manager import get_config
+from config.config_manager import get_config
 import utils
 
 

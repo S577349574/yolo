@@ -6,7 +6,7 @@ import math
 import sys
 from pathlib import Path
 
-from config_manager import get_config  # ← 添加这一行
+from config.config_manager import get_config  # ← 添加这一行
 
 _app_dir = None  # 缓存，避免重复计算
 

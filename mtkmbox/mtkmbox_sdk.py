@@ -67,6 +67,10 @@ class MTKMBOX:
         self._lock = threading.Lock()  # 串口操作锁
         self._connected = False
 
+        # 🔥 模拟按住相关
+        self._hold_threads: Dict[str, Dict] = {}  # 存储按住线程
+        self._hold_locks: Dict[str, threading.Lock] = {}  # 每个按键的锁
+
         # 设置日志
         self.logger = logging.getLogger('MTKMBOX')
         if debug:
@@ -157,9 +161,8 @@ class MTKMBOX:
             self.logger.warning(f"端口扫描失败: {e}")
             return []
 
-    # mtkmbox_sdk.py 改进
     def _send_command(self, command: str, wait_response: bool = True) -> Optional[str]:
-        """简化版：移除重试循环（对于鼠标移动不需要）"""
+        """发送命令到设备"""
         if not self.ser or not self.ser.is_open:
             raise MTKMBOXCommandError("串口未打开")
 
@@ -169,9 +172,11 @@ class MTKMBOX:
                 self.ser.write(f'{command}\r\n'.encode('utf-8'))
 
                 if not wait_response:
+                    # 🔥 关键修复：即使不等待响应，也要给硬件处理时间
+                    time.sleep(0.005)  # 5ms 最小延迟
                     return None
 
-                # ⭐ 使用非阻塞读取 + 短暂重试
+                # 使用非阻塞读取 + 短暂重试
                 for _ in range(5):  # 最多等待 5 次
                     if self.ser.in_waiting > 0:
                         response = self.ser.read(self.ser.in_waiting)
@@ -221,6 +226,7 @@ class MTKMBOX:
         """检查连接状态"""
         return self._connected and self.ser is not None and self.ser.is_open
 
+
     def move(self, dx: int, dy: int) -> bool:
         """
         移动鼠标
@@ -237,6 +243,7 @@ class MTKMBOX:
             dx = max(-127, min(127, dx))
             dy = max(-127, min(127, dy))
 
+            # 🔥 移动指令可以不等待响应（性能优化）
             self._send_command(f'km.move({dx},{dy})', wait_response=False)
             return True
         except Exception as e:
@@ -258,7 +265,12 @@ class MTKMBOX:
 
         try:
             cmd = self.BUTTON_MAP[button]['press']
-            self._send_command(cmd, wait_response=False)
+            # 🔥 修复：按键操作等待响应（确保执行完成）
+            response = self._send_command(cmd, wait_response=True)
+
+            if self.debug:
+                self.logger.debug(f"按下 {button}: {response}")
+
             return True
         except Exception as e:
             self.logger.error(f"按下按键失败 ({button}): {e}")
@@ -279,7 +291,12 @@ class MTKMBOX:
 
         try:
             cmd = self.BUTTON_MAP[button]['release']
-            self._send_command(cmd, wait_response=False)
+            # 🔥 修复：按键操作等待响应（确保执行完成）
+            response = self._send_command(cmd, wait_response=True)
+
+            if self.debug:
+                self.logger.debug(f"释放 {button}: {response}")
+
             return True
         except Exception as e:
             self.logger.error(f"释放按键失败 ({button}): {e}")
@@ -300,6 +317,147 @@ class MTKMBOX:
             return False
         time.sleep(delay)
         return self.release(button)
+
+    # 🔥 新增：模拟按住功能
+    def hold(self, button: str, interval: float = 0.01, click_duration: float = 0.001) -> bool:
+        """
+        模拟按住按键（通过快速连续点击实现）
+
+        Args:
+            button: 按键名称 ('left', 'right', 'middle', 'x1', 'x2')
+            interval: 点击间隔（秒），默认 10ms（100Hz）
+            click_duration: 每次点击的按下时间（秒），默认 1ms
+
+        Returns:
+            bool: 是否成功启动
+        """
+        if button not in self.BUTTON_MAP:
+            raise ValueError(f"未知按键: {button}")
+
+        # 如果已经在按住，先停止
+        if button in self._hold_threads:
+            self.release_hold(button)
+
+        # 创建按键锁
+        if button not in self._hold_locks:
+            self._hold_locks[button] = threading.Lock()
+
+        # 启动按住线程
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._hold_loop,
+            args=(button, interval, click_duration, stop_event),
+            daemon=True,
+            name=f"Hold-{button}"
+        )
+
+        self._hold_threads[button] = {
+            'thread': thread,
+            'stop_event': stop_event,
+            'start_time': time.time()
+        }
+
+        thread.start()
+
+        if self.debug:
+            self.logger.debug(f"开始模拟按住 {button} (间隔: {interval*1000:.1f}ms, 按下时长: {click_duration*1000:.1f}ms)")
+
+        return True
+
+    def _hold_loop(self, button: str, interval: float, click_duration: float, stop_event: threading.Event):
+        """按住循环（内部方法）"""
+        press_cmd = self.BUTTON_MAP[button]['press']
+        release_cmd = self.BUTTON_MAP[button]['release']
+
+        try:
+            while not stop_event.is_set():
+                # 快速按下-释放
+                with self._lock:
+                    self.ser.write(f'{press_cmd}\r\n'.encode('utf-8'))
+                    time.sleep(click_duration)  # 按下时长
+                    self.ser.write(f'{release_cmd}\r\n'.encode('utf-8'))
+
+                # 等待下次点击
+                time.sleep(interval - click_duration)
+
+        except Exception as e:
+            self.logger.error(f"按住循环异常 ({button}): {e}")
+
+    def release_hold(self, button: str) -> bool:
+        """
+        停止模拟按住
+
+        Args:
+            button: 按键名称
+
+        Returns:
+            bool: 是否成功停止
+        """
+        if button not in self._hold_threads:
+            if self.debug:
+                self.logger.debug(f"按键 {button} 未在按住状态")
+            return False
+
+        try:
+            # 停止线程
+            hold_info = self._hold_threads[button]
+            hold_info['stop_event'].set()
+            hold_info['thread'].join(timeout=0.5)
+
+            # 计算按住时长
+            duration = time.time() - hold_info['start_time']
+
+            # 清理
+            del self._hold_threads[button]
+
+            # 确保按键释放
+            release_cmd = self.BUTTON_MAP[button]['release']
+            with self._lock:
+                self.ser.write(f'{release_cmd}\r\n'.encode('utf-8'))
+
+            if self.debug:
+                self.logger.debug(f"停止模拟按住 {button} (持续: {duration:.2f}s)")
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"停止按住失败 ({button}): {e}")
+            return False
+
+    def is_holding(self, button: str) -> bool:
+        """
+        检查是否正在模拟按住
+
+        Args:
+            button: 按键名称
+
+        Returns:
+            bool: 是否正在按住
+        """
+        return button in self._hold_threads
+
+    def get_hold_info(self, button: str) -> Optional[Dict]:
+        """
+        获取按住信息
+
+        Args:
+            button: 按键名称
+
+        Returns:
+            dict: 按住信息（包含开始时间、持续时长等），如果未按住则返回 None
+        """
+        if button not in self._hold_threads:
+            return None
+
+        hold_info = self._hold_threads[button]
+        duration = time.time() - hold_info['start_time']
+
+        return {
+            'button': button,
+            'start_time': hold_info['start_time'],
+            'duration': duration,
+            'is_active': hold_info['thread'].is_alive()
+        }
 
     def get_button_state(self, button: str) -> int:
         """
@@ -350,11 +508,19 @@ class MTKMBOX:
             'pid': f"0x{self.pid:04X}",
             'baudrate': self.baudrate,
             'connected': self._connected,
-            'version': 'MTKMBOX v1.0'  # 如有版本查询命令可替换
+            'version': 'MTKMBOX v1.0',
+            'holding_buttons': list(self._hold_threads.keys())  # 🔥 新增：正在按住的按键
         }
 
     def close(self):
         """关闭连接"""
+        # 🔥 停止所有按住线程
+        for button in list(self._hold_threads.keys()):
+            try:
+                self.release_hold(button)
+            except Exception as e:
+                self.logger.error(f"停止按住 {button} 失败: {e}")
+
         if self.ser and self.ser.is_open:
             try:
                 # 释放所有按键

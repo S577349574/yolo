@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
 
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.theme.colors import UIColors
 
 

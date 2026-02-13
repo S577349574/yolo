@@ -86,6 +86,7 @@ VALIDATION_RULES: Dict[str, tuple] = {
     # 自动开火
     "AUTO_FIRE_ACCURACY_THRESHOLD": (0.1, 0.99, float, 0.5),
     "AUTO_FIRE_DISTANCE_THRESHOLD": (1.0, 200.0, float, 15.0),
+    "AUTO_FIRE_DELAY": (0.0, 200.0, float, 0.3),
     "AUTO_FIRE_MIN_LOCK_FRAMES": (1, 100, int, 3),
 
     # 压枪触发
@@ -389,6 +390,9 @@ class ConfigValidator:
         # ==================== 按键-参数组绑定（新方案）校验 ====================
 
         # ENABLE_KEY_PROFILE_BINDING
+        # ==================== 按键-参数组绑定（新方案）校验 ====================
+
+        # ENABLE_KEY_PROFILE_BINDING
         if not isinstance(c.get("ENABLE_KEY_PROFILE_BINDING", True), bool):
             c["ENABLE_KEY_PROFILE_BINDING"] = True
 
@@ -398,75 +402,64 @@ class ConfigValidator:
             c["KEY_PROFILE_DEFAULT_MODE"] = "hold"
 
         # KEY_PROFILE_BINDINGS
+        allowed_keys = {"left", "right", "mouse4", "mouse5"}
+        default_mode = c.get("KEY_PROFILE_DEFAULT_MODE", "hold")
+        default_bindings = self._defaults.get("KEY_PROFILE_BINDINGS", {})
+
+        def _default_binding_for(key: str) -> Dict[str, Any]:
+            dv = default_bindings.get(key)
+            if isinstance(dv, dict):
+                return {
+                    "profile": str(dv.get("profile", "default")) if dv.get("profile",
+                                                                           "default") is not None else "default",
+                    "mode": dv.get("mode", default_mode) if dv.get("mode", default_mode) in ["hold",
+                                                                                             "toggle"] else default_mode,
+                    "trigger": dv.get("trigger", True) if isinstance(dv.get("trigger", True), bool) else True,
+                }
+            return {"profile": "default", "mode": default_mode, "trigger": True}
+
         bindings = c.get("KEY_PROFILE_BINDINGS", {})
         if not isinstance(bindings, dict):
-            c["KEY_PROFILE_BINDINGS"] = {}
-        else:
-            # bindings 的 value 允许 str 或 dict
+            bindings = {}
 
-            # KEY_PROFILE_BINDINGS（不允许简写；必须包含所有键；每个键必须包含 profile/mode/trigger）
-            allowed_keys = {"left", "right", "mouse4", "mouse5"}
+        fixed: Dict[str, Dict[str, Any]] = {}
 
-            # 从 defaults 里拿默认 bindings（如果没有就用通用默认）
-            default_mode = c.get("KEY_PROFILE_DEFAULT_MODE", "hold")
-            default_bindings = self._defaults.get("KEY_PROFILE_BINDINGS", {})
+        # 遍历所有允许的键
+        for k in allowed_keys:
+            user_val = bindings.get(k)
 
-            def _default_binding_for(key: str) -> Dict[str, Any]:
-                dv = default_bindings.get(key)
-                if isinstance(dv, dict):
-                    # 确保 defaults 里也有完整字段
-                    return {
-                        "profile": str(dv.get("profile", "default")) if dv.get("profile",
-                                                                               "default") is not None else "default",
-                        "mode": dv.get("mode", default_mode) if dv.get("mode", default_mode) in ["hold",
-                                                                                                 "toggle"] else default_mode,
-                        "trigger": dv.get("trigger", True) if isinstance(dv.get("trigger", True), bool) else True,
-                    }
-                # 通用默认
-                return {"profile": "default", "mode": default_mode, "trigger": True}
-
-            bindings = c.get("KEY_PROFILE_BINDINGS", {})
-            if not isinstance(bindings, dict):
-                bindings = {}
-
-            fixed: Dict[str, Dict[str, Any]] = {}
-
-            # 1) 强制包含所有 allowed_keys
-            for k in allowed_keys:
+            # 如果用户没有配置这个键，使用默认值
+            if user_val is None:
                 fixed[k] = _default_binding_for(k)
+                continue
 
-            # 2) 校验/覆盖用户输入（不接受 str 简写；非 dict 直接忽略）
-            for k, v in bindings.items():
-                if k not in allowed_keys:
-                    continue
+            # 如果用户配置不是 dict，使用默认值
+            if not isinstance(user_val, dict):
+                self._log(f"⚠️ KEY_PROFILE_BINDINGS.{k} 必须是 dict，已使用默认值")
+                fixed[k] = _default_binding_for(k)
+                continue
 
-                if not isinstance(v, dict):
-                    # 不允许简写/其它类型，直接丢弃，保留默认
-                    self._log(f"⚠️ KEY_PROFILE_BINDINGS.{k} 必须是 dict，已忽略非法值并使用默认")
-                    continue
+            # 校验用户配置的每个字段
+            dv = _default_binding_for(k)
 
-                # 必须包含所有字段：profile/mode/trigger（缺失则补默认）
-                dv = _default_binding_for(k)
+            # profile：允许空字符串（用于禁用该键的参数组切换）
+            profile = user_val.get("profile", dv["profile"])
+            if not isinstance(profile, str):
+                profile = dv["profile"]
 
-                profile = v.get("profile", dv["profile"])
-                mode = v.get("mode", dv["mode"])
-                trigger = v.get("trigger", dv["trigger"])
+            # mode：必须是 hold 或 toggle
+            mode = user_val.get("mode", dv["mode"])
+            if mode not in ["hold", "toggle"]:
+                mode = dv["mode"]
 
-                # profile 必须是 str（允许空字符串？这里按“必须是有效字符串”处理：空/非str -> 默认）
-                if not isinstance(profile, str) or not profile.strip():
-                    profile = dv["profile"]
+            # trigger：必须是 bool
+            trigger = user_val.get("trigger", dv["trigger"])
+            if not isinstance(trigger, bool):
+                trigger = dv["trigger"]
 
-                # mode 必须 hold/toggle
-                if mode not in ["hold", "toggle"]:
-                    mode = dv["mode"]
+            fixed[k] = {"profile": profile, "mode": mode, "trigger": trigger}
 
-                # trigger 必须 bool
-                if not isinstance(trigger, bool):
-                    trigger = dv["trigger"]
-
-                fixed[k] = {"profile": profile, "mode": mode, "trigger": trigger}
-
-            c["KEY_PROFILE_BINDINGS"] = fixed
+        c["KEY_PROFILE_BINDINGS"] = fixed
 
         # KEY_PROFILE_PRIORITY
         if not isinstance(c.get("KEY_PROFILE_PRIORITY"), list):

@@ -8,7 +8,7 @@ import win32service
 import win32serviceutil
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 
 # 错误码常量
 ERROR_SERVICE_DOES_NOT_EXIST = 1060

@@ -9,7 +9,7 @@ from typing import List, Dict, Optional, Tuple
 import colorsys
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 
 
 class PreviewWindow:
@@ -458,7 +458,7 @@ class PreviewWindow:
 
         注意：此区域表示检测器实际的搜索范围，不会跟随准星移动
         """
-        from config_manager import get_config
+        from config.config_manager import get_config
         bounds = get_config('CROSSHAIR_SEARCH_BOUNDS', {
             'x_left': -30,
             'x_right': 30,

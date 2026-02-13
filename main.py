@@ -1,5 +1,3 @@
-
-import atexit
 import math
 import os
 import threading
@@ -16,9 +14,8 @@ makcu_patch.apply()
 
 import utils
 from controllers import AutoFireController
-import config_manager
-from config_manager import get_config, load_config
-import config_manager as cfg
+from config import config_manager, config_manager as cfg
+from config.config_manager import get_config, load_config
 from driver_loader import ensure_driver_loaded, unload_driver
 from image.image_source import create_image_source
 import traceback
@@ -216,6 +213,8 @@ class CoreService:
     """
 
     def __init__(self):
+        self._last_key_check_time = 0.0
+        self._cached_trigger_pressed = False
         self.command_sender = None
         self.target_selector = None
         self.capture_area = None
@@ -834,13 +833,16 @@ class CoreService:
 
                     # 3️⃣ 自动开火逻辑（独立处理）
                     if _feature_auto_fire and has_target and not target_too_far:
-                        # ⭐ 缓存按键检查结果
+                        # ⭐ 更新开火延迟
+                        if self.auto_fire.fire_delay_active:
+                            self.auto_fire.update_fire_delay()
+
+                        # 缓存按键检查结果
                         current_time = time.time()
                         if not hasattr(self, '_last_key_check_time'):
                             self._last_key_check_time = 0.0
                             self._cached_trigger_pressed = False
 
-                        # 每 50ms 检查一次按键（降低频率）
                         if current_time - self._last_key_check_time > 0.05:
                             enabled_keys = get_monitored_keys()
                             self._cached_trigger_pressed = any(
@@ -851,7 +853,6 @@ class CoreService:
                         trigger_pressed = self._cached_trigger_pressed
 
                         if trigger_pressed:
-                            # ⭐ 仅在按键按下时计算准确率
                             acc = self.auto_fire.update_accuracy(offset_dist)
 
                             if self.auto_fire.should_auto_fire(
@@ -860,20 +861,19 @@ class CoreService:
                                     current_accuracy=acc,
                                     error_distance=offset_dist
                             ):
-                                if not self.auto_fire.is_firing:
+                                if not self.auto_fire.is_firing and not self.auto_fire.fire_delay_active:
                                     self.auto_fire.start_firing()
-                                self.auto_fire.apply_recoil_control()
+                                elif self.auto_fire.is_firing:
+                                    self.auto_fire.apply_recoil_control()
                             else:
                                 if self.auto_fire.is_firing:
                                     self.auto_fire.stop_firing()
                         else:
-                            # 按键释放，停止开火
-                            if self.auto_fire.is_firing:
+                            if self.auto_fire.is_firing or self.auto_fire.fire_delay_active:
                                 self.auto_fire.stop_firing()
 
                     elif _feature_auto_fire:
-                        # 目标丢失或过远，停止开火
-                        if self.auto_fire.is_firing:
+                        if self.auto_fire.is_firing or self.auto_fire.fire_delay_active:
                             self.auto_fire.stop_firing()
 
                     # K. 预览窗口

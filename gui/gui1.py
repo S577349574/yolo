@@ -1,12 +1,9 @@
 # gui1.py
 import threading
-import time
-import ctypes
-import ctypes.wintypes
 
 import dearpygui.dearpygui as dpg
 
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.tabs.main_window import build_main_window
 from gui.theme.apple_theme import (
     setup_apple_theme,
@@ -25,131 +22,6 @@ cfg.load_config()
 # ========== 全局退出信号 ==========
 _gui_exit_event = threading.Event()
 _gui_running = False
-
-# UI 焦点状态管理
-_ui_has_focus = True
-_focus_monitor_thread = None
-
-# ================= Windows API 声明 =================
-user32 = ctypes.windll.user32
-GetForegroundWindow = user32.GetForegroundWindow
-GetWindowThreadProcessId = user32.GetWindowThreadProcessId
-GetCurrentProcessId = ctypes.windll.kernel32.GetCurrentProcessId
-
-
-def is_gui_window_active():
-    """检测当前活动窗口是否是本程序的 GUI 窗口"""
-    try:
-        foreground_hwnd = GetForegroundWindow()
-        if not foreground_hwnd:
-            return False
-
-        foreground_pid = ctypes.wintypes.DWORD()
-        GetWindowThreadProcessId(foreground_hwnd, ctypes.byref(foreground_pid))
-
-        current_pid = GetCurrentProcessId()
-        return foreground_pid.value == current_pid
-    except Exception:
-        return False
-
-
-# ================= UI 焦点检测 =================
-
-def on_ui_focus_gained():
-    """UI 获得焦点时（用户开始操作 UI）"""
-    global _ui_has_focus
-    if not _ui_has_focus:
-        _ui_has_focus = True
-        try:
-            key_monitor = cfg.get_key_monitor()
-            if key_monitor and hasattr(key_monitor, 'set_ui_focus_mode'):
-                key_monitor.set_ui_focus_mode(True)
-        except Exception as e:
-            print(f"[GUI] 焦点检测警告: {e}")
-
-
-def on_ui_focus_lost():
-    """UI 失去焦点时（用户回到游戏）"""
-    global _ui_has_focus
-    if _ui_has_focus:
-        _ui_has_focus = False
-        try:
-            key_monitor = cfg.get_key_monitor()
-            if key_monitor and hasattr(key_monitor, 'set_ui_focus_mode'):
-                key_monitor.set_ui_focus_mode(False)
-        except Exception as e:
-            print(f"[GUI] 焦点检测警告: {e}")
-
-
-def focus_monitor_worker():
-    """后台线程：实时监控窗口焦点状态"""
-    max_wait = 10.0
-    start_time = time.time()
-    key_monitor = None
-
-    # 等待 KeyMonitor 初始化
-    while _gui_running and not _gui_exit_event.is_set():
-        key_monitor = cfg.get_key_monitor()
-        if key_monitor is not None:
-            if hasattr(key_monitor, 'is_running') and key_monitor.is_running():
-                break
-            elif hasattr(key_monitor, '_is_running') and key_monitor._is_running:
-                break
-
-        if time.time() - start_time > max_wait:
-            print("[GUI] ⚠ KeyMonitor 初始化超时")
-            break
-
-        time.sleep(0.2)
-
-    # 设置初始焦点状态
-    if _gui_running and not _gui_exit_event.is_set() and key_monitor is not None:
-        global _ui_has_focus
-        _ui_has_focus = True
-
-        for attempt in range(3):
-            try:
-                if hasattr(key_monitor, 'set_ui_focus_mode'):
-                    key_monitor.set_ui_focus_mode(True)
-                    break
-                else:
-                    print("[GUI] ⚠ KeyMonitor 缺少 set_ui_focus_mode 方法")
-                    break
-            except Exception as e:
-                if attempt == 2:  # 只在最后一次失败时打印
-                    print(f"[GUI] ⚠ 设置焦点模式失败: {e}")
-                time.sleep(0.3)
-
-    # 监控循环
-    while _gui_running and not _gui_exit_event.is_set():
-        try:
-            gui_is_active = is_gui_window_active()
-
-            if gui_is_active and not _ui_has_focus:
-                on_ui_focus_gained()
-            elif not gui_is_active and _ui_has_focus:
-                on_ui_focus_lost()
-
-        except Exception as e:
-            print(f"[GUI] 焦点监控异常: {e}")
-
-        time.sleep(0.2)
-
-
-def start_focus_monitor():
-    """启动焦点监控线程"""
-    global _focus_monitor_thread
-
-    if _focus_monitor_thread and _focus_monitor_thread.is_alive():
-        return
-
-    _focus_monitor_thread = threading.Thread(
-        target=focus_monitor_worker,
-        daemon=True,
-        name="FocusMonitorThread"
-    )
-    _focus_monitor_thread.start()
-
 
 # ================= 核心控制回调 =================
 
@@ -187,6 +59,11 @@ def manual_reload_callback(sender, app_data, user_data):
 
 # ================= 主 GUI 创建 =================
 def create_gui():
+    import config.config_manager as cfg
+    print("Profiles:", cfg.list_profiles())
+    print("Active:", cfg.get_active_profile())
+    print("Edit:", getattr(cfg, "get_edit_profile", lambda: "NOFUNC")())
+
     dpg.create_context()
     with dpg.item_handler_registry(tag="preview_handler"):
         dpg.add_item_active_handler(callback=_handle_preview_drag)
@@ -246,8 +123,6 @@ def create_gui():
     global _gui_running
     _gui_running = True
 
-    start_focus_monitor()
-
     resume_event, _, _ = cfg.get_events()
     update_ai_button_status(resume_event.is_set())
     last_running_state = None
@@ -265,13 +140,9 @@ def create_gui():
 
             dpg.render_dearpygui_frame()
     finally:
-        on_ui_focus_lost()
-
-        if _focus_monitor_thread and _focus_monitor_thread.is_alive():
-            _focus_monitor_thread.join(timeout=1.0)
-
         dpg.destroy_context()
         _gui_running = False
+    print("准备进入 DearPyGui 主循环")
 
 
 # ================= 外部控制函数 =================

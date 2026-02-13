@@ -3,9 +3,9 @@
 
 import time
 from collections import deque
-from typing import Tuple, Optional
+from typing import Tuple
 
-from config_manager import get_config, on_config_change
+from config.config_manager import get_config, on_config_change
 import utils
 
 class PIDController:

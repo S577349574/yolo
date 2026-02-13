@@ -2,7 +2,7 @@
 
 from typing import Optional, List
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from .base import KeyMonitorBase
 from .winapi_monitor import WinAPIKeyMonitor
 from .makcu_monitor import MakcuKeyMonitor

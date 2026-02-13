@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.widgets import tagged as tagged_mod
 
 

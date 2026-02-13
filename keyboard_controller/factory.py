@@ -2,7 +2,6 @@
 
 from typing import Optional
 import utils
-from config_manager import get_config
 from .base import KeyboardControllerBase
 from .winapi_keyboard import WinAPIKeyboardController
 from .makcu_keyboard import MakcuKeyboardController

@@ -1,6 +1,6 @@
 """MTKmbox 硬件按键监控实现（完整优化版）"""
 
-from typing import Dict, Optional
+from typing import Dict
 import time
 import threading
 import utils
@@ -77,7 +77,7 @@ class MTKmboxKeyMonitor(KeyMonitorBase):
                     return False
             else:
                 utils.log("[MTKmboxKeyMonitor] 创建独立的 MTKmbox 设备")
-                from config_manager import get_config
+                from config.config_manager import get_config
                 from mtkmbox import MTKMBOX
 
                 port = get_config("MTKMBOX_PORT", "COM6")

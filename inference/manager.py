@@ -1,6 +1,6 @@
 """推理管理器 - 统一入口"""
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from .exceptions import BackendNotAvailableError
 from .utils.detector import select_best_backend
 
@@ -112,7 +112,7 @@ class InferenceManager:
                 return val
 
         # 2. 如果底层也没有，尝试从配置读取
-        from config_manager import get_config
+        from config.config_manager import get_config
         return get_config('CROP_SIZE', 640)
 
 # 全局单例

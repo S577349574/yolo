@@ -131,7 +131,7 @@ CONFIG_GROUPS = {
 
     "自动开火": [
         "ENABLE_AUTO_FIRE", "AUTO_FIRE_ACCURACY_THRESHOLD",
-        "AUTO_FIRE_DISTANCE_THRESHOLD", "AUTO_FIRE_MIN_LOCK_FRAMES",
+        "AUTO_FIRE_DISTANCE_THRESHOLD","AUTO_FIRE_DELAY", "AUTO_FIRE_MIN_LOCK_FRAMES",
         "AUTO_FIRE_DEBUG_MODE"
     ],
 
@@ -329,6 +329,7 @@ def get_default_config() -> Dict[str, Any]:
         "ENABLE_AUTO_FIRE": False,
         "AUTO_FIRE_ACCURACY_THRESHOLD": 0.5,
         "AUTO_FIRE_DISTANCE_THRESHOLD": 15.0,
+        'AUTO_FIRE_DELAY': 0.3,
         "AUTO_FIRE_MIN_LOCK_FRAMES": 3,
         "AUTO_FIRE_DEBUG_MODE": False,
 
@@ -369,7 +370,7 @@ def get_default_config() -> Dict[str, Any]:
         # ========== 新按键系统 ==========
         "ENABLE_KEY_PROFILE_BINDING": True,
         "KEY_PROFILE_BINDINGS": {
-            "right": {"profile": "default", "mode": "hold", "trigger": True}
+            "right": {"profile": "disabled", "mode": "hold", "trigger": True}
         },
         "KEY_PROFILE_DEFAULT_MODE": "hold",
         "KEY_PROFILE_PRIORITY": ["left","right", "mouse5", "mouse4"],
@@ -458,6 +459,7 @@ PROFILE_KEYS = [
     "AUTO_FIRE_DEBUG_MODE",
     "AUTO_FIRE_ACCURACY_THRESHOLD",
     "AUTO_FIRE_DISTANCE_THRESHOLD",
+    "AUTO_FIRE_DELAY",
     "AUTO_FIRE_MIN_LOCK_FRAMES",
 ]
 

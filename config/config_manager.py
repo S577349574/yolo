@@ -51,10 +51,11 @@ from config import (
     get_default_config,
     list_profiles,
     reset_to_defaults,
+    get_edit_profile,
 
     # 常量
     CONFIG_GROUPS, create_profile, delete_profile, get_profile, rename_profile, sync_profile_from_global,
-    sync_profile_to_global, save_profiles, export_profile, import_profile, get_active_profile,
+    sync_profile_to_global, save_profiles, export_profile, import_profile, get_active_profile, set_edit_profile,
 )
 from config.callbacks import ConfigCallbackManager
 from config.manager import ConfigManager as _ConfigManager
@@ -218,10 +219,12 @@ __all__ = [
     "save_profiles",
     "export_profile",
     "import_profile",
+    "set_edit_profile",
 
     # ✅ KeyMonitor 管理
     "set_key_monitor",
     "get_key_monitor",
+    "get_edit_profile"
 ]
 
 

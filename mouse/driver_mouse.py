@@ -8,7 +8,7 @@ import win32api
 import win32file
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from .mouse_controller import MouseControllerBase
 
 

@@ -11,7 +11,7 @@ import numpy as np
 import onnxruntime as ort
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 from ..base import BaseDetector
 from ..exceptions import ModelLoadError
 from .pv_crypto import decrypt_pv_file, PVDecryptError
@@ -142,7 +142,7 @@ class ONNXDetector(BaseDetector):
 
     def _get_trt_options(self) -> Dict:
         """获取TensorRT配置"""
-        from config_manager import ConfigManager
+        from config.config_manager import ConfigManager
         app_dir = ConfigManager().app_dir
 
         trt_cache_dir = os.path.join(app_dir, 'trt_cache')

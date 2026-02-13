@@ -6,7 +6,7 @@ import time
 from typing import Tuple, Optional, Callable
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 
 
 class RecoilCalculator:
@@ -150,13 +150,15 @@ class ManualRecoilMonitor:
     - 监听按键组合（左键、左键+右键、左键+侧键等）
     - 根据目标状态决定是否压枪
     - 独立线程运行，不阻塞主循环
+    - 同步左键状态到 AutoFireController
     """
 
     def __init__(
         self,
         mouse_controller,
         key_monitor,
-        should_recoil_callback: Callable[[], bool]
+        should_recoil_callback: Callable[[], bool],
+        auto_fire_controller=None  # 🔥 新增参数
     ):
         """
         初始化手动压枪监控器
@@ -165,10 +167,12 @@ class ManualRecoilMonitor:
             mouse_controller: 鼠标控制器
             key_monitor: 按键监听器
             should_recoil_callback: 判断是否应该压枪的回调函数
+            auto_fire_controller: 自动开火控制器引用（用于状态同步）
         """
         self.mouse_controller = mouse_controller
         self.key_monitor = key_monitor
         self.should_recoil_callback = should_recoil_callback
+        self.auto_fire_controller = auto_fire_controller  # 🔥 保存引用
 
         # 线程控制
         self.active = False
@@ -184,6 +188,9 @@ class ManualRecoilMonitor:
         self.last_recoil_time = 0.0
         self.fire_start_time = 0.0
 
+        # 🔥 左键状态跟踪（用于同步）
+        self._last_left_button_state = False
+
         # 调试模式
         self.debug_mode = get_config('AUTO_FIRE_DEBUG_MODE', False)
 
@@ -194,6 +201,12 @@ class ManualRecoilMonitor:
             return
 
         self.stop_flag = False
+
+        # 🔥 等待硬件监控稳定（给轮询线程时间初始化）
+        if self.key_monitor:
+            utils.log_debug("等待按键监控稳定...")
+            time.sleep(0.1)  # 等待 100ms
+
         self.thread = threading.Thread(target=self._monitoring_loop, daemon=True)
         self.thread.start()
 
@@ -220,6 +233,9 @@ class ManualRecoilMonitor:
 
         try:
             while not self.stop_flag:
+                # 🔥 检查左键状态变化并同步
+                self._sync_left_button_state()
+
                 # 检查按键条件
                 button_condition = self._check_trigger_buttons(trigger_mode)
 
@@ -255,6 +271,25 @@ class ManualRecoilMonitor:
             utils.log(f"手动压枪监控线程错误: {e}")
             import traceback
             traceback.print_exc()
+
+    def _sync_left_button_state(self) -> None:
+        """
+        🔥 同步左键状态到 AutoFireController
+
+        检测左键状态变化，并通知 AutoFireController 更新其内部状态
+        """
+        if not self.key_monitor or not self.auto_fire_controller:
+            return
+
+        current_left_state = self.key_monitor.is_key_pressed('left')
+
+        # 只在状态变化时同步
+        if current_left_state != self._last_left_button_state:
+            self._last_left_button_state = current_left_state
+
+            # 调用 AutoFireController 的同步方法
+            if hasattr(self.auto_fire_controller, 'sync_left_button_state'):
+                self.auto_fire_controller.sync_left_button_state(current_left_state)
 
     def _check_trigger_buttons(self, trigger_mode: str) -> bool:
         """

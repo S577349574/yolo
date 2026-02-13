@@ -6,7 +6,7 @@ import math
 import time
 
 import utils
-from config_manager import get_config, set_config, save_config
+from config.config_manager import get_config, set_config, save_config
 from .rate_limiter import RateLimiter
 from .script_capture import ScriptScreenCapture
 from .shared_game_state import get_game_state

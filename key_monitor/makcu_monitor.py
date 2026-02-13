@@ -1,9 +1,9 @@
 """Makcu 硬件按键监控实现"""
 
-from typing import Dict, Optional
+from typing import Dict
 import time
 import utils
-from makcu import create_controller, MouseButton
+from makcu import create_controller
 
 from key_monitor import KeyMonitorBase
 
@@ -65,7 +65,7 @@ class MakcuKeyMonitor(KeyMonitorBase):
                     return False
             else:
                 utils.log("[MakcuKeyMonitor] 创建独立的 Makcu controller")
-                from config_manager import get_config
+                from config.config_manager import get_config
 
                 port = get_config("MAKCU_PORT", "")
                 auto_reconnect = get_config("MAKCU_AUTO_RECONNECT", True)

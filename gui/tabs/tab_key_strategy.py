@@ -1,8 +1,7 @@
 # tab_key_strategy.py
-import traceback
 
 import dearpygui.dearpygui as dpg
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.theme.apple_theme import create_table_header_theme
 from gui.theme.colors import UIColors
 from gui.widgets.callbacks import update_config_callback

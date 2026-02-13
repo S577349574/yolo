@@ -15,7 +15,7 @@ except ImportError:
     LuaError = Exception
 
 import utils
-from config_manager import get_config
+from config.config_manager import get_config
 
 
 class ScriptEngine:

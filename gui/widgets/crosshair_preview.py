@@ -2,7 +2,7 @@ import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 
-import config_manager as cfg
+from config import config_manager as cfg
 from gui.theme.colors import UIColors
 
 

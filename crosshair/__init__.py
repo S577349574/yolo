@@ -3,7 +3,7 @@
 准星检测器模块 - 统一导出接口
 """
 from .base import CrosshairDetector
-from config_manager import get_config
+from config.config_manager import get_config
 import utils
 
 

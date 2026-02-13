@@ -3,7 +3,7 @@ import os
 
 import dearpygui.dearpygui as dpg
 
-import config_manager as cfg
+from config import config_manager as cfg
 import utils
 from gui.theme.colors import UIColors
 
